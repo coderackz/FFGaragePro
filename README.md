@@ -7,7 +7,11 @@ Windows desktop app; works with or without internet.
 (Owner, Admin/Accountant, Service Advisor), customers and vehicles, estimate → job card →
 invoice with 5% UAE VAT, tax invoice issuing, payments, print / PDF.
 
-Next: main-computer mode (several PCs on the garage network) → Inventory → Accounting → Fleetfix Cloud
+**Main-computer mode:** several PCs share one garage. The owner turns on sharing in Settings → Other PCs
+(TCP 47820, discovery on UDP 47821) and gives each new PC a 10-minute pairing code; other PCs choose
+"Connect to main computer" on first run. Only paired PCs get in; 5 wrong passwords lock a login for 5 minutes.
+
+Next: Inventory → Accounting → Fleetfix Cloud
 (sync, backup, Fleet Fix work for network garages). See `docs/superpowers/specs/`.
 
 ## Layout
@@ -21,7 +25,7 @@ Next: main-computer mode (several PCs on the garage network) → Inventory → A
     npm install
     npm test                      # unit + API tests (Vitest)
     npm run e2e                   # clicks through the whole workflow in Chromium; screenshots in test-results/screens
-    npm run e2e:electron          # same workflow in the real desktop app, plus PDF and restart (build first)
+    npm run e2e:electron          # real desktop app: garage day + PDF + restart, and two PCs sharing (build first)
     npm run dev                   # run the desktop app with hot reload
     npm run dist:win -w @ffgp/desktop   # Windows installer → apps/desktop/release/
 
