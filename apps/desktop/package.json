@@ -1,0 +1,47 @@
+{
+  "name": "@ffgp/desktop",
+  "productName": "Fleetfix Garage Pro",
+  "version": "0.1.0",
+  "private": true,
+  "description": "Garage management for independent garages, by Fleetfix",
+  "author": "Fleetfix",
+  "main": "out/main/index.js",
+  "scripts": {
+    "dev": "electron-vite dev",
+    "build": "electron-vite build",
+    "start": "electron-vite preview",
+    "web": "vite --config vite.web.config.mts",
+    "dist:win": "electron-vite build && electron-builder --win nsis --x64",
+    "dist:mac": "electron-vite build && electron-builder --mac dmg"
+  },
+  "devDependencies": {
+    "@ffgp/server": "*",
+    "@ffgp/shared": "*",
+    "@tailwindcss/vite": "^4.3.5",
+    "@types/react": "^19.0.0",
+    "@types/react-dom": "^19.0.0",
+    "@vitejs/plugin-react": "^6.3.0",
+    "clsx": "^2.1.1",
+    "electron": "45.3.3",
+    "electron-builder": "^26.18.0",
+    "electron-vite": "^6.0.0",
+    "lucide-react": "^1.73.0",
+    "react": "^19.3.1",
+    "react-dom": "^19.3.1",
+    "react-router": "^7.18.5",
+    "sonner": "^2.0.8",
+    "tailwindcss": "^4.3.5",
+    "tsx": "^4.20.0",
+    "vite": "^8.3.8"
+  },
+  "build": {
+    "appId": "com.fleetfix.garagepro",
+    "productName": "Fleetfix Garage Pro",
+    "directories": { "output": "release", "buildResources": "resources" },
+    "files": ["out/**/*", "package.json"],
+    "asar": true,
+    "win": { "target": "nsis", "artifactName": "FleetfixGaragePro-Setup-${version}.${ext}" },
+    "nsis": { "oneClick": false, "allowToChangeInstallationDirectory": true, "createDesktopShortcut": true, "shortcutName": "Fleetfix Garage Pro" },
+    "mac": { "target": "dmg", "category": "public.app-category.business" }
+  }
+}

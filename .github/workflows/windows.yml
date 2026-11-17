@@ -1,0 +1,58 @@
+# Builds the Windows installer on a real Windows machine, installs it the way a garage would,
+# then drives the installed app: setup → estimate → job card → invoice → payment → PDF → restart.
+# Screenshots, the PDF and the installer are attached to each run as "windows-test-results".
+name: Windows test
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+  workflow_dispatch:
+
+concurrency:
+  group: windows-${{ github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+
+jobs:
+  windows:
+    runs-on: windows-latest
+    timeout-minutes: 45
+    env:
+      CSC_IDENTITY_AUTO_DISCOVERY: "false" # no code-signing certificate yet
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24
+          cache: npm
+      - run: npm ci
+      - run: npm run typecheck
+      - run: npm test
+      - name: Build the installer
+        run: npm run dist:win -w @ffgp/desktop
+      - name: Install it silently, like a garage would
+        shell: pwsh
+        run: |
+          $setup = Get-ChildItem apps/desktop/release -Filter "FleetfixGaragePro-Setup-*.exe" | Select-Object -First 1
+          if (-not $setup) { throw "Installer not built" }
+          Write-Host "Installing $($setup.Name) ($([math]::Round($setup.Length / 1MB)) MB)"
+          Start-Process -FilePath $setup.FullName -ArgumentList "/S" -Wait
+          $exe = Get-ChildItem "$env:LOCALAPPDATA\Programs", "$env:ProgramFiles" -Recurse -Filter "Fleetfix Garage Pro.exe" -ErrorAction SilentlyContinue | Select-Object -First 1
+          if (-not $exe) { throw "Installed app not found" }
+          Write-Host "Installed at $($exe.FullName)"
+          "FFGP_EXE=$($exe.FullName)" >> $env:GITHUB_ENV
+      - name: Drive the installed app
+        run: npm run e2e:electron
+      - name: Attach screenshots, PDF and installer
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: windows-test-results
+          retention-days: 14
+          if-no-files-found: ignore
+          path: |
+            test-results/
+            apps/desktop/release/FleetfixGaragePro-Setup-*.exe

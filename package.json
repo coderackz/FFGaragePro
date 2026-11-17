@@ -1,0 +1,22 @@
+{
+  "name": "fleetfix-garage-pro",
+  "private": true,
+  "version": "0.1.0",
+  "workspaces": [
+    "packages/*",
+    "apps/*"
+  ],
+  "scripts": {
+    "test": "vitest run",
+    "typecheck": "tsc -p packages/shared && tsc -p packages/server && tsc -p apps/desktop",
+    "dev": "npm run dev -w @ffgp/desktop",
+    "e2e": "playwright test",
+    "e2e:electron": "playwright test -c playwright.electron.config.ts"
+  },
+  "devDependencies": {
+    "@playwright/test": "^1.65.1",
+    "@types/node": "^24.0.0",
+    "typescript": "~5.9.3",
+    "vitest": "^5.1.0"
+  }
+}
