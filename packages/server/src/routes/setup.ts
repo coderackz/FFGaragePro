@@ -1,8 +1,8 @@
 import type { FastifyInstance } from "fastify";
 import { garageSchema, loginSchema, setupSchema } from "@ffgp/shared";
-import { createSession, endSession, bearer, hashPassword, requireAction, sessionUser, verifyPassword } from "../auth";
+import { createSession, endSession, bearer, hashPassword, LoginThrottle, requireAction, sessionUser, verifyPassword } from "../auth";
 import { newId, now, type Db } from "../db";
-import { conflict, unauthorized } from "../errors";
+import { conflict, tooManyRequests, unauthorized } from "../errors";
 
 export interface GarageRow {
   name: string;
@@ -19,7 +19,9 @@ export function garage(db: Db): GarageRow | undefined {
 
 const garageOut = (g: GarageRow) => ({ name: g.name, trn: g.trn, address: g.address, phone: g.phone, email: g.email, vatRateBp: g.vat_rate_bp });
 
-export function setupRoutes(app: FastifyInstance, db: Db): void {
+export function setupRoutes(app: FastifyInstance, db: Db, clock: () => number = Date.now): void {
+  const throttle = new LoginThrottle();
+
   app.get("/api/setup/status", async () => ({ configured: garage(db) !== undefined }));
 
   app.post("/api/setup", async (req) => {
@@ -42,11 +44,19 @@ export function setupRoutes(app: FastifyInstance, db: Db): void {
 
   app.post("/api/auth/login", async (req) => {
     const input = loginSchema.parse(req.body);
+    const locked = throttle.lockedMinutes(input.username, clock());
+    if (locked) {
+      throw tooManyRequests(`Too many wrong passwords. This login is locked — try again in ${locked} minute${locked === 1 ? "" : "s"}.`);
+    }
     const row = db.get<{ id: string; name: string; username: string; role: string; password_hash: string; active: number }>(
       "SELECT id, name, username, role, password_hash, active FROM users WHERE username = ?",
       [input.username],
     );
-    if (!row || !row.active || !verifyPassword(input.password, row.password_hash)) throw unauthorized("Wrong username or password");
+    if (!row || !row.active || !verifyPassword(input.password, row.password_hash)) {
+      throttle.failed(input.username, clock());
+      throw unauthorized("Wrong username or password");
+    }
+    throttle.succeeded(input.username);
     return { token: createSession(db, row.id), user: { id: row.id, name: row.name, username: row.username, role: row.role } };
   });
 

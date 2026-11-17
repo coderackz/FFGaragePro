@@ -66,3 +66,32 @@ export function sessionUser(db: Db, req: FastifyRequest): SessionUser {
 export function requireAction(user: SessionUser, action: Action): void {
   if (!can(user.role, action)) throw forbidden();
 }
+
+const LOCK_AFTER = 5;
+const LOCK_MINUTES = 5;
+
+/** Locks a username for 5 minutes after 5 wrong passwords in a row. In memory: a restart clears it. */
+export class LoginThrottle {
+  private readonly state = new Map<string, { fails: number; lockedUntil: number }>();
+
+  /** Minutes left on the lock, or 0 when the username may try. */
+  lockedMinutes(username: string, now: number): number {
+    const s = this.state.get(username.toLowerCase());
+    return s && now < s.lockedUntil ? Math.ceil((s.lockedUntil - now) / 60_000) : 0;
+  }
+
+  failed(username: string, now: number): void {
+    const key = username.toLowerCase();
+    const s = this.state.get(key) ?? { fails: 0, lockedUntil: 0 };
+    s.fails += 1;
+    if (s.fails >= LOCK_AFTER) {
+      s.fails = 0;
+      s.lockedUntil = now + LOCK_MINUTES * 60_000;
+    }
+    this.state.set(key, s);
+  }
+
+  succeeded(username: string): void {
+    this.state.delete(username.toLowerCase());
+  }
+}
