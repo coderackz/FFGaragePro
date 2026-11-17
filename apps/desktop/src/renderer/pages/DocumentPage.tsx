@@ -215,7 +215,7 @@ export function DocumentPage() {
         }
       />
 
-      <div className="grid grid-cols-[1fr_300px] gap-5">
+      <div className="grid gap-5 min-[1440px]:grid-cols-[1fr_300px]">
         <div className="flex min-w-0 flex-col gap-5">
           <Card title="Customer & vehicle">
             <div className="grid grid-cols-3 gap-4">
@@ -275,7 +275,8 @@ export function DocumentPage() {
           </Card>}
         </div>
 
-        <div className="flex flex-col gap-5">
+        {/* Beside the items on wide screens; below them, in two columns, on small garage screens. */}
+        <div className="grid content-start gap-5 md:grid-cols-2 min-[1440px]:grid-cols-1">
           <Card title="Summary">
             <dl className="flex flex-col gap-2 text-sm">
               <Row label="Subtotal" value={formatAED(totals.netFils)} />
@@ -350,13 +351,14 @@ function Row({ label, value, strong }: { label: string; value: string; strong?: 
 function LinesTable({ lines, editable, vatRate, onChange, onRemove }: { lines: DocLine[]; editable: boolean; vatRate: number; onChange: (i: number, l: Partial<DocLine>) => void; onRemove: (i: number) => void }) {
   if (lines.length === 0) return <Empty title="No items" />;
   return (
-    <table className="w-full table-fixed text-sm">
+    <div className="overflow-x-auto">
+    <table className="w-full min-w-[700px] table-fixed text-sm">
       <thead>
         <tr className="border-b border-zinc-200 bg-zinc-50/80 text-left text-xs font-medium tracking-wide text-zinc-500 uppercase">
           <th className="w-[124px] px-3 py-2 font-medium">Type</th>
           <th className="px-2 py-2 font-medium">Description</th>
           <th className="w-[64px] px-2 py-2 text-right font-medium">Qty</th>
-          <th className="w-[104px] px-2 py-2 text-right font-medium">Unit price</th>
+          <th className="w-[96px] px-2 py-2 text-right font-medium">Unit price</th>
           <th className="w-[64px] px-2 py-2 text-right font-medium">Disc %</th>
           <th className="w-[70px] px-2 py-2 text-right font-medium">VAT</th>
           <th className="w-[96px] px-3 py-2 text-right font-medium">Total</th>
@@ -407,6 +409,7 @@ function LinesTable({ lines, editable, vatRate, onChange, onRemove }: { lines: D
         })}
       </tbody>
     </table>
+    </div>
   );
 }
 

@@ -10,6 +10,17 @@ test("garage day: setup → customer → estimate → job card → invoice → p
   const shot = shooter(page);
   await garageDay(page, shot);
 
+  // Small garage screens (1024–1366 px wide): the item description must stay readable, not squeezed
+  // to one letter per line (seen on the Windows test machine).
+  for (const width of [1024, 1100, 1280, 1366]) {
+    await page.setViewportSize({ width, height: 700 });
+    const box = await page.getByRole("cell", { name: /Front brake service/ }).boundingBox();
+    expect(box?.width ?? 0, `description column at ${width}px`).toBeGreaterThanOrEqual(180);
+    await expect(page.getByRole("columnheader", { name: "Total" }), `Total column at ${width}px`).toBeInViewport({ ratio: 1 });
+  }
+  await shot("06b-invoice-small-screen");
+  await page.setViewportSize({ width: 1440, height: 900 });
+
   // Dashboard & lists with data.
   await page.getByRole("navigation").getByRole("link", { name: "Dashboard", exact: true }).click();
   await shot("07-dashboard");
