@@ -8,6 +8,13 @@ test("garage day: setup → customer → estimate → job card → invoice → p
   page.on("response", (r) => r.status() >= 400 && console.log("HTTP", r.status(), r.url()));
   await page.goto("/");
   const shot = shooter(page);
+
+  // Short garage screens: the top of the first-run screen must be reachable by scrolling (seen on Windows).
+  await page.setViewportSize({ width: 1080, height: 560 });
+  const heading = page.getByRole("heading", { name: "Set up your garage" });
+  await heading.scrollIntoViewIfNeeded({ timeout: 5000 });
+  await expect(heading).toBeInViewport();
+  await page.setViewportSize({ width: 1440, height: 900 });
   await garageDay(page, shot);
 
   // Small garage screens (1024–1366 px wide): the item description must stay readable, not squeezed

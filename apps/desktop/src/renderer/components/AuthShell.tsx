@@ -17,8 +17,9 @@ export function AuthShell({ children, wide }: { children: ReactNode; wide?: bool
         </div>
         <div className="relative text-xs text-zinc-500">© Fleetfix · fleet care simplified</div>
       </div>
-      <div className="flex flex-1 items-center justify-center overflow-y-auto bg-white p-8">
-        <div className={wide ? "w-full max-w-2xl" : "w-full max-w-sm"}>{children}</div>
+      {/* m-auto centres the form while it fits, and lets it scroll from the top when the window is short. */}
+      <div className="flex flex-1 overflow-y-auto bg-white p-8">
+        <div className={wide ? "m-auto w-full max-w-2xl" : "m-auto w-full max-w-sm"}>{children}</div>
       </div>
     </div>
   );
