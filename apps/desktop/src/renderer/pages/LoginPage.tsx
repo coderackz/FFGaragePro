@@ -26,6 +26,11 @@ export function LoginPage() {
     <AuthShell>
       <h1 className="text-2xl font-semibold tracking-tight">Sign in</h1>
       <p className="mt-1 text-sm text-zinc-500">Use the username your garage owner gave you.</p>
+      {window.ffgp?.mainComputer && (
+        <p className="mt-3 rounded-md bg-zinc-50 px-3 py-2 text-xs text-zinc-500">
+          Connected to <b className="text-zinc-700">{window.ffgp.mainComputer.garageName}</b> · main computer {window.ffgp.mainComputer.host}
+        </p>
+      )}
       <form onSubmit={submit} className="mt-8 flex flex-col gap-4">
         <Field label="Username">
           <Input value={username} onChange={(e) => setUsername(e.target.value)} autoFocus autoComplete="username" />

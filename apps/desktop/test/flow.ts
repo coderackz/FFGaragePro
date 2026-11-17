@@ -13,20 +13,7 @@ export const OWNER = { name: "Rashid Khan", username: "rashid", password: "garag
  */
 export async function garageDay(page: Page, shot: (name: string) => Promise<unknown>): Promise<void> {
   page.on("dialog", (d) => void d.accept()); // "Issue this tax invoice?" confirm
-  // First run: set up the garage.
-  await expect(page.getByRole("heading", { name: "Set up your garage" })).toBeVisible({ timeout: 30_000 });
-  await shot("01-setup");
-  await page.getByLabel("Garage name").fill("Al Quoz Auto Care");
-  await page.getByLabel("VAT TRN").fill("100123456700003");
-  await page.getByLabel("Phone").fill("+971 4 321 0000");
-  await page.getByLabel("Address").fill("Warehouse 12, Al Quoz Industrial 3\nDubai, UAE");
-  await page.getByLabel("Your name").fill(OWNER.name);
-  await page.getByLabel("Username").fill(OWNER.username);
-  await page.getByLabel("Password", { exact: true }).fill(OWNER.password);
-  await page.getByLabel("Confirm password").fill(OWNER.password);
-  await page.getByRole("button", { name: "Create garage" }).click();
-  await expect(page.getByText(/Good (morning|afternoon|evening), Rashid/)).toBeVisible();
-  await shot("02-dashboard-empty");
+  await setUpGarage(page, shot);
 
   // Customer + vehicle.
   await page.getByRole("navigation").getByRole("link", { name: "Customers", exact: true }).click();
@@ -83,4 +70,22 @@ export async function garageDay(page: Page, shot: (name: string) => Promise<unkn
   await page.getByRole("button", { name: /Record AED 500.00/ }).click();
   await expect(page.getByText("AED 180.40").first()).toBeVisible();
   await shot("06-invoice-part-paid");
+}
+
+/** First run: sets up "Al Quoz Auto Care" with Rashid as owner and lands on the dashboard. */
+export async function setUpGarage(page: Page, shot: (name: string) => Promise<unknown> = async () => undefined): Promise<void> {
+  await expect(page.getByRole("heading", { name: "Set up your garage" })).toBeVisible({ timeout: 30_000 });
+  await shot("01-setup");
+  await page.getByLabel("Garage name").fill("Al Quoz Auto Care");
+  await page.getByLabel("VAT TRN").fill("100123456700003");
+  await page.getByLabel("Phone").fill("+971 4 321 0000");
+  await page.getByLabel("Address").fill("Warehouse 12, Al Quoz Industrial 3\nDubai, UAE");
+  await page.getByLabel("Your name").fill(OWNER.name);
+  await page.getByLabel("Username").fill(OWNER.username);
+  await page.getByLabel("Password", { exact: true }).fill(OWNER.password);
+  await page.getByLabel("Confirm password").fill(OWNER.password);
+  await page.getByRole("button", { name: "Create garage" }).click();
+  await expect(page.getByText(/Good (morning|afternoon|evening), Rashid/)).toBeVisible();
+  await shot("02-dashboard-empty");
+
 }

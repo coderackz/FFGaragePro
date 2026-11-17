@@ -1,7 +1,9 @@
+import type { ReactNode } from "react";
 import { Navigate, Route, Routes } from "react-router";
 import { Button, Spinner } from "./components/ui";
 import { Layout } from "./components/Layout";
 import { useAuth } from "./lib/auth";
+import { ConnectPage } from "./pages/ConnectPage";
 import { CustomerPage } from "./pages/CustomerPage";
 import { CustomersPage } from "./pages/CustomersPage";
 import { DashboardPage } from "./pages/DashboardPage";
@@ -14,7 +16,8 @@ import { UsersPage } from "./pages/UsersPage";
 import { VehiclesPage } from "./pages/VehiclesPage";
 
 export function App() {
-  const { state, can, retry } = useAuth();
+  const { state, can, retry, startConnect } = useAuth();
+  const main = window.ffgp?.mainComputer;
 
   if (state.phase === "loading") {
     return (
@@ -25,13 +28,29 @@ export function App() {
   }
   if (state.phase === "offline") {
     return (
-      <div className="flex h-full flex-col items-center justify-center gap-3 text-center">
-        <div className="text-lg font-semibold">Can't reach the garage server</div>
-        <div className="max-w-md text-sm text-zinc-500">{state.message}. If this PC connects to a main computer, check that it is switched on and on the same network.</div>
-        <Button variant="primary" onClick={retry}>Try again</Button>
-      </div>
+      <Notice
+        title={main ? "Can't reach the main computer" : "Can't reach the garage server"}
+        actions={
+          <>
+            <Button variant="primary" onClick={retry}>Try again</Button>
+            {main && <Button onClick={startConnect}>Connect to a different main computer</Button>}
+          </>
+        }
+      >
+        {main
+          ? <>This PC works through <b>{main.garageName || "the garage"}</b>'s main computer at <b>{main.host}</b>. Check that it is switched on, the app is open on it, and both PCs are on the same network.</>
+          : <>{state.message}.</>}
+      </Notice>
     );
   }
+  if (state.phase === "unpaired") {
+    return (
+      <Notice title="This PC is no longer connected" actions={<Button variant="primary" onClick={startConnect}>Connect again</Button>}>
+        The owner removed this PC from {main?.garageName || "the garage"}'s main computer, or the main computer was set up again. Ask the owner for a new pairing code.
+      </Notice>
+    );
+  }
+  if (state.phase === "connect") return <ConnectPage />;
   if (state.phase === "setup") return <SetupPage />;
   if (state.phase === "signed-out") return <LoginPage />;
 
@@ -52,5 +71,15 @@ export function App() {
         <Route path="*" element={<Navigate to="/" replace />} />
       </Routes>
     </Layout>
+  );
+}
+
+function Notice({ title, children, actions }: { title: string; children: ReactNode; actions: ReactNode }) {
+  return (
+    <div className="flex h-full flex-col items-center justify-center gap-3 px-6 text-center">
+      <div className="text-lg font-semibold">{title}</div>
+      <div className="max-w-md text-sm text-zinc-500">{children}</div>
+      <div className="mt-2 flex gap-2">{actions}</div>
+    </div>
   );
 }

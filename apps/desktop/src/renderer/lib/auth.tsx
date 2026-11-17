@@ -7,6 +7,8 @@ type State =
   | { phase: "loading" }
   | { phase: "offline"; message: string }
   | { phase: "setup" }
+  | { phase: "connect" }
+  | { phase: "unpaired" }
   | { phase: "signed-out" }
   | { phase: "signed-in"; user: User; garage: Garage };
 
@@ -20,6 +22,8 @@ interface AuthContext {
   signOut(): Promise<void>;
   refreshGarage(): Promise<void>;
   retry(): void;
+  /** Shows the "connect to the main computer" screen. */
+  startConnect(): void;
 }
 
 const Ctx = createContext<AuthContext | null>(null);
@@ -35,8 +39,9 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       const [{ user }, { garage }] = await Promise.all([get<{ user: User }>("/api/me"), get<{ garage: Garage }>("/api/settings")]);
       setState({ phase: "signed-in", user, garage });
     } catch (error) {
-      const status = (error as { status?: number }).status;
-      if (status === 401) setState({ phase: "signed-out" });
+      const { status, code } = error as { status?: number; code?: string };
+      if (code === "device_not_paired") setState({ phase: "unpaired" });
+      else if (status === 401) setState({ phase: "signed-out" });
       else setState({ phase: "offline", message: (error as Error).message });
     }
   }, []);
@@ -44,8 +49,13 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   useEffect(() => {
     void load();
     const onSignedOut = () => setState({ phase: "signed-out" });
+    const onUnpaired = () => setState({ phase: "unpaired" });
     window.addEventListener("ffgp:signed-out", onSignedOut);
-    return () => window.removeEventListener("ffgp:signed-out", onSignedOut);
+    window.addEventListener("ffgp:unpaired", onUnpaired);
+    return () => {
+      window.removeEventListener("ffgp:signed-out", onSignedOut);
+      window.removeEventListener("ffgp:unpaired", onUnpaired);
+    };
   }, [load]);
 
   const signIn = async (username: string, password: string) => {
@@ -77,6 +87,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     state, user, garage,
     can: (action) => (user ? canDo(user.role, action) : false),
     signIn, completeSetup, signOut, refreshGarage, retry: () => void load(),
+    startConnect: () => setState({ phase: "connect" }),
   };
   return <Ctx.Provider value={value}>{children}</Ctx.Provider>;
 }

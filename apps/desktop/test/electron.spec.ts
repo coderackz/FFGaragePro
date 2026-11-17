@@ -1,19 +1,12 @@
-import { _electron as electron, expect, test, type ElectronApplication } from "@playwright/test";
+import { expect, test } from "@playwright/test";
 import { mkdirSync, mkdtempSync, readFileSync, statSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
+import { launchApp, screenPrefix as prefix } from "./electron-app";
 import { garageDay, OWNER, shooter } from "./flow";
 
-// The real desktop app, end to end. By default it runs the built app (`npm run build -w @ffgp/desktop`
-// first). Set FFGP_EXE to an installed "Fleetfix Garage Pro.exe" to test what a garage actually installs.
-const exe = process.env.FFGP_EXE;
-const prefix = exe ? "win-" : "electron-";
-
-function launch(dataDir: string): Promise<ElectronApplication> {
-  const env = { ...process.env, FFGP_DATA_DIR: dataDir } as Record<string, string>;
-  delete env.ELECTRON_RUN_AS_NODE;
-  return exe ? electron.launch({ executablePath: exe, env }) : electron.launch({ args: ["apps/desktop"], env });
-}
+// The real desktop app, end to end (built app, or the installed one when FFGP_EXE is set).
+const launch = (dataDir: string) => launchApp({ FFGP_USER_DATA: dataDir });
 
 test("desktop app: garage day, PDF tax invoice, data kept after restart", async () => {
   test.setTimeout(180_000);

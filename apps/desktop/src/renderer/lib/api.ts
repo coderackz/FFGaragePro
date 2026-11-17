@@ -6,6 +6,7 @@ export class ApiError extends Error {
   constructor(
     readonly status: number,
     message: string,
+    readonly code?: string,
   ) {
     super(message);
   }
@@ -35,19 +36,24 @@ export async function api<T>(method: string, path: string, body?: unknown): Prom
   const headers: Record<string, string> = {};
   if (body !== undefined) headers["content-type"] = "application/json";
   if (memoryToken) headers.authorization = `Bearer ${memoryToken}`;
+  if (window.ffgp?.deviceKey) headers["x-ffgp-device"] = window.ffgp.deviceKey;
   let res: Response;
   try {
     res = await fetch(`${apiBase}${path}`, { method, headers, body: body === undefined ? undefined : JSON.stringify(body) });
   } catch {
-    throw new ApiError(0, "Can't reach the garage server");
+    throw new ApiError(0, window.ffgp?.mode === "client" ? "Can't reach the main computer" : "Can't reach the garage server");
   }
-  const data = (await res.json().catch(() => ({}))) as { error?: string };
+  const data = (await res.json().catch(() => ({}))) as { error?: string; code?: string };
   if (!res.ok) {
+    if (data.code === "device_not_paired") {
+      window.dispatchEvent(new Event("ffgp:unpaired"));
+      throw new ApiError(res.status, data.error ?? "This PC isn't connected", data.code);
+    }
     if (res.status === 401 && memoryToken && !path.startsWith("/api/auth/login")) {
       setToken(null);
       window.dispatchEvent(new Event("ffgp:signed-out"));
     }
-    throw new ApiError(res.status, data.error ?? `Request failed (${res.status})`);
+    throw new ApiError(res.status, data.error ?? `Request failed (${res.status})`, data.code);
   }
   return data as T;
 }
@@ -56,3 +62,4 @@ export const get = <T,>(path: string) => api<T>("GET", path);
 export const post = <T,>(path: string, body?: unknown) => api<T>("POST", path, body ?? {});
 export const patch = <T,>(path: string, body: unknown) => api<T>("PATCH", path, body);
 export const put = <T,>(path: string, body: unknown) => api<T>("PUT", path, body);
+export const del = <T,>(path: string) => api<T>("DELETE", path);

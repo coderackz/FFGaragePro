@@ -1,5 +1,6 @@
 import { useEffect, useState } from "react";
 import { toast } from "sonner";
+import { OtherPcsCard } from "../components/OtherPcsCard";
 import { Button, Card, Field, Input, PageHeader, Textarea } from "../components/ui";
 import { patch } from "../lib/api";
 import { useAuth } from "../lib/auth";
@@ -42,6 +43,7 @@ export function SettingsPage() {
       <Card title="Tax" className="mt-5 max-w-3xl">
         <div className="text-sm text-zinc-600">VAT is charged at <b>{(garage?.vatRateBp ?? 500) / 100}%</b> on every line (UAE standard rate).</div>
       </Card>
+      <OtherPcsCard />
     </>
   );
 }

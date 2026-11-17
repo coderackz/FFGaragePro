@@ -4,7 +4,7 @@ import { Button, Field, Input, Textarea } from "../components/ui";
 import { useAuth } from "../lib/auth";
 
 export function SetupPage() {
-  const { completeSetup } = useAuth();
+  const { completeSetup, startConnect } = useAuth();
   const [garage, setGarage] = useState({ name: "", trn: "", address: "", phone: "", email: "" });
   const [owner, setOwner] = useState({ name: "", username: "", password: "", confirm: "" });
   const [error, setError] = useState<string | null>(null);
@@ -32,6 +32,15 @@ export function SetupPage() {
 
   return (
     <AuthShell wide>
+      {window.ffgp && (
+        <div className="mb-7 flex items-center justify-between gap-4 rounded-lg border border-zinc-200 bg-zinc-50 px-4 py-3 text-sm">
+          <div>
+            <div className="font-medium">Already using Fleetfix Garage Pro on another PC?</div>
+            <div className="text-zinc-500">Connect this PC to your garage's main computer instead of setting up a new garage.</div>
+          </div>
+          <Button type="button" onClick={startConnect}>Connect to main computer</Button>
+        </div>
+      )}
       <h1 className="text-2xl font-semibold tracking-tight">Set up your garage</h1>
       <p className="mt-1 text-sm text-zinc-500">This appears on your estimates, job cards and tax invoices. You can change it later in Settings.</p>
       <form onSubmit={submit} className="mt-7 flex flex-col gap-7">
