@@ -1,4 +1,6 @@
 export { buildApp, type AppOptions } from "./app";
+export { hashPassword, verifyPassword } from "./auth";
+export { Db, newId, now } from "./db";
 export { DISCOVERY_PORT, discoverMainComputers, type FoundComputer } from "./discovery";
 export { DEVICE_HEADER, NETWORK_PORT } from "./network";
 

@@ -20,6 +20,11 @@ export interface AppOptions {
   networkPort?: number;
   /** Filled in by startServer: whether the network listener is up, or why not. */
   networkStatus?: NetworkStatus;
+  /**
+   * Hosted by Fleetfix Cloud: the browser app is served from the same origin (no CORS), any address may call
+   * (sign-in protects it, not LAN pairing), and main-computer sharing doesn't exist.
+   */
+  cloud?: boolean;
 }
 
 /** The app's own pages: Electron (file:// sends "null") and local dev servers. */
@@ -30,12 +35,14 @@ export async function buildApp(options: AppOptions): Promise<FastifyInstance & {
   const db = Db.open(options.dataDir);
   const app = Fastify({ logger: options.logger ?? false, bodyLimit: 5 * 1024 * 1024 });
   const now = options.now ?? Date.now;
-  // The screens load from file:// (Electron) or a dev server; web pages from anywhere else get no access.
-  await app.register(cors, {
-    origin: (origin, cb) => cb(null, allowedOrigin(origin) ? (origin ?? true) : false),
-    methods: ["GET", "POST", "PATCH", "PUT", "DELETE"],
-  });
-  app.addHook("onRequest", deviceGuard(db, now));
+  if (!options.cloud) {
+    // The screens load from file:// (Electron) or a dev server; web pages from anywhere else get no access.
+    await app.register(cors, {
+      origin: (origin, cb) => cb(null, allowedOrigin(origin) ? (origin ?? true) : false),
+      methods: ["GET", "POST", "PATCH", "PUT", "DELETE"],
+    });
+    app.addHook("onRequest", deviceGuard(db, now));
+  }
 
   app.setErrorHandler((error, _req, reply) => {
     if (error instanceof ZodError) {
@@ -51,7 +58,7 @@ export async function buildApp(options: AppOptions): Promise<FastifyInstance & {
 
   app.get("/api/health", async () => ({ ok: true }));
   setupRoutes(app, db, now);
-  networkRoutes(app, db, { now, port: options.networkPort ?? NETWORK_PORT, status: options.networkStatus ?? { listening: false, error: null } });
+  if (!options.cloud) networkRoutes(app, db, { now, port: options.networkPort ?? NETWORK_PORT, status: options.networkStatus ?? { listening: false, error: null } });
   userRoutes(app, db);
   customerRoutes(app, db);
   const documents = documentRoutes(app, db);
