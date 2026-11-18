@@ -141,6 +141,113 @@ CREATE TABLE devices (
 );
 `,
   },
+  {
+    id: 3,
+    sql: `
+CREATE TABLE parts (
+  id TEXT PRIMARY KEY,
+  part_no TEXT NOT NULL,
+  name TEXT NOT NULL,
+  brand TEXT,
+  unit TEXT NOT NULL DEFAULT 'each',
+  stocked INTEGER NOT NULL DEFAULT 1,
+  sell_price_fils INTEGER NOT NULL DEFAULT 0,
+  avg_cost_fils INTEGER NOT NULL DEFAULT 0,
+  on_hand REAL NOT NULL DEFAULT 0,
+  reorder_level REAL NOT NULL DEFAULT 0,
+  location TEXT,
+  fits TEXT,
+  active INTEGER NOT NULL DEFAULT 1,
+  created_at TEXT NOT NULL,
+  updated_at TEXT NOT NULL
+);
+CREATE UNIQUE INDEX parts_part_no ON parts(part_no COLLATE NOCASE) WHERE active = 1;
+CREATE INDEX parts_name ON parts(name COLLATE NOCASE);
+
+CREATE TABLE suppliers (
+  id TEXT PRIMARY KEY,
+  name TEXT NOT NULL,
+  trn TEXT,
+  phone TEXT,
+  email TEXT,
+  address TEXT,
+  notes TEXT,
+  is_fleetfix INTEGER NOT NULL DEFAULT 0,
+  created_at TEXT NOT NULL,
+  updated_at TEXT NOT NULL
+);
+INSERT INTO suppliers (id, name, is_fleetfix, created_at, updated_at)
+VALUES ('00000000-0000-4000-8000-0000000f1ee7', 'Fleet Fix', 1, strftime('%Y-%m-%dT%H:%M:%fZ','now'), strftime('%Y-%m-%dT%H:%M:%fZ','now'));
+
+CREATE TABLE purchase_orders (
+  id TEXT PRIMARY KEY,
+  seq INTEGER NOT NULL UNIQUE,
+  number TEXT NOT NULL,
+  supplier_id TEXT NOT NULL REFERENCES suppliers(id),
+  status TEXT NOT NULL CHECK (status IN ('draft','sent','part_received','received','cancelled')),
+  notes TEXT,
+  net_fils INTEGER NOT NULL DEFAULT 0,
+  created_by TEXT REFERENCES users(id),
+  created_at TEXT NOT NULL,
+  updated_at TEXT NOT NULL
+);
+CREATE INDEX purchase_orders_supplier ON purchase_orders(supplier_id, status);
+
+CREATE TABLE po_lines (
+  id TEXT PRIMARY KEY,
+  po_id TEXT NOT NULL REFERENCES purchase_orders(id),
+  position INTEGER NOT NULL,
+  part_id TEXT REFERENCES parts(id),
+  description TEXT NOT NULL,
+  qty REAL NOT NULL,
+  received_qty REAL NOT NULL DEFAULT 0,
+  unit_cost_fils INTEGER NOT NULL DEFAULT 0,
+  job_document_id TEXT REFERENCES documents(id),
+  created_at TEXT NOT NULL,
+  updated_at TEXT NOT NULL
+);
+CREATE INDEX po_lines_po ON po_lines(po_id, position);
+CREATE INDEX po_lines_job ON po_lines(job_document_id);
+
+CREATE TABLE goods_receipts (
+  id TEXT PRIMARY KEY,
+  po_id TEXT NOT NULL REFERENCES purchase_orders(id),
+  supplier_invoice_no TEXT,
+  supplier_invoice_date TEXT,
+  net_fils INTEGER NOT NULL,
+  vat_fils INTEGER NOT NULL,
+  gross_fils INTEGER NOT NULL,
+  created_by TEXT REFERENCES users(id),
+  created_at TEXT NOT NULL
+);
+CREATE TABLE goods_receipt_lines (
+  id TEXT PRIMARY KEY,
+  receipt_id TEXT NOT NULL REFERENCES goods_receipts(id),
+  po_line_id TEXT NOT NULL REFERENCES po_lines(id),
+  qty REAL NOT NULL,
+  unit_cost_fils INTEGER NOT NULL
+);
+
+CREATE TABLE stock_movements (
+  id TEXT PRIMARY KEY,
+  part_id TEXT NOT NULL REFERENCES parts(id),
+  qty REAL NOT NULL,
+  unit_cost_fils INTEGER NOT NULL,
+  reason TEXT NOT NULL CHECK (reason IN ('receive','job','invoice','adjust','opening')),
+  document_id TEXT REFERENCES documents(id),
+  po_line_id TEXT REFERENCES po_lines(id),
+  note TEXT,
+  created_by TEXT REFERENCES users(id),
+  created_at TEXT NOT NULL
+);
+CREATE INDEX stock_movements_part ON stock_movements(part_id, created_at);
+CREATE INDEX stock_movements_doc ON stock_movements(document_id);
+
+ALTER TABLE document_lines ADD COLUMN part_id TEXT REFERENCES parts(id);
+ALTER TABLE document_lines ADD COLUMN supplied_by TEXT NOT NULL DEFAULT 'garage';
+ALTER TABLE document_lines ADD COLUMN po_line_id TEXT REFERENCES po_lines(id);
+`,
+  },
 ];
 
 export function migrate(db: Db): void {

@@ -53,3 +53,18 @@ export async function addUser(app: App, ownerToken: string, role: "owner" | "acc
   const login = await call(app, "POST", "/api/auth/login", undefined, { username, password: `${role}-pass-1` });
   return login.body.token as string;
 }
+
+/** Creates a part (stocked by default) and, if `opening` is given, posts opening stock at that cost. */
+export async function createPart(
+  app: App, token: string, fields: Record<string, unknown> = {}, opening?: { qty: number; unitCostFils: number },
+) {
+  const res = await call(app, "POST", "/api/parts", token, { partNo: "OF-1001", name: "Oil filter", stocked: true, sellPriceFils: 3500, ...fields });
+  if (res.status !== 200) throw new Error(JSON.stringify(res.body));
+  const part = res.body.part;
+  if (opening) await call(app, "POST", `/api/parts/${part.id}/adjustments`, token, { reason: "opening", ...opening });
+  return part as { id: string; partNo: string; name: string };
+}
+
+export async function onHand(app: App, token: string, partId: string): Promise<number> {
+  return (await call(app, "GET", `/api/parts/${partId}`, token)).body.part.onHand;
+}
