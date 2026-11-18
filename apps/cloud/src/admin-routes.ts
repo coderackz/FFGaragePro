@@ -1,7 +1,7 @@
 import { randomInt } from "node:crypto";
 import type { FastifyInstance, FastifyRequest } from "fastify";
 import { z, ZodError } from "zod";
-import { hashPassword } from "@ffgp/server";
+import { hashPassword, LoginThrottle } from "@ffgp/server";
 import { normalizeGarageCode } from "@ffgp/shared";
 import type { AdminDb, GarageRow, StaffRow } from "./admin-db";
 import type { GarageHost } from "./garages";
@@ -15,7 +15,9 @@ class AdminError extends Error {
 
 const createSchema = z.object({ code: z.string(), name: z.string().trim().min(1, "Name is required").max(200), notes: z.string().max(2000).nullish() });
 const patchSchema = z.object({
-  paidUntil: z.string().regex(/^\d{4}-\d{2}-\d{2}$/, "Use a date like 2027-12-31").nullish(),
+  paidUntil: z.string().regex(/^\d{4}-\d{2}-\d{2}$/, "Use a date like 2027-12-31")
+    .refine((d) => !Number.isNaN(Date.parse(`${d}T00:00:00Z`)) && new Date(`${d}T00:00:00Z`).toISOString().slice(0, 10) === d, "That date doesn't exist")
+    .nullish(),
   status: z.enum(["active", "paused"]).optional(),
   name: z.string().trim().min(1).max(200).optional(),
   notes: z.string().max(2000).nullish(),
@@ -25,6 +27,7 @@ const PASSWORD_ALPHABET = "abcdefghjkmnpqrstuvwxyzABCDEFGHJKLMNPQRSTUVWXYZ234567
 /** Fleet Fix staff API (`/admin/api/*`): create garages, set licences, help owners back in. */
 export function adminRoutes(app: FastifyInstance, o: { admin: AdminDb; host: GarageHost; now: () => number }): void {
   const { admin, host, now } = o;
+  const staffThrottle = new LoginThrottle();
 
   app.setErrorHandler((error, _req, reply) => {
     if (error instanceof AdminError) return reply.status(error.status).send({ error: error.message });
@@ -62,8 +65,14 @@ export function adminRoutes(app: FastifyInstance, o: { admin: AdminDb; host: Gar
 
   app.post("/admin/api/login", async (req) => {
     const { username, password } = z.object({ username: z.string(), password: z.string() }).parse(req.body);
+    const locked = staffThrottle.lockedMinutes(username.trim(), now());
+    if (locked) throw new AdminError(429, `Too many wrong passwords. This login is locked — try again in ${locked} minute${locked === 1 ? "" : "s"}.`);
     const result = admin.staffLogin(username.trim(), password, now());
-    if (!result) throw new AdminError(401, "Wrong username or password");
+    if (!result) {
+      staffThrottle.failed(username.trim(), now());
+      throw new AdminError(401, "Wrong username or password");
+    }
+    staffThrottle.succeeded(username.trim());
     return { token: result.token, staff: { name: result.staff.name, username: result.staff.username } };
   });
 

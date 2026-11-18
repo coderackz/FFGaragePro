@@ -16,6 +16,7 @@ const DAY = 86_400_000;
 const SETUP_ALPHABET = "ABCDEFGHJKLMNPQRSTUVWXYZ23456789";
 const STAFF_SESSION_DAYS = 7;
 const iso = (t: number) => new Date(t).toISOString();
+const DUMMY_HASH = hashPassword(randomBytes(16).toString("hex"));
 const tokenHash = (token: string) => createHash("sha256").update(token).digest("hex");
 
 /** Ordered, append-only migrations for admin.db (separate from the garage databases). */
@@ -139,7 +140,9 @@ export class AdminDb {
 
   staffLogin(username: string, password: string, now: number): { token: string; staff: StaffRow } | null {
     const staff = this.raw.prepare("SELECT * FROM staff WHERE username = ? AND active = 1").get(username) as StaffRow | undefined;
-    if (!staff || !verifyPassword(password, staff.password_hash)) return null;
+    // Check a password even for unknown usernames, so the response time doesn't reveal which usernames exist.
+    const ok = verifyPassword(password, staff?.password_hash ?? DUMMY_HASH);
+    if (!staff || !ok) return null;
     const token = randomBytes(32).toString("base64url");
     this.raw.prepare("INSERT INTO staff_sessions (token_hash, staff_id, expires_at) VALUES (?, ?, ?)")
       .run(tokenHash(token), staff.id, iso(now + STAFF_SESSION_DAYS * DAY));

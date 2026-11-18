@@ -1,6 +1,7 @@
-import Fastify, { type FastifyInstance } from "fastify";
+import Fastify, { type FastifyInstance, type FastifyRequest } from "fastify";
 import cors from "@fastify/cors";
 import { ZodError } from "zod";
+import type { LoginThrottle } from "./auth";
 import { Db } from "./db";
 import { HttpError } from "./errors";
 import { deviceGuard, NETWORK_PORT, networkRoutes, type NetworkStatus } from "./network";
@@ -25,6 +26,14 @@ export interface AppOptions {
    * (sign-in protects it, not LAN pairing), and main-computer sharing doesn't exist.
    */
   cloud?: boolean;
+  /**
+   * Fleetfix Cloud's checks (setup code, read-only), run on every request with the route Fastify actually matched
+   * (`route` is the pattern, e.g. "/api/setup", or undefined when nothing matched), so encoded or odd paths can't
+   * slip past a check on the raw URL. Throw an HttpError to refuse.
+   */
+  guard?: (req: FastifyRequest, route: string | undefined) => void;
+  /** Sign-in lockouts, kept by the caller so they outlive this app instance (the cloud closes idle garages). */
+  loginThrottle?: LoginThrottle;
 }
 
 /** The app's own pages: Electron (file:// sends "null") and local dev servers. */
@@ -56,8 +65,13 @@ export async function buildApp(options: AppOptions): Promise<FastifyInstance & {
     return reply.status(500).send({ error: "Something went wrong. Please try again." });
   });
 
+  if (options.guard) {
+    const guard = options.guard;
+    app.addHook("onRequest", async (req) => guard(req, req.routeOptions.url));
+  }
+
   app.get("/api/health", async () => ({ ok: true }));
-  setupRoutes(app, db, now);
+  setupRoutes(app, db, now, options.loginThrottle);
   if (!options.cloud) networkRoutes(app, db, { now, port: options.networkPort ?? NETWORK_PORT, status: options.networkStatus ?? { listening: false, error: null } });
   userRoutes(app, db);
   customerRoutes(app, db);

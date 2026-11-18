@@ -22,7 +22,7 @@ import { PurchaseOrdersPage } from "./pages/PurchaseOrdersPage";
 import { SuppliersPage } from "./pages/SuppliersPage";
 
 export function App() {
-  const { state, can, retry, startConnect } = useAuth();
+  const { state, canSee, retry, startConnect } = useAuth();
   const main = window.ffgp?.mainComputer;
 
   if (state.phase === "loading") {
@@ -79,8 +79,8 @@ export function App() {
         <Route path="/purchase-orders" element={<PurchaseOrdersPage />} />
         <Route path="/purchase-orders/new" element={<PurchaseOrderPage />} />
         <Route path="/purchase-orders/:id" element={<PurchaseOrderPage />} />
-        {can("users.manage") && <Route path="/users" element={<UsersPage />} />}
-        {can("settings.manage") && <Route path="/settings" element={<SettingsPage />} />}
+        {canSee("users.manage") && <Route path="/users" element={<UsersPage />} />}
+        {canSee("settings.manage") && <Route path="/settings" element={<SettingsPage />} />}
         <Route path="*" element={<Navigate to="/" replace />} />
       </Routes>
     </Layout>

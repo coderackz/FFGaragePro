@@ -19,8 +19,7 @@ export function garage(db: Db): GarageRow | undefined {
 
 const garageOut = (g: GarageRow) => ({ name: g.name, trn: g.trn, address: g.address, phone: g.phone, email: g.email, vatRateBp: g.vat_rate_bp });
 
-export function setupRoutes(app: FastifyInstance, db: Db, clock: () => number = Date.now): void {
-  const throttle = new LoginThrottle();
+export function setupRoutes(app: FastifyInstance, db: Db, clock: () => number = Date.now, throttle = new LoginThrottle()): void {
 
   app.get("/api/setup/status", async () => ({ configured: garage(db) !== undefined }));
 

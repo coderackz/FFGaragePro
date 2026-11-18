@@ -1,5 +1,6 @@
 import { createContext, useCallback, useContext, useEffect, useState, type ReactNode } from "react";
-import { can as canDo, normalizeGarageCode, SETUP_CODE_HEADER, type Action, type LicenceStateName } from "@ffgp/shared";
+import { normalizeGarageCode, SETUP_CODE_HEADER, type Action, type LicenceStateName } from "@ffgp/shared";
+import { allowed, visible } from "./permissions";
 import { get, getGarageCode, getToken, isCloud, post, setGarageCode, setToken } from "./api";
 import type { Garage, User } from "./types";
 
@@ -21,9 +22,6 @@ export interface Licence {
   daysLeft: number;
 }
 
-/** Actions still allowed when a cloud garage is read-only (its subscription ended). */
-const READ_ONLY_ACTIONS: ReadonlySet<Action> = new Set<Action>(["reports.view", "costs.view"]);
-
 interface AuthContext {
   state: State;
   /** Fleetfix Cloud only: the garage's subscription, for the banner and read-only mode. */
@@ -34,7 +32,10 @@ interface AuthContext {
   changeGarage(): void;
   user: User | null;
   garage: Garage | null;
+  /** May the user do this now (false for changes when the cloud garage is read-only). */
   can(action: Action): boolean;
+  /** May the user see the screen for this action (read-only garages still see everything). */
+  canSee(action: Action): boolean;
   signIn(username: string, password: string): Promise<void>;
   completeSetup(body: unknown, setupCode?: string): Promise<void>;
   signOut(): Promise<void>;
@@ -131,7 +132,8 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   };
   const value: AuthContext = {
     state, user, garage, licence, readOnly, chooseGarage, changeGarage,
-    can: (action) => (user ? canDo(user.role, action) && (!readOnly || READ_ONLY_ACTIONS.has(action)) : false),
+    can: (action) => (user ? allowed(user.role, action, readOnly) : false),
+    canSee: (action) => (user ? visible(user.role, action) : false),
     signIn, completeSetup, signOut, refreshGarage, retry: () => void load(),
     startConnect: () => setState({ phase: "connect" }),
   };

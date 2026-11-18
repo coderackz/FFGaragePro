@@ -7,7 +7,7 @@ import logo from "../assets/fleetfix-logo.png";
 import { useAuth } from "../lib/auth";
 
 export function Layout({ children }: { children: ReactNode }) {
-  const { user, garage, can, signOut, licence } = useAuth();
+  const { user, garage, canSee: can, signOut, licence } = useAuth();
   const nav = [
     { to: "/", label: "Dashboard", icon: LayoutDashboard, end: true },
     { section: "Workshop" },
