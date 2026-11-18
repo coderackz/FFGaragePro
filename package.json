@@ -8,7 +8,7 @@
   ],
   "scripts": {
     "test": "vitest run",
-    "typecheck": "tsc -p packages/shared && tsc -p packages/server && tsc -p apps/cloud && tsc -p apps/desktop",
+    "typecheck": "tsc -p packages/shared && tsc -p packages/server && tsc -p packages/sync && tsc -p apps/cloud && tsc -p apps/desktop",
     "dev": "npm run dev -w @ffgp/desktop",
     "e2e": "playwright test",
     "e2e:electron": "playwright test -c playwright.electron.config.ts",

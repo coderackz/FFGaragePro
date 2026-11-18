@@ -316,6 +316,51 @@ ALTER TABLE purchase_orders_new RENAME TO purchase_orders;
 CREATE INDEX purchase_orders_supplier ON purchase_orders(supplier_id, status);
 `,
   },
+  {
+    id: 6,
+    // Cloud sync. Triggers (installed by @ffgp/sync only on a linked PC or in the cloud) write change_log; a
+    // never-linked PC has these tables but writes nothing to them.
+    sql: `
+CREATE TABLE change_log (
+  seq INTEGER PRIMARY KEY AUTOINCREMENT,
+  origin TEXT NOT NULL,
+  origin_seq INTEGER,
+  table_name TEXT NOT NULL,
+  row_id TEXT NOT NULL,
+  op TEXT NOT NULL CHECK (op IN ('insert','update','delete','set')),
+  data TEXT,
+  changed TEXT,
+  at TEXT NOT NULL
+);
+CREATE INDEX change_log_origin ON change_log(origin, origin_seq);
+CREATE INDEX change_log_row ON change_log(table_name, row_id);
+
+-- Who the next change_log rows belong to: this database ('local' on a PC, 'cloud' in the cloud) or, while a
+-- peer's changes are applied, that peer.
+CREATE TABLE sync_ctx (
+  id INTEGER PRIMARY KEY CHECK (id = 1),
+  origin TEXT NOT NULL DEFAULT 'local',
+  origin_seq INTEGER
+);
+INSERT INTO sync_ctx (id) VALUES (1);
+
+CREATE TABLE sync_state (key TEXT PRIMARY KEY, value TEXT NOT NULL);
+
+CREATE TABLE sync_issues (
+  id TEXT PRIMARY KEY,
+  at TEXT NOT NULL,
+  kind TEXT NOT NULL CHECK (kind IN ('unique_rename','frozen_invoice','apply_failed')),
+  table_name TEXT NOT NULL,
+  row_id TEXT NOT NULL,
+  message TEXT NOT NULL,
+  detail TEXT,
+  dismissed_at TEXT
+);
+
+-- Cloud only: the last change applied from each PC, so a re-sent page is applied once.
+CREATE TABLE sync_peers (device_code TEXT PRIMARY KEY, last_origin_seq INTEGER NOT NULL);
+`,
+  },
 ];
 
 /** The newest migration this code knows: the garage database's schema version. */
