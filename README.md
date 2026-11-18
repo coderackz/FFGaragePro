@@ -22,7 +22,16 @@ and margin (Owner and Accountant only). Parts list import from CSV.
 - **Supplied by Fleet Fix** marks a part Fleet Fix provides on its own jobs: charged at zero, never touches stock.
 - Every stock change is a row in `stock_movements` (append-only); `packages/server/src/stock.ts` is the only writer.
 
-Next: Accounting → Fleetfix Cloud
+**Fleetfix Cloud — Stage 1 (browser app, development):** `apps/cloud` hosts every garage, each on its own
+SQLite file, running the same garage server; the browser app is the same screens. Fleet Fix staff create a
+garage at `/admin.html` (60-day trial, then a paid-until date; 14 days' grace, then read-only) and send the
+owner the garage ID and a one-time setup code. Stage 2 adds sync with the PC app; Stage 3 puts it online.
+
+    npm run cloud                                   # build the browser app and run the cloud on http://localhost:4790
+    npm run admin:create -w @ffgp/cloud -- fleetfix "Fleet Fix Admin" <password>   # first staff login
+    npm run e2e:cloud                               # Fleet Fix creates a garage, the owner runs a garage day in the browser
+
+Next: Fleetfix Cloud Stage 2 (sync) → Accounting
 (sync, backup, Fleet Fix work for network garages). See `docs/superpowers/specs/`.
 
 ## Layout

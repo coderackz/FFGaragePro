@@ -11,9 +11,9 @@ export const OWNER = { name: "Rashid Khan", username: "rashid", password: "garag
  * (labour + discounted part) → approve → job card → complete → invoice → issue → part payment.
  * Leaves the page on INV-00001 with AED 180.40 still due. Used by the browser and Electron tests.
  */
-export async function garageDay(page: Page, shot: (name: string) => Promise<unknown>): Promise<void> {
+export async function garageDay(page: Page, shot: (name: string) => Promise<unknown>, opts: { setupCode?: string } = {}): Promise<void> {
   page.on("dialog", (d) => void d.accept()); // "Issue this tax invoice?" confirm
-  await setUpGarage(page, shot);
+  await setUpGarage(page, shot, opts);
 
   // Customer + vehicle.
   await page.getByRole("navigation").getByRole("link", { name: "Customers", exact: true }).click();
@@ -73,8 +73,9 @@ export async function garageDay(page: Page, shot: (name: string) => Promise<unkn
 }
 
 /** First run: sets up "Al Quoz Auto Care" with Rashid as owner and lands on the dashboard. */
-export async function setUpGarage(page: Page, shot: (name: string) => Promise<unknown> = async () => undefined): Promise<void> {
+export async function setUpGarage(page: Page, shot: (name: string) => Promise<unknown> = async () => undefined, opts: { setupCode?: string } = {}): Promise<void> {
   await expect(page.getByRole("heading", { name: "Set up your garage" })).toBeVisible({ timeout: 30_000 });
+  if (opts.setupCode) await page.getByLabel("Setup code").fill(opts.setupCode); // Fleetfix Cloud
   await shot("01-setup");
   await page.getByLabel("Garage name").fill("Al Quoz Auto Care");
   await page.getByLabel("VAT TRN").fill("100123456700003");
