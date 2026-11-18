@@ -53,7 +53,21 @@ working with or without internet and syncs every 30 seconds, and within 5 second
 
     npm run e2e:sync                                # the desktop app downloads, syncs both ways, and uploads (cloud on port 4792)
 
-Next: Fleetfix Cloud Stage 3 (going online: server, domain, HTTPS, backups) → Accounting. See `docs/superpowers/specs/`.
+**Fleetfix Cloud — Stage 3 (live):** https://garagepro.fleetfix.ae (admin console: `/admin.html`), a Node.js app
+on Fleetfix's Hostinger Cloud Enterprise plan. The PC app connects there by default.
+- **Deploying:** `npm run package -w @ffgp/cloud` builds `deploy/cloud/` (one bundled `server.mjs` + the browser app)
+  and a zip. Upload the zip to the website as `app.zip` and start a Node.js build (Node 24, type "other", entry
+  `server.mjs`); `.hostinger/site.json` has the settings. The app restarts on the new version; data is untouched.
+- **Data:** `/home/u241423798/domains/garagepro.fleetfix.ae/fleetfix-cloud-data` (set as `FFGP_CLOUD_DATA`), outside
+  the website folder: `admin.db`, `garages/<id>/garage.db`, `licence-key.pem`.
+- **Backups:** every day the server writes a consistent copy of everything to `<data>/backups/<date>/` and keeps 30
+  days; Hostinger's own daily backups take them off the server. Keep a copy of `licence-key.pem` somewhere safe too.
+- **Licence key:** its public half is built into the PC app (`apps/desktop/src/main/trusted-keys.ts`). If the key
+  file is ever replaced, update that file and ship a new installer.
+- **First staff account:** `FFGP_CLOUD_STAFF` = `username:Full Name:<password or scrypt hash>`, used only while that
+  username doesn't exist.
+
+Next: Accounting. See `docs/superpowers/specs/`.
 
 ## Layout
 | Path | What |

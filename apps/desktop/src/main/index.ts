@@ -5,8 +5,9 @@ import { hostname } from "node:os";
 import { join } from "node:path";
 import { app, BrowserWindow, dialog, ipcMain, Menu, shell } from "electron";
 import { discoverMainComputers, NETWORK_PORT, startGarageServer, type GarageServer } from "@ffgp/server";
-import { CloudError, installCapture, linkDownload, linkUpload, readOnlyGuard, removeCapture, type CloudLink } from "@ffgp/sync";
+import { CloudError, installCapture, linkDownload, linkUpload, readOnlyGuard, removeCapture, trustedLink, type CloudLink } from "@ffgp/sync";
 import { CloudSync, type CloudStatus } from "./cloud";
+import { PINNED_LICENCE_KEYS } from "./trusted-keys";
 
 // Tests run several "PCs" on one machine, each with its own profile folder.
 if (process.env.FFGP_USER_DATA) app.setPath("userData", process.env.FFGP_USER_DATA);
@@ -55,7 +56,9 @@ const sendCloudStatus = (s: CloudStatus) => mainWindow?.webContents.send("ffgp:c
  * Starts (or restarts) this PC's own garage server; sharing on → main computer. Linked to the cloud, the server
  * takes numbers from the cloud (or this PC's own series) and follows the cloud licence, and the sync loop runs.
  */
-async function startLocal(link?: CloudLink): Promise<void> {
+async function startLocal(saved?: CloudLink): Promise<void> {
+  // Fleetfix cloud's own key, not whatever config.json says.
+  const link = saved && trustedLink(saved, PINNED_LICENCE_KEYS);
   cloud?.stop();
   await server?.close();
   cloud = link ? new CloudSync(() => server?.db ?? null, link, sendCloudStatus) : null;
@@ -227,14 +230,14 @@ ipcMain.handle("ffgp:cloudLink", async (_event, args: CloudLinkArgs) => {
       await server?.close();
       server = null;
       try {
-        link = await linkDownload({ url, garageCode, username: args.username ?? "", password: args.password ?? "", deviceName: args.deviceName, dataDir: dataDir() });
+        link = await linkDownload({ url, garageCode, username: args.username ?? "", password: args.password ?? "", deviceName: args.deviceName, dataDir: dataDir(), pinned: PINNED_LICENCE_KEYS });
       } catch (error) {
         await startLocal();
         throw error;
       }
     } else {
       if (!configured.configured || !server) return { error: "Set up this PC's garage first, or sign in to download the cloud garage." };
-      link = await linkUpload({ url, garageCode, setupCode: args.setupCode ?? "", deviceName: args.deviceName, db: server.db });
+      link = await linkUpload({ url, garageCode, setupCode: args.setupCode ?? "", deviceName: args.deviceName, db: server.db, pinned: PINNED_LICENCE_KEYS });
     }
     writeConfig({ mode: "local", cloud: link });
     await startLocal(link);
