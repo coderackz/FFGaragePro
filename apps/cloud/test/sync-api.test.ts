@@ -28,12 +28,14 @@ async function jsonCall(url: string, method: string, path: string, garage: strin
 }
 
 /** A standalone PC garage's database file, with a customer. */
-async function pcGarageFile(): Promise<{ file: Uint8Array; close(): Promise<void> }> {
+async function pcGarageFile(o: { sharing?: boolean } = {}): Promise<{ file: Uint8Array; close(): Promise<void> }> {
   const dir = mkdtempSync(join(tmpdir(), "ffgp-pc-"));
   const app = await buildApp({ dataDir: dir });
   const setup = await app.inject({ method: "POST", url: "/api/setup", payload: { garage: { name: "PC Garage" }, owner: { name: "Pc Owner", username: "pcowner", password: "pc-pass-123" } } });
   const token = setup.json().token;
   await app.inject({ method: "POST", url: "/api/customers", headers: { authorization: `Bearer ${token}` }, payload: { name: "From the PC" } });
+  app.db.run("INSERT INTO settings (key, value) VALUES ('invoice.note', 'kept')");
+  if (o.sharing) app.db.run("INSERT INTO settings (key, value) VALUES ('network.sharing', '1')");
   const out = join(dir, "copy.db");
   app.db.raw.exec(`VACUUM INTO '${out}'`);
   await app.close();
@@ -112,6 +114,60 @@ describe("cloud sync API", () => {
     // Only once: the garage is set up now.
     const again = await raw(cloud.url, "PUT", "/api/cloud/sync/upload", { ...dev("pc-garage", l.body.deviceKey), "content-type": "application/octet-stream" }, pc.file);
     expect(again.status).toBe(409);
+  });
+
+  it("this PC's network sharing settings never travel through the cloud", async () => {
+    const cloud = await startCloud();
+    const g = cloud.admin.createGarage({ code: "pc-garage", name: "PC Garage", notes: null, now: Date.now() });
+    const l = await link(cloud.url, "pc-garage", { mode: "upload", setupCode: g.setup_code, deviceName: "Main PC" });
+    const pc = await pcGarageFile({ sharing: true });
+    expect((await raw(cloud.url, "PUT", "/api/cloud/sync/upload", { ...dev("pc-garage", l.body.deviceKey), "content-type": "application/octet-stream" }, pc.file)).status).toBe(200);
+    const second = await link(cloud.url, "pc-garage", { mode: "download", username: "pcowner", password: "pc-pass-123", deviceName: "Second PC" });
+    const snap = await raw(cloud.url, "GET", "/api/cloud/sync/snapshot", dev("pc-garage", second.body.deviceKey));
+    const dir = mkdtempSync(join(tmpdir(), "ffgp-snap-"));
+    writeFileSync(join(dir, "garage.db"), new Uint8Array(await snap.arrayBuffer()));
+    const db = new Db(join(dir, "garage.db"));
+    try {
+      expect(db.all("SELECT key FROM settings WHERE key LIKE 'network.%'")).toEqual([]);
+      expect(db.get("SELECT value FROM settings WHERE key = 'invoice.note'")).toEqual({ value: "kept" });
+    } finally {
+      db.close();
+    }
+  });
+
+  it("two uploads into the same empty garage: one wins, the other is refused", async () => {
+    const cloud = await startCloud();
+    const g = cloud.admin.createGarage({ code: "pc-garage", name: "PC Garage", notes: null, now: Date.now() });
+    const a = await link(cloud.url, "pc-garage", { mode: "upload", setupCode: g.setup_code, deviceName: "PC A" });
+    const b = await link(cloud.url, "pc-garage", { mode: "upload", setupCode: g.setup_code, deviceName: "PC B" });
+    const file = (await pcGarageFile()).file;
+    const up = (key: string) => raw(cloud.url, "PUT", "/api/cloud/sync/upload", { ...dev("pc-garage", key), "content-type": "application/octet-stream" }, file);
+    const statuses = (await Promise.all([up(a.body.deviceKey), up(b.body.deviceKey)])).map((r) => r.status).sort();
+    expect(statuses).toEqual([200, 409]);
+  });
+
+  it("pushed changes must be well formed", async () => {
+    const cloud = await startCloud();
+    await garageReady(cloud, "alquoz-auto");
+    const l = await link(cloud.url, "alquoz-auto", { mode: "download", username: "rashid", password: SETUP.owner.password, deviceName: "PC" });
+    const entry = { seq: 1, origin: "local", originSeq: 1, table: "customers", rowId: "x", op: "insert", data: {}, changed: null, at: new Date().toISOString() };
+    const push = (entries: unknown[]) => jsonCall(cloud.url, "POST", "/api/cloud/sync/push", "alquoz-auto", l.body.deviceKey, { schema: SCHEMA_VERSION, entries });
+    expect((await push([{ ...entry, table: "sessions" }])).status).toBe(400);
+    expect((await push([{ ...entry, originSeq: 1e300 }])).status).toBe(400);
+    expect((await push([{ ...entry, originSeq: 5 }])).status).toBe(400);
+    expect((await push([{ ...entry, op: "drop" }])).status).toBe(400);
+  });
+
+  it("device codes stay unique even after a device row is removed", async () => {
+    const cloud = await startCloud();
+    await garageReady(cloud, "alquoz-auto");
+    const body = { mode: "download", username: "rashid", password: SETUP.owner.password, deviceName: "PC" };
+    await link(cloud.url, "alquoz-auto", body);
+    await link(cloud.url, "alquoz-auto", body);
+    cloud.admin.raw.prepare("DELETE FROM devices WHERE device_code = 'P1'").run();
+    const third = await link(cloud.url, "alquoz-auto", body);
+    expect(third.status).toBe(200);
+    expect(third.body.deviceCode).toBe("P3");
   });
 
   it("push/pull round trip, own entries excluded", async () => {

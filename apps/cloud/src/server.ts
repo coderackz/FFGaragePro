@@ -101,6 +101,7 @@ export async function createCloudServer(o: CloudOptions): Promise<CloudServer> {
     // Which garage; its rules (setup code, read-only) run inside its app on the matched route (guardFor).
     const g = garageFromHeader(req.headers[GARAGE_HEADER]);
     if (!g) return sendJson(res, 404, { error: "No garage with that ID", code: "unknown_garage" });
+    await host.whenFree(g.id);
     host.enter(g.id);
     res.once("close", () => host.leave(g.id));
     (await host.get(g.id)).routing(req, res);

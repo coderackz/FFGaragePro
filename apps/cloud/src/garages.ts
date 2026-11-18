@@ -12,6 +12,8 @@ export type GarageApp = Awaited<ReturnType<typeof buildApp>>;
 export class GarageHost {
   private readonly open = new Map<string, Promise<GarageApp>>();
   private readonly busy = new Map<string, number>();
+  /** Garages whose file is being replaced: new requests wait until that's done. */
+  private readonly locks = new Map<string, Promise<void>>();
 
   constructor(
     private readonly dataDir: string,
@@ -63,6 +65,29 @@ export class GarageHost {
       if (this.busy.has(id)) continue;
       this.open.delete(id);
       await closeQuietly(app);
+    }
+  }
+
+  /** Resolves once the garage isn't being replaced. Call before `enter`. */
+  async whenFree(garageId: string): Promise<void> {
+    while (this.locks.has(garageId)) await this.locks.get(garageId);
+  }
+
+  /**
+   * Runs `fn` with the garage closed and nothing else using it: requests already inside finish first, new ones
+   * wait (in `whenFree`) until `fn` is done. One at a time per garage.
+   */
+  async exclusive<T>(garageId: string, fn: () => T | Promise<T>): Promise<T> {
+    await this.whenFree(garageId);
+    let release!: () => void;
+    this.locks.set(garageId, new Promise<void>((r) => (release = r)));
+    try {
+      while (this.busy.has(garageId)) await new Promise((r) => setTimeout(r, 10));
+      await this.close(garageId);
+      return await fn();
+    } finally {
+      this.locks.delete(garageId);
+      release();
     }
   }
 

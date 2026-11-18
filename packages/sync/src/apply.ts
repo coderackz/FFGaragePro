@@ -333,6 +333,23 @@ function applyEntry(c: Ctx, e: ChangeEntry): boolean {
   return true;
 }
 
+const TABLE_LABELS: Record<string, string> = {
+  garage: "the garage details", settings: "a setting", users: "a user", customers: "a customer", vehicles: "a vehicle",
+  parts: "a part", suppliers: "a supplier", documents: "a document", purchase_orders: "a purchase order", po_lines: "a purchase order line",
+  document_lines: "a document's lines", payments: "a payment", goods_receipts: "a delivery", goods_receipt_lines: "a delivery line",
+  stock_movements: "a stock movement",
+};
+
+/** Why a change didn't fit, in words an owner can act on (the database's own message stays in the issue's detail). */
+function plainReason(error: unknown): string {
+  const m = (error as Error).message ?? "";
+  if (/FOREIGN KEY/i.test(m)) return "it refers to something that hasn't arrived here (such as a customer, part or document).";
+  const unique = /UNIQUE constraint failed: \w+\.(\w+)/i.exec(m);
+  if (unique) return `its ${unique[1]!.replace(/_/g, " ")} is already used by another record here.`;
+  if (/CHECK constraint/i.test(m)) return "a value in it isn't allowed here.";
+  return "it doesn't fit the garage's data here.";
+}
+
 function applyAll(c: Ctx, entries: ChangeEntry[], attribution: (e: ChangeEntry) => [string, number]): number {
   let applied = 0;
   for (const e of entries) {
@@ -344,14 +361,22 @@ function applyAll(c: Ctx, entries: ChangeEntry[], attribution: (e: ChangeEntry) 
     } catch (error) {
       c.db.raw.exec("ROLLBACK TO sync_entry");
       c.db.raw.exec("RELEASE sync_entry");
-      addIssue(c, "apply_failed", e.table, e.rowId, `A change from ${c.from} couldn't be applied: ${(error as Error).message}`, { entry: e });
+      addIssue(c, "apply_failed", e.table, e.rowId, `A change from ${c.from} to ${TABLE_LABELS[e.table] ?? e.table} couldn't be applied: ${plainReason(error)}`, {
+        error: (error as Error).message,
+        entry: e,
+      });
     }
   }
   if (c.mode === "cloud") reconcileStock(c);
-  // Derived figures are this side's own, from everything it now has.
-  for (const id of c.touched.parts) recomputePart(c.db, id);
-  for (const id of c.touched.pos) recomputePurchaseOrder(c.db, id);
-  for (const id of c.touched.docs) recomputeDocument(c.db, id);
+  // Derived figures, from everything this side now has. At the cloud they're its own changes (every PC hears of a
+  // status that changed); on a PC they follow from the cloud's changes, so they aren't sent back.
+  const recompute = () => {
+    for (const id of c.touched.parts) recomputePart(c.db, id);
+    for (const id of c.touched.pos) recomputePurchaseOrder(c.db, id);
+    for (const id of c.touched.docs) recomputeDocument(c.db, id);
+  };
+  if (c.mode === "pc") as(c.db, "cloud", null, recompute);
+  else recompute();
   return applied;
 }
 

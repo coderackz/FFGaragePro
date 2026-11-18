@@ -193,6 +193,20 @@ describe("merge engine", () => {
     expect(doc(A)).toEqual(doc(C));
   });
 
+  it("figures a PC recalculates from the cloud's changes aren't sent back as its own", async () => {
+    let inv = "";
+    const { A, C, token } = await pair(async (app, t) => {
+      const c = await customer(app, t);
+      inv = (await call(app, "POST", "/api/documents", t, { type: "invoice", customerId: c.id, lines: [LINE] })).body.document.id;
+      await call(app, "POST", `/api/documents/${inv}/issue`, t);
+    });
+    await call(C, "POST", `/api/documents/${inv}/payments`, token, { amountFils: 10500, method: "card" });
+    // Only the payment arrives (the invoice's own update was superseded or is in a later page).
+    applyAtPc(A.db, changesFor(C.db, 0, "P1").filter((e) => e.table === "payments"));
+    expect(A.db.get("SELECT status FROM documents WHERE id = ?", [inv])).toEqual({ status: "paid" });
+    expect(localChanges(A.db, 0)).toEqual([]);
+  });
+
   it("applying the same batch twice changes nothing", async () => {
     const { A, C, token } = await pair();
     await customer(A, token, "Once");
@@ -219,6 +233,8 @@ describe("merge engine", () => {
     const entries = localChanges(A.db, 0).filter((e) => e.table !== "parts");
     const result = applyAtCloud(C.db, "P1", entries);
     expect(result.issues.map((i) => i.kind)).toEqual(["apply_failed"]);
+    expect(result.issues[0]!.message).not.toMatch(/constraint/i);
+    expect(result.issues[0]!.message).toMatch(/hasn't arrived/);
     expect(C.db.get("SELECT name FROM customers WHERE id = ?", [c.id])).toEqual({ name: "Fatima" });
     expect(C.db.get("SELECT number FROM documents WHERE id = ?", [doc.id])).toEqual({ number: "EST-P1-00001" });
     expect(C.db.all("SELECT 1 FROM document_lines WHERE document_id = ?", [doc.id])).toHaveLength(0);

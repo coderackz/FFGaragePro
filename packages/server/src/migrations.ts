@@ -1,7 +1,11 @@
 import type { Db } from "./db";
 
 /** Ordered, append-only. Never edit a shipped migration; add a new one. */
-const MIGRATIONS: { id: number; sql: string; foreignKeysOff?: boolean }[] = [
+/**
+ * `foreignKeysOff`: the migration rebuilds tables, so it runs with foreign keys off and then checks the references
+ * of the listed tables (the rebuilt ones and the tables that point at them) before committing.
+ */
+const MIGRATIONS: { id: number; sql: string; foreignKeysOff?: string[] }[] = [
   {
     id: 1,
     sql: `
@@ -260,7 +264,7 @@ ALTER TABLE purchase_orders ADD COLUMN version INTEGER NOT NULL DEFAULT 0;
     // Number series: the cloud's main series is '', an offline PC numbers from its own ('P1', 'P2'…), so the
     // uniqueness of a number becomes (type, series, seq). SQLite can't change a UNIQUE constraint in place, so
     // both tables are rebuilt (with foreign keys off, as SQLite's ALTER TABLE guide prescribes).
-    foreignKeysOff: true,
+    foreignKeysOff: ["documents", "purchase_orders", "document_lines", "payments", "stock_movements", "po_lines", "goods_receipts"],
     sql: `
 CREATE TABLE documents_new (
   id TEXT PRIMARY KEY,
@@ -379,7 +383,8 @@ export function migrate(db: Db, upTo = Infinity): void {
         db.raw.exec(m.sql);
         if (m.foreignKeysOff) {
           // Checked before COMMIT, so a rebuild that broke a reference rolls back.
-          const broken = db.all("PRAGMA foreign_key_check");
+          // Only what the rebuild could have broken: an old, unrelated bad reference elsewhere mustn't stop the app.
+          const broken = m.foreignKeysOff.flatMap((table) => db.all(`PRAGMA foreign_key_check("${table}")`));
           if (broken.length) throw new Error(`Migration ${m.id} would leave ${broken.length} broken references`);
         }
         db.run("INSERT INTO schema_migrations (id, applied_at) VALUES (?, ?)", [m.id, new Date().toISOString()]);

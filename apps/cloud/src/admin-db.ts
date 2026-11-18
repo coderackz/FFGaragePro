@@ -180,7 +180,8 @@ export class AdminDb {
 
   /** Links a PC to a garage: the next device code (P1, P2…) and a new key, returned once. */
   addDevice(o: { garageId: string; name: string; linkMode: DeviceRow["link_mode"]; now: number }): { device: DeviceRow; key: string } {
-    const n = (this.raw.prepare("SELECT COUNT(*) AS n FROM devices WHERE garage_id = ?").get(o.garageId) as { n: number }).n + 1;
+    // After the highest code ever given here, so a code is never handed out twice.
+    const n = ((this.raw.prepare("SELECT MAX(CAST(SUBSTR(device_code, 2) AS INTEGER)) AS n FROM devices WHERE garage_id = ?").get(o.garageId) as { n: number | null }).n ?? 0) + 1;
     const key = randomBytes(32).toString("base64url");
     const id = randomUUID();
     this.raw.prepare("INSERT INTO devices (id, garage_id, device_code, name, key_hash, link_mode, created_at) VALUES (?, ?, ?, ?, ?, ?, ?)")

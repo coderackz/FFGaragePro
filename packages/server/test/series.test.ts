@@ -72,6 +72,23 @@ describe("number series", () => {
     }
   });
 
+  it("an old broken reference elsewhere doesn't stop the number-series migration", async () => {
+    const dir = tempDir();
+    const file = join(dir, "garage.db");
+    const old = new Db(file, { migrateTo: 4 });
+    const t = new Date().toISOString();
+    old.raw.exec("PRAGMA foreign_keys = OFF");
+    old.run("INSERT INTO vehicles (id, customer_id, plate, created_at, updated_at) VALUES ('v1', 'gone', 'DXB X 1', ?, ?)", [t, t]);
+    old.close();
+    const db = new Db(file);
+    try {
+      expect(db.get("SELECT MAX(id) AS v FROM schema_migrations")).toEqual({ v: expect.any(Number) });
+      expect(db.get<{ n: number }>("SELECT COUNT(*) AS n FROM schema_migrations WHERE id = 5")!.n).toBe(1);
+    } finally {
+      db.close();
+    }
+  });
+
   it("existing databases migrate", async () => {
     const dir = tempDir();
     const file = join(dir, "garage.db");

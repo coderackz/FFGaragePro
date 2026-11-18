@@ -1,15 +1,16 @@
-import { mkdirSync, readFileSync, renameSync, rmSync, writeFileSync } from "node:fs";
+import { existsSync, mkdirSync, readFileSync, renameSync, rmSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { DatabaseSync } from "node:sqlite";
 import type { FastifyInstance, FastifyRequest } from "fastify";
 import { z, ZodError } from "zod";
 import { HttpError, LoginThrottle, newId, SCHEMA_VERSION, takeNumber, verifyPassword } from "@ffgp/server";
 import { GARAGE_HEADER, normalizeGarageCode } from "@ffgp/shared";
-import { applyAtCloud, changesFor, issuesFor, maxSeq } from "@ffgp/sync";
+import { applyAtCloud, changesFor, issuesFor, maxSeq, SYNC_TABLES } from "@ffgp/sync";
 import type { AdminDb, DeviceRow, GarageRow } from "./admin-db";
 import type { GarageApp, GarageHost } from "./garages";
 import { signLicence, type LicenceKey } from "./licence-token";
 import { garageLicence } from "./server";
+import { checkUpload, cleanSql } from "./upload-check";
 
 export const DEVICE_KEY_HEADER = "x-ffgp-device-key";
 const UPLOAD_LIMIT = 200 * 1024 * 1024;
@@ -19,7 +20,22 @@ const linkSchema = z.discriminatedUnion("mode", [
   z.object({ mode: z.literal("download"), username: z.string().min(1).max(100), password: z.string().min(1).max(200), deviceName: z.string().trim().min(1).max(100) }),
   z.object({ mode: z.literal("upload"), setupCode: z.string().min(1).max(40), deviceName: z.string().trim().min(1).max(100) }),
 ]);
-const pushSchema = z.object({ schema: z.number().int(), entries: z.array(z.any()).max(2000) });
+const row = z.record(z.string(), z.unknown());
+const entrySchema = z
+  .object({
+    seq: z.number().int().positive().max(Number.MAX_SAFE_INTEGER),
+    origin: z.string().max(40),
+    originSeq: z.number().int().positive().max(Number.MAX_SAFE_INTEGER),
+    table: z.enum(SYNC_TABLES.map((t) => t.name) as [string, ...string[]]),
+    rowId: z.string().min(1).max(200),
+    op: z.enum(["insert", "update", "delete", "set"]),
+    data: z.union([row, z.array(row), z.null()]),
+    changed: z.array(z.string().max(100)).max(200).nullable(),
+    at: z.string().max(40),
+  })
+  // A PC's own changes are numbered by its own log.
+  .refine((e) => e.originSeq === e.seq, "originSeq must equal seq");
+const pushSchema = z.object({ schema: z.number().int(), entries: z.array(entrySchema).max(2000) });
 const pullSchema = z.object({ since: z.coerce.number().int().min(0), issuesSince: z.coerce.number().int().min(0).default(0), limit: z.coerce.number().int().min(1).max(500).default(500), schema: z.coerce.number().int() });
 const numbersSchema = z.object({ kind: z.enum(["estimate", "jobcard", "invoice", "purchase_order"]) });
 
@@ -70,6 +86,7 @@ export function syncRoutes(
     };
     /** Runs `fn` against the garage's open app, which isn't closed meanwhile. */
     const withGarage = async <T>(g: GarageRow, fn: (a: GarageApp) => T | Promise<T>): Promise<T> => {
+      await host.whenFree(g.id);
       host.enter(g.id);
       try {
         return await fn(await host.get(g.id));
@@ -124,7 +141,7 @@ export function syncRoutes(
           for (const { name } of copy.prepare("SELECT name FROM sqlite_master WHERE type = 'trigger'").all() as { name: string }[]) {
             copy.exec(`DROP TRIGGER "${name.replace(/"/g, '""')}"`);
           }
-          copy.exec("DELETE FROM sessions; DELETE FROM devices; DELETE FROM change_log; DELETE FROM sync_peers; DELETE FROM sync_issues; DELETE FROM sync_state; UPDATE sync_ctx SET origin = 'local', origin_seq = NULL;");
+          copy.exec(cleanSql("local"));
         } finally {
           copy.close();
         }
@@ -145,29 +162,28 @@ export function syncRoutes(
       const file = join(tmpDir, `${newId()}.db`);
       writeFileSync(file, req.body);
       try {
-        const copy = new DatabaseSync(file);
-        try {
-          const ok = (copy.prepare("PRAGMA integrity_check").get() as { integrity_check: string }).integrity_check === "ok";
-          if (!ok) throw new HttpError(400, "That garage file is damaged.");
-          const schema = (copy.prepare("SELECT MAX(id) AS v FROM schema_migrations").get() as { v: number | null }).v ?? 0;
-          checkSchema(schema);
-          if (!copy.prepare("SELECT 1 FROM garage WHERE id = 1").get()) throw new HttpError(400, "That PC's garage isn't set up yet.");
-          for (const { name } of copy.prepare("SELECT name FROM sqlite_master WHERE type = 'trigger'").all() as { name: string }[]) {
-            copy.exec(`DROP TRIGGER "${name.replace(/"/g, '""')}"`);
-          }
-          copy.exec("DELETE FROM sessions; DELETE FROM devices; DELETE FROM change_log; DELETE FROM sync_peers; DELETE FROM sync_issues; DELETE FROM sync_state; UPDATE sync_ctx SET origin = 'cloud', origin_seq = NULL;");
-        } catch (error) {
-          if (error instanceof HttpError) throw error;
-          throw new HttpError(400, "That isn't a Fleetfix Garage Pro garage file.");
-        } finally {
-          copy.close();
+        const check = await checkUpload(file, SCHEMA_VERSION);
+        if (!check.ok) {
+          if ("schema" in check) checkSchema(check.schema);
+          else throw new HttpError(check.status, check.error);
         }
-        // Swap the file in while the garage is closed; the next request opens (and starts logging) the uploaded garage.
-        await host.close(g.id);
-        const dir = host.dir(g.id);
-        mkdirSync(dir, { recursive: true });
-        for (const suffix of ["-wal", "-shm"]) rmSync(join(dir, `garage.db${suffix}`), { force: true });
-        renameSync(file, join(dir, "garage.db"));
+        // One upload at a time, with nothing else using the garage; whoever is second finds it set up.
+        await host.exclusive(g.id, () => {
+          const dir = host.dir(g.id);
+          const target = join(dir, "garage.db");
+          if (existsSync(target)) {
+            const current = new DatabaseSync(target, { readOnly: true });
+            try {
+              const hasGarage = current.prepare("SELECT 1 FROM sqlite_master WHERE type = 'table' AND name = 'garage'").get() && current.prepare("SELECT 1 FROM garage").get();
+              if (hasGarage) throw new HttpError(409, "This cloud garage already has data.", "already_set_up");
+            } finally {
+              current.close();
+            }
+          }
+          mkdirSync(dir, { recursive: true });
+          for (const suffix of ["-wal", "-shm"]) rmSync(join(dir, `garage.db${suffix}`), { force: true });
+          renameSync(file, target);
+        });
         await withGarage(g, () => undefined);
         admin.clearSetupCode(g.id, now());
         admin.synced(device, now());
