@@ -9,6 +9,7 @@ import { CustomersPage } from "./pages/CustomersPage";
 import { DashboardPage } from "./pages/DashboardPage";
 import { DocumentPage } from "./pages/DocumentPage";
 import { DocumentsPage } from "./pages/DocumentsPage";
+import { GaragePage } from "./pages/GaragePage";
 import { LoginPage } from "./pages/LoginPage";
 import { SettingsPage } from "./pages/SettingsPage";
 import { SetupPage } from "./pages/SetupPage";
@@ -55,6 +56,7 @@ export function App() {
       </Notice>
     );
   }
+  if (state.phase === "garage") return <GaragePage error={state.error} />;
   if (state.phase === "connect") return <ConnectPage />;
   if (state.phase === "setup") return <SetupPage />;
   if (state.phase === "signed-out") return <LoginPage />;

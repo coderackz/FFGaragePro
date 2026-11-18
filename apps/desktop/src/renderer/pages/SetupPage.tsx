@@ -1,10 +1,12 @@
 import { useState, type FormEvent } from "react";
 import { AuthShell } from "../components/AuthShell";
 import { Button, Field, Input, Textarea } from "../components/ui";
+import { getGarageCode, isCloud } from "../lib/api";
 import { useAuth } from "../lib/auth";
 
 export function SetupPage() {
-  const { completeSetup, startConnect } = useAuth();
+  const { completeSetup, startConnect, changeGarage } = useAuth();
+  const [setupCode, setSetupCode] = useState("");
   const [garage, setGarage] = useState({ name: "", trn: "", address: "", phone: "", email: "" });
   const [owner, setOwner] = useState({ name: "", username: "", password: "", confirm: "" });
   const [error, setError] = useState<string | null>(null);
@@ -20,7 +22,7 @@ export function SetupPage() {
       await completeSetup({
         garage: { ...garage, trn: garage.trn.replace(/\s/g, "") },
         owner: { name: owner.name, username: owner.username.trim(), password: owner.password },
-      });
+      }, isCloud ? setupCode : undefined);
     } catch (err) {
       setError((err as Error).message);
       setBusy(false);
@@ -39,6 +41,17 @@ export function SetupPage() {
             <div className="text-zinc-500">Connect this PC to your garage's main computer instead of setting up a new garage.</div>
           </div>
           <Button type="button" onClick={startConnect}>Connect to main computer</Button>
+        </div>
+      )}
+      {isCloud && (
+        <div className="mb-7 flex flex-col gap-3 rounded-lg border border-zinc-200 bg-zinc-50 px-4 py-3 text-sm">
+          <div className="flex items-center justify-between">
+            <span>Garage ID <b className="font-mono">{getGarageCode()}</b></span>
+            <button type="button" onClick={changeGarage} className="text-brand-700 hover:underline">Change</button>
+          </div>
+          <Field label="Setup code" hint="8 letters and numbers, from the welcome message Fleet Fix sent you.">
+            <Input value={setupCode} onChange={(e) => setSetupCode(e.target.value.toUpperCase())} required autoComplete="off" className="font-mono tracking-widest" />
+          </Field>
         </div>
       )}
       <h1 className="text-2xl font-semibold tracking-tight">Set up your garage</h1>

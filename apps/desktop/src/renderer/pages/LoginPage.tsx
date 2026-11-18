@@ -1,10 +1,11 @@
 import { useState, type FormEvent } from "react";
 import { AuthShell } from "../components/AuthShell";
 import { Button, Field, Input } from "../components/ui";
+import { getGarageCode, isCloud } from "../lib/api";
 import { useAuth } from "../lib/auth";
 
 export function LoginPage() {
-  const { signIn } = useAuth();
+  const { signIn, changeGarage } = useAuth();
   const [username, setUsername] = useState("");
   const [password, setPassword] = useState("");
   const [error, setError] = useState<string | null>(null);
@@ -26,6 +27,12 @@ export function LoginPage() {
     <AuthShell>
       <h1 className="text-2xl font-semibold tracking-tight">Sign in</h1>
       <p className="mt-1 text-sm text-zinc-500">Use the username your garage owner gave you.</p>
+      {isCloud && (
+        <p className="mt-3 flex items-center justify-between rounded-md bg-zinc-50 px-3 py-2 text-xs text-zinc-500">
+          <span>Garage <b className="font-mono text-zinc-700">{getGarageCode()}</b></span>
+          <button type="button" onClick={changeGarage} className="text-brand-700 hover:underline">Change</button>
+        </p>
+      )}
       {window.ffgp?.mainComputer && (
         <p className="mt-3 rounded-md bg-zinc-50 px-3 py-2 text-xs text-zinc-500">
           Connected to <b className="text-zinc-700">{window.ffgp.mainComputer.garageName}</b> · main computer {window.ffgp.mainComputer.host}

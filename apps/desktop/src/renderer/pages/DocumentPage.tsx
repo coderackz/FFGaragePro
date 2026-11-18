@@ -35,7 +35,7 @@ export function DocumentPage() {
   const params = useParams();
   const [search] = useSearchParams();
   const navigate = useNavigate();
-  const { garage, can } = useAuth();
+  const { garage, can, readOnly } = useAuth();
   const isNew = !params.id;
   const docQuery = useApi<{ document: DocumentFull }>(isNew ? null : `/api/documents/${params.id}`);
   const doc = docQuery.data?.document ?? null;
@@ -73,7 +73,7 @@ export function DocumentPage() {
   const customerDetail = useApi<{ customer: Customer; vehicles: Vehicle[] }>(draft.customer ? `/api/customers/${draft.customer.id}` : null);
   const vehicles = customerDetail.data?.vehicles ?? [];
 
-  const editable = isNew || (doc?.editable ?? false);
+  const editable = !readOnly && (isNew || (doc?.editable ?? false));
   const vatRate = garage?.vatRateBp ?? 500;
   const totals = useMemo(() => docTotals(draft.lines, vatRate), [draft.lines, vatRate]);
 

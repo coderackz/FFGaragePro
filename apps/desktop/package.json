@@ -11,6 +11,7 @@
     "build": "electron-vite build",
     "start": "electron-vite preview",
     "web": "vite --config vite.web.config.mts",
+    "web:cloud": "vite build --config vite.web.config.mts --mode cloud",
     "dist:win": "electron-vite build && electron-builder --win nsis --x64",
     "dist:mac": "electron-vite build && electron-builder --mac dmg"
   },
@@ -37,11 +38,28 @@
   "build": {
     "appId": "com.fleetfix.garagepro",
     "productName": "Fleetfix Garage Pro",
-    "directories": { "output": "release", "buildResources": "resources" },
-    "files": ["out/**/*", "package.json"],
+    "directories": {
+      "output": "release",
+      "buildResources": "resources"
+    },
+    "files": [
+      "out/**/*",
+      "package.json"
+    ],
     "asar": true,
-    "win": { "target": "nsis", "artifactName": "FleetfixGaragePro-Setup-${version}.${ext}" },
-    "nsis": { "oneClick": false, "allowToChangeInstallationDirectory": true, "createDesktopShortcut": true, "shortcutName": "Fleetfix Garage Pro" },
-    "mac": { "target": "dmg", "category": "public.app-category.business" }
+    "win": {
+      "target": "nsis",
+      "artifactName": "FleetfixGaragePro-Setup-${version}.${ext}"
+    },
+    "nsis": {
+      "oneClick": false,
+      "allowToChangeInstallationDirectory": true,
+      "createDesktopShortcut": true,
+      "shortcutName": "Fleetfix Garage Pro"
+    },
+    "mac": {
+      "target": "dmg",
+      "category": "public.app-category.business"
+    }
   }
 }
