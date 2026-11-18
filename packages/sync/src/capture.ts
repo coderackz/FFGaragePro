@@ -123,11 +123,23 @@ export const toEntry = (r: LogRow): ChangeEntry => ({
   at: r.at,
 });
 
-/** This database's own changes after `afterSeq` (what a PC pushes). */
+/**
+ * This database's own changes after `afterSeq` (what a PC pushes). When an invoice was issued here, its lines as
+ * issued go just before the issue, so the cloud ends up with exactly the invoice this PC printed.
+ */
 export function localChanges(db: Db, afterSeq: number, limit = 500): ChangeEntry[] {
-  return db
+  const entries = db
     .all<LogRow>("SELECT * FROM change_log WHERE seq > ? AND origin = ? ORDER BY seq LIMIT ?", [afterSeq, ownOrigin(db), limit])
     .map(toEntry);
+  return entries.flatMap((e) => {
+    const doc = e.data as Row | null;
+    const issues = e.table === "documents" && doc?.type === "invoice" && doc.status === "issued" && (e.op === "insert" || e.changed?.includes("status"));
+    if (!issues) return [e];
+    const t = SYNC_TABLES.find((x) => x.set)!;
+    const cols = syncedColumns(db, t);
+    const lines = db.all<Row>("SELECT * FROM document_lines WHERE document_id = ? ORDER BY position", [e.rowId]).map((r) => Object.fromEntries(cols.map((k) => [k, r[k]])));
+    return [{ ...e, table: t.name, op: "set" as const, data: lines, changed: null }, e];
+  });
 }
 
 /** Every change after `afterSeq` except those that came from `excludeOrigin` (what the cloud sends a PC). */
