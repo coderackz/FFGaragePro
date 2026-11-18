@@ -154,10 +154,12 @@ export class AdminDb {
     this.raw.prepare(`UPDATE garages SET ${sets}, updated_at = ? WHERE id = ?`).run(...keys.map((k) => patch[k] ?? null), iso(now), id);
   }
 
-  addStaff(o: { username: string; name: string; password: string }): StaffRow {
+  /** A staff account from a password, or from a hash of one (`scrypt$…`, so the password needn't be on the server). */
+  addStaff(o: { username: string; name: string; password: string } | { username: string; name: string; passwordHash: string }): StaffRow {
     const id = randomUUID();
+    const hash = "passwordHash" in o ? o.passwordHash : hashPassword(o.password);
     this.raw.prepare("INSERT INTO staff (id, username, name, password_hash, created_at) VALUES (?, ?, ?, ?, ?)")
-      .run(id, o.username, o.name, hashPassword(o.password), new Date().toISOString());
+      .run(id, o.username, o.name, hash, new Date().toISOString());
     return this.raw.prepare("SELECT * FROM staff WHERE id = ?").get(id) as unknown as StaffRow;
   }
 
