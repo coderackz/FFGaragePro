@@ -6,7 +6,9 @@
   "main": "src/server.ts",
   "scripts": {
     "dev": "tsx src/dev.ts",
-    "admin:create": "tsx src/admin-create.ts"
+    "admin:create": "tsx src/admin-create.ts",
+    "package": "node scripts/package.mjs",
+    "start": "node ../../deploy/cloud/server.mjs"
   },
   "dependencies": {
     "@ffgp/server": "*",

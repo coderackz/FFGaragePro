@@ -215,7 +215,7 @@ ipcMain.handle("ffgp:cloudLink", async (_event, args: CloudLinkArgs) => {
   if (connection.mode === "client") return { error: "This PC works through a main computer. Link the main computer to the cloud instead." };
   if (cloud) return { error: "This PC is already linked to Fleetfix cloud." };
   const url = args.url.trim().replace(/\/+$/, "");
-  if (!/^https?:\/\/[^\s]+$/.test(url)) return { error: "Type the cloud address, e.g. http://localhost:4790" };
+  if (!/^https?:\/\/[^\s]+$/.test(url)) return { error: "Type the cloud address, e.g. https://garagepro.fleetfix.ae" };
   const garageCode = args.garageCode.trim().toLowerCase();
   // Asked of the database itself: a failed check must never look like "no garage here".
   if (!server) return { error: "The garage isn't open. Restart Fleetfix Garage Pro and try again." };
