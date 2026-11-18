@@ -11,6 +11,7 @@ import { documentRoutes } from "./routes/documents";
 import { partRoutes } from "./routes/parts";
 import { purchaseRoutes } from "./routes/purchases";
 import { setupRoutes } from "./routes/setup";
+import { syncIssueRoutes } from "./routes/sync-issues";
 import { userRoutes } from "./routes/users";
 
 export interface AppOptions {
@@ -81,6 +82,7 @@ export async function buildApp(options: AppOptions): Promise<FastifyInstance & {
   const documents = documentRoutes(app, db, options.numbers);
   partRoutes(app, db);
   purchaseRoutes(app, db, documents, options.numbers);
+  syncIssueRoutes(app, db);
 
   app.addHook("onClose", async () => db.close());
   return Object.assign(app, { db }) as unknown as FastifyInstance & { db: Db };

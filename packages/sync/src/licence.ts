@@ -25,3 +25,34 @@ export function verifyLicence(publicKeyPem: string, token: string | null | undef
     return null;
   }
 }
+
+export interface LicenceView {
+  state: LicencePayload["state"];
+  endsAt: string | null;
+  graceEndsAt: string | null;
+  checkedAt: string | null;
+  /** Writes are refused: past grace, 30 days without hearing from the cloud, or no valid token. */
+  readOnly: boolean;
+  /** Why, when readOnly. */
+  reason: "expired" | "not_checked" | "invalid" | null;
+}
+
+/** A PC must hear from the cloud at least this often. */
+export const LICENCE_CHECK_DAYS = 30;
+const DAY = 86_400_000;
+
+/** What a PC's stored licence token allows now. A token that doesn't verify counts as read-only. */
+export function licenceView(token: string | null | undefined, publicKeyPem: string, now: number): LicenceView {
+  const p = verifyLicence(publicKeyPem, token);
+  if (!p) return { state: "read_only", endsAt: null, graceEndsAt: null, checkedAt: null, readOnly: true, reason: "invalid" };
+  const expired = p.state === "read_only" || now >= Date.parse(p.graceEndsAt);
+  const stale = now - Date.parse(p.checkedAt) > LICENCE_CHECK_DAYS * DAY;
+  return {
+    state: expired ? "read_only" : p.state,
+    endsAt: p.endsAt,
+    graceEndsAt: p.graceEndsAt,
+    checkedAt: p.checkedAt,
+    readOnly: expired || stale,
+    reason: expired ? "expired" : stale ? "not_checked" : null,
+  };
+}

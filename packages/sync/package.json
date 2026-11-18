@@ -10,6 +10,7 @@
   },
   "dependencies": {
     "@ffgp/server": "*",
-    "@ffgp/shared": "*"
+    "@ffgp/shared": "*",
+    "fastify": "^5.12.8"
   }
 }

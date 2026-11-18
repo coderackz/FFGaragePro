@@ -4,3 +4,5 @@ export { applyAtCloud, applyAtPc, changesFor, recordIssues, type ApplyResult, ty
 export { recomputeDocument, recomputePart, recomputePurchaseOrder } from "./recompute";
 export { getState, numState, setState } from "./state";
 export { verifyLicence, type LicencePayload } from "./licence";
+export { CloudError, linkDownload, linkUpload, readOnlyGuard, SyncClient, type CloudLink, type SyncFailure, type SyncResult, type SyncStatus } from "./client";
+export { LICENCE_CHECK_DAYS, licenceView, type LicenceView } from "./licence";
