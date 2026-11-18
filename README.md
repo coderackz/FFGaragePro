@@ -31,14 +31,37 @@ owner the garage ID and a one-time setup code. Stage 2 adds sync with the PC app
     npm run admin:create -w @ffgp/cloud -- fleetfix "Fleet Fix Admin" <password>   # first staff login
     npm run e2e:cloud                               # Fleet Fix creates a garage, the owner runs a garage day in the browser
 
-Next: Fleetfix Cloud Stage 2 (sync) → Accounting
-(sync, backup, Fleet Fix work for network garages). See `docs/superpowers/specs/`.
+**Fleetfix Cloud — Stage 2 (PC ↔ cloud sync):** a PC links to its cloud garage once (Settings → Fleetfix
+cloud, or "Connect to Fleetfix cloud" on first run). A new PC signs in and downloads the garage; a PC that
+already has a garage uploads it into a new, empty cloud garage with the setup code. After that the PC keeps
+working with or without internet and syncs every 30 seconds, and within 5 seconds of a change.
+- **What syncs:** every business record (garage, users, customers, vehicles, documents and lines, payments,
+  parts, suppliers, purchase orders, receipts, stock movements, settings). Not sign-ins or this PC's sharing settings.
+- **Edits made in two places:** merged field by field; if both changed the same field, the later one to reach the
+  cloud wins. A job card's lines move as a whole: the later save wins.
+- **Never lost or doubled:** stock, average cost, totals and amounts paid are recalculated from the movements and
+  payments on each side, so both add up. Payments are only ever added.
+- **Issued invoices don't change:** a change to an invoice that was issued elsewhere is refused and listed under
+  Sync issues. An invoice issued on an offline PC keeps the lines it was printed with.
+- **Invoice numbers:** online, numbers come from the cloud (`INV-00012`); an offline PC uses its own series
+  (`INV-P1-00003`), so two places never use the same number.
+- **The same plate, username or part number added in two places:** the second becomes "… (2)" and is listed under
+  Sync issues.
+- **Licence:** the PC goes read-only if the subscription has ended or it hasn't reached the cloud for 30 days.
+- **Versions:** if the cloud is newer than the PC app, sync stops with "Update Fleetfix Garage Pro to keep
+  syncing"; the PC keeps working.
+
+    npm run e2e:sync                                # the desktop app downloads, syncs both ways, and uploads (cloud on port 4792)
+
+Next: Fleetfix Cloud Stage 3 (going online: server, domain, HTTPS, backups) → Accounting. See `docs/superpowers/specs/`.
 
 ## Layout
 | Path | What |
 |---|---|
 | `packages/shared` | Money/VAT math (integer fils), roles & permissions, document numbering, Zod schemas |
 | `packages/server` | Fastify API + SQLite (built-in `node:sqlite`); runs inside the app |
+| `packages/sync` | Cloud sync: change capture (triggers), merge rules, the PC's sync client, licence tokens |
+| `apps/cloud` | Fleetfix Cloud: hosts every garage, admin console, sync API |
 | `apps/desktop` | Electron app: starts the server, React screens, print/PDF |
 
 ## Commands

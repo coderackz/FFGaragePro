@@ -13,7 +13,8 @@
     "e2e": "playwright test",
     "e2e:electron": "playwright test -c playwright.electron.config.ts",
     "cloud": "npm run web:cloud -w @ffgp/desktop && npm run dev -w @ffgp/cloud",
-    "e2e:cloud": "playwright test -c playwright.cloud.config.ts"
+    "e2e:cloud": "playwright test -c playwright.cloud.config.ts",
+    "e2e:sync": "npm run build -w @ffgp/desktop && playwright test -c playwright.sync.config.ts"
   },
   "devDependencies": {
     "@playwright/test": "^1.65.1",
