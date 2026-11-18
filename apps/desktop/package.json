@@ -18,6 +18,7 @@
   "devDependencies": {
     "@ffgp/server": "*",
     "@ffgp/shared": "*",
+    "@ffgp/sync": "*",
     "@tailwindcss/vite": "^4.3.5",
     "@types/react": "^19.0.0",
     "@types/react-dom": "^19.0.0",

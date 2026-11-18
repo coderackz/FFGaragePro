@@ -5,7 +5,8 @@ export { Db, newId, now } from "./db";
 export { DISCOVERY_PORT, discoverMainComputers, type FoundComputer } from "./discovery";
 export { DEVICE_HEADER, NETWORK_PORT } from "./network";
 
-import { buildApp } from "./app";
+import { buildApp, type AppOptions } from "./app";
+import type { Db } from "./db";
 import { DISCOVERY_PORT, startDiscoveryResponder } from "./discovery";
 import { isSharing, NETWORK_PORT, type NetworkStatus } from "./network";
 import { garage } from "./routes/setup";
@@ -23,6 +24,8 @@ export interface GarageServer {
   /** Whether the owner turned on sharing with other PCs. */
   sharing: boolean;
   status: NetworkStatus;
+  /** The garage database this server has open. */
+  db: Db;
   close(): Promise<void>;
 }
 
@@ -31,10 +34,17 @@ export interface GarageServer {
  * `networkPort`, plus the discovery responder. If the sharing port is taken, it still opens for this PC
  * alone and reports why other PCs can't connect.
  */
-export async function startGarageServer(o: { dataDir: string; networkPort?: number; discoveryPort?: number; logger?: boolean }): Promise<GarageServer> {
+export async function startGarageServer(o: {
+  dataDir: string;
+  networkPort?: number;
+  discoveryPort?: number;
+  logger?: boolean;
+  /** A cloud-linked PC: numbers from the cloud, and its own read-only rule. */
+  app?: Pick<AppOptions, "numbers" | "guard">;
+}): Promise<GarageServer> {
   const networkPort = o.networkPort ?? NETWORK_PORT;
   const status: NetworkStatus = { listening: false, error: null };
-  const build = () => buildApp({ dataDir: o.dataDir, logger: o.logger, networkPort, networkStatus: status });
+  const build = () => buildApp({ ...o.app, dataDir: o.dataDir, logger: o.logger, networkPort, networkStatus: status });
 
   let app = await build();
   const sharing = isSharing(app.db);
@@ -52,6 +62,7 @@ export async function startGarageServer(o: { dataDir: string; networkPort?: numb
         address: `http://127.0.0.1:${networkPort}`,
         sharing,
         status,
+        db: app.db,
         close: async () => {
           await responder?.close();
           await app.close();
@@ -67,7 +78,7 @@ export async function startGarageServer(o: { dataDir: string; networkPort?: numb
     }
   }
   const address = await app.listen({ host: "127.0.0.1", port: 0 });
-  return { address, sharing, status, close: () => app.close() };
+  return { address, sharing, status, db: app.db, close: () => app.close() };
 }
 export { SCHEMA_VERSION } from "./migrations";
 export { reserveNumber, takeNumber, type NumberKind, type NumberSource, type Reserved } from "./numbering";

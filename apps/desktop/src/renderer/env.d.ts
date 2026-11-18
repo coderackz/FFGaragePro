@@ -14,7 +14,40 @@ interface FfgpBridge {
   connect(args: { host: string; code: string; deviceName: string }): Promise<{ ok?: true; error?: string }>;
   disconnect(): Promise<void>;
   applyNetwork(): Promise<void>;
+  /** This PC's own garage is linked to Fleetfix cloud. */
+  cloudLinked: boolean;
+  cloudStatus(): Promise<CloudStatus>;
+  cloudLink(args: CloudLinkArgs): Promise<{ ok?: true; error?: string }>;
+  cloudSyncNow(): Promise<{ ok: boolean; reason?: string; message?: string }>;
+  cloudUnlink(): Promise<void>;
+  onCloudStatus(cb: (status: CloudStatus) => void): () => void;
 }
+
+interface CloudLinkArgs {
+  mode: "download" | "upload";
+  url: string;
+  garageCode: string;
+  deviceName: string;
+  username?: string;
+  password?: string;
+  setupCode?: string;
+}
+
+/** Mirrors @ffgp/sync's SyncStatus (plus whether a sync is running). */
+type CloudStatus =
+  | { linked: false; syncing: boolean }
+  | {
+      linked: true;
+      syncing: boolean;
+      garageCode: string;
+      deviceCode: string;
+      lastSyncAt: string | null;
+      pending: number;
+      licence: { state: "trial" | "active" | "grace" | "read_only"; endsAt: string | null; graceEndsAt: string | null; checkedAt: string | null; readOnly: boolean; reason: "expired" | "not_checked" | "invalid" | null };
+      readOnly: boolean;
+      issues: number;
+      lastError: { reason: string; message: string } | null;
+    };
 
 interface Window {
   ffgp?: FfgpBridge;

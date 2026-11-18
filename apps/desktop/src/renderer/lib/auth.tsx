@@ -20,6 +20,20 @@ export interface Licence {
   endsAt: string;
   graceEndsAt: string;
   daysLeft: number;
+  /** PC app: read-only because it hasn't heard from the cloud for 30 days (not_checked), or the subscription ended. */
+  reason?: "expired" | "not_checked" | "invalid" | null;
+}
+
+const DAY = 86_400_000;
+
+/** A cloud-linked PC's licence (from its last sync), in the same shape as the browser's. */
+function pcLicence(s: CloudStatus): Licence | null {
+  if (!s.linked) return null;
+  const l = s.licence;
+  const state = l.readOnly ? "read_only" : l.state;
+  const until = state === "grace" ? l.graceEndsAt : l.endsAt;
+  const daysLeft = until ? Math.max(0, Math.ceil((Date.parse(until) - Date.now()) / DAY)) : 0;
+  return { garage: { code: s.garageCode, name: "" }, state, endsAt: l.endsAt ?? "", graceEndsAt: l.graceEndsAt ?? "", daysLeft, reason: l.reason };
 }
 
 interface AuthContext {
@@ -55,6 +69,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     if (isCloud && !getGarageCode()) return setState({ phase: "garage" });
     try {
       if (isCloud) setLicence(await get<Licence>("/api/cloud/licence"));
+      else if (window.ffgp?.cloudLinked) setLicence(pcLicence(await window.ffgp.cloudStatus()));
       const { configured } = await get<{ configured: boolean }>("/api/setup/status");
       if (!configured) return setState({ phase: "setup" });
       if (!getToken()) return setState({ phase: "signed-out" });
@@ -83,7 +98,10 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     window.addEventListener("ffgp:signed-out", onSignedOut);
     window.addEventListener("ffgp:unpaired", onUnpaired);
     window.addEventListener("ffgp:unknown-garage", onUnknownGarage);
+    // A linked PC: each sync brings a fresh licence.
+    const offCloud = window.ffgp?.cloudLinked ? window.ffgp.onCloudStatus((s) => setLicence(pcLicence(s))) : undefined;
     return () => {
+      offCloud?.();
       window.removeEventListener("ffgp:signed-out", onSignedOut);
       window.removeEventListener("ffgp:unpaired", onUnpaired);
       window.removeEventListener("ffgp:unknown-garage", onUnknownGarage);

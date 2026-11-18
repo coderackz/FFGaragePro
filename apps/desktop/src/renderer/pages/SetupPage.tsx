@@ -1,5 +1,6 @@
 import { useState, type FormEvent } from "react";
 import { AuthShell } from "../components/AuthShell";
+import { CloudConnectDialog } from "../components/CloudConnectDialog";
 import { Button, Field, Input, Textarea } from "../components/ui";
 import { getGarageCode, isCloud } from "../lib/api";
 import { useAuth } from "../lib/auth";
@@ -7,6 +8,7 @@ import { useAuth } from "../lib/auth";
 export function SetupPage() {
   const { completeSetup, startConnect, changeGarage } = useAuth();
   const [setupCode, setSetupCode] = useState("");
+  const [cloudOpen, setCloudOpen] = useState(false);
   const [garage, setGarage] = useState({ name: "", trn: "", address: "", phone: "", email: "" });
   const [owner, setOwner] = useState({ name: "", username: "", password: "", confirm: "" });
   const [error, setError] = useState<string | null>(null);
@@ -43,6 +45,16 @@ export function SetupPage() {
           <Button type="button" onClick={startConnect}>Connect to main computer</Button>
         </div>
       )}
+      {window.ffgp && (
+        <div className="-mt-4 mb-7 flex items-center justify-between gap-4 rounded-lg border border-zinc-200 bg-zinc-50 px-4 py-3 text-sm">
+          <div>
+            <div className="font-medium">Already using Fleetfix cloud in a browser?</div>
+            <div className="text-zinc-500">Sign in to copy your cloud garage to this PC. It keeps working without internet.</div>
+          </div>
+          <Button type="button" onClick={() => setCloudOpen(true)}>Connect to Fleetfix cloud</Button>
+        </div>
+      )}
+      {cloudOpen && <CloudConnectDialog mode="download" onClose={() => setCloudOpen(false)} />}
       {isCloud && (
         <div className="mb-7 flex flex-col gap-3 rounded-lg border border-zinc-200 bg-zinc-50 px-4 py-3 text-sm">
           <div className="flex items-center justify-between">

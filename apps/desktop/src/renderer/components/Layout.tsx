@@ -83,7 +83,7 @@ export function Layout({ children }: { children: ReactNode }) {
   );
 }
 
-/** Fleetfix Cloud: trial ending, grace period, or read-only. Nothing for active subscriptions or the PC app. */
+/** Fleetfix Cloud and cloud-linked PCs: trial ending, grace period, or read-only. Nothing for active subscriptions or standalone PCs. */
 function LicenceBanner({ licence }: { licence: ReturnType<typeof useAuth>["licence"] }) {
   if (!licence) return null;
   const days = `${licence.daysLeft} day${licence.daysLeft === 1 ? "" : "s"}`;
@@ -92,6 +92,9 @@ function LicenceBanner({ licence }: { licence: ReturnType<typeof useAuth>["licen
   }
   if (licence.state === "grace") {
     return <div className="bg-amber-50 px-8 py-2 text-sm text-amber-900" data-testid="licence-banner"><b>Subscription ended</b> — {days} left to renew before the garage becomes read-only. Contact Fleet Fix.</div>;
+  }
+  if (licence.state === "read_only" && licence.reason === "not_checked") {
+    return <div className="bg-red-50 px-8 py-2 text-sm text-red-800" data-testid="licence-banner"><b>Read-only:</b> this PC hasn't reached Fleetfix cloud for 30 days. Connect to the internet to keep working. You can still view and print.</div>;
   }
   if (licence.state === "read_only") {
     return <div className="bg-red-50 px-8 py-2 text-sm text-red-800" data-testid="licence-banner"><b>Read-only:</b> the subscription has ended. You can still view and print. Contact Fleet Fix to renew.</div>;
