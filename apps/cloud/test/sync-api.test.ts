@@ -56,6 +56,14 @@ describe("cloud sync API", () => {
     expect((await link(cloud.url, "empty-garage", { mode: "download", username: "rashid", password: "x-pass-123", deviceName: "PC" })).status).toBe(409);
   });
 
+  it("only an owner can link a PC", async () => {
+    const cloud = await startCloud();
+    const { token } = await garageReady(cloud, "alquoz-auto");
+    await api(cloud.url, "POST", "/api/users", { garage: "alquoz-auto", token, body: { name: "Advisor", username: "adv", role: "advisor", password: "advisor-pass-1" } });
+    const res = await link(cloud.url, "alquoz-auto", { mode: "download", username: "adv", password: "advisor-pass-1", deviceName: "PC" });
+    expect(res.status).toBe(403);
+  });
+
   it("upload link needs the setup code and an empty garage", async () => {
     const cloud = await startCloud();
     const g = cloud.admin.createGarage({ code: "new-garage", name: "New", notes: null, now: Date.now() });

@@ -5,7 +5,7 @@ import type { FastifyInstance, FastifyRequest } from "fastify";
 import { z, ZodError } from "zod";
 import { HttpError, LoginThrottle, newId, SCHEMA_VERSION, takeNumber, verifyPassword } from "@ffgp/server";
 import { GARAGE_HEADER, normalizeGarageCode } from "@ffgp/shared";
-import { applyAtCloud, changesFor, maxSeq } from "@ffgp/sync";
+import { applyAtCloud, changesFor, issuesFor, maxSeq } from "@ffgp/sync";
 import type { AdminDb, DeviceRow, GarageRow } from "./admin-db";
 import type { GarageApp, GarageHost } from "./garages";
 import { signLicence, type LicenceKey } from "./licence-token";
@@ -20,7 +20,7 @@ const linkSchema = z.discriminatedUnion("mode", [
   z.object({ mode: z.literal("upload"), setupCode: z.string().min(1).max(40), deviceName: z.string().trim().min(1).max(100) }),
 ]);
 const pushSchema = z.object({ schema: z.number().int(), entries: z.array(z.any()).max(2000) });
-const pullSchema = z.object({ since: z.coerce.number().int().min(0), limit: z.coerce.number().int().min(1).max(500).default(500), schema: z.coerce.number().int() });
+const pullSchema = z.object({ since: z.coerce.number().int().min(0), issuesSince: z.coerce.number().int().min(0).default(0), limit: z.coerce.number().int().min(1).max(500).default(500), schema: z.coerce.number().int() });
 const numbersSchema = z.object({ kind: z.enum(["estimate", "jobcard", "invoice", "purchase_order"]) });
 
 /** Changes only move between the same schema version; the side that's behind has to update first. */
@@ -93,12 +93,14 @@ export function syncRoutes(
         const throttle = o.throttleFor(g.id);
         const locked = throttle.lockedMinutes(input.username, t);
         if (locked) throw new HttpError(429, `Too many wrong passwords. This login is locked — try again in ${locked} minute${locked === 1 ? "" : "s"}.`);
-        const user = a.db.get<{ password_hash: string; active: number }>("SELECT password_hash, active FROM users WHERE username = ?", [input.username]);
+        const user = a.db.get<{ password_hash: string; active: number; role: string }>("SELECT password_hash, active, role FROM users WHERE username = ?", [input.username]);
         if (!user || !user.active || !verifyPassword(input.password, user.password_hash)) {
           throttle.failed(input.username, t);
           throw new HttpError(401, "Wrong username or password");
         }
         throttle.succeeded(input.username);
+        // A linked PC holds the whole garage (every user, costs), so only an Owner may link one.
+        if (user.role !== "owner") throw new HttpError(403, "Only the garage's Owner can connect a PC to Fleetfix cloud.", "owner_only");
       });
       const { device, key: deviceKey } = admin.addDevice({ garageId: g.id, name: input.deviceName, linkMode: input.mode, now: t });
       admin.audit({ staffId: null, garageId: g.id, action: "device.link", detail: { deviceCode: device.device_code, name: device.name, mode: input.mode }, now: t });
@@ -192,9 +194,12 @@ export function syncRoutes(
       const device = deviceOf(req, g);
       const input = pullSchema.parse(req.query);
       checkSchema(input.schema);
-      const entries = await withGarage(g, (a) => changesFor(a.db, input.since, device.device_code, input.limit));
+      const { entries, issues } = await withGarage(g, (a) => ({
+        entries: changesFor(a.db, input.since, device.device_code, input.limit),
+        issues: issuesFor(a.db, device.device_code, input.issuesSince),
+      }));
       admin.synced(device, now());
-      return { entries, more: entries.length === input.limit, licence: licence(g) };
+      return { entries, more: entries.length === input.limit, licence: licence(g), issues: issues.issues, issuesSeq: issues.lastId };
     });
 
     scope.post("/api/cloud/sync/numbers", async (req) => {

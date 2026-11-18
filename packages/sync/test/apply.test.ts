@@ -11,7 +11,8 @@ const LINE = { kind: "labour", description: "Service", qty: 1, unitPriceFils: 10
 
 /** A PC garage (A) and its cloud copy (C), as right after a link: same data, capture on both. */
 async function pair(seed?: (app: App, token: string) => Promise<void>) {
-  const A = await garageApp();
+  // A linked PC that's offline: its numbers come from its own series.
+  const A = await garageApp(undefined, { numbers: { next: async () => null, offlineSeries: "P1" } });
   apps.push(A);
   const token = await setUp(A);
   await seed?.(A, token);
@@ -137,6 +138,46 @@ describe("merge engine", () => {
     expect(C.db.get("SELECT status FROM documents WHERE id = ?", [inv])).toEqual({ status: "issued" });
   });
 
+  it("an estimate converted on both sides offline: both job cards exist on both sides, one keeps the link, one readable issue", async () => {
+    let est = "";
+    const { A, C, token, sync } = await pair(async (app, t) => {
+      const c = await customer(app, t);
+      est = (await call(app, "POST", "/api/documents", t, { type: "estimate", customerId: c.id, lines: [LINE] })).body.document.id;
+    });
+    const atCloud = (await call(C, "POST", `/api/documents/${est}/convert`, token)).body.document;
+    const atPc = (await call(A, "POST", `/api/documents/${est}/convert`, token)).body.document;
+    const { pushed } = sync();
+    const jobs = (app: App) => app.db.all<{ id: string; source_id: string | null }>("SELECT id, source_id FROM documents WHERE type = 'jobcard' ORDER BY id");
+    expect(jobs(C)).toHaveLength(2);
+    expect(jobs(A)).toEqual(jobs(C));
+    expect(C.db.get("SELECT source_id FROM documents WHERE id = ?", [atCloud.id])).toEqual({ source_id: est });
+    expect(C.db.get("SELECT source_id FROM documents WHERE id = ?", [atPc.id])).toEqual({ source_id: null });
+    expect(A.db.all("SELECT 1 FROM document_lines WHERE document_id = ?", [atPc.id])).toHaveLength(1);
+    expect(C.db.all("SELECT 1 FROM document_lines WHERE document_id = ?", [atPc.id])).toHaveLength(1);
+    expect(pushed.result.issues.map((i) => i.kind)).toEqual(["unique_rename"]);
+    expect(pushed.result.issues[0]!.message).toMatch(/converted in two places/);
+    expect(A.db.all("SELECT 1 FROM sync_issues WHERE kind = 'apply_failed'")).toHaveLength(0);
+  });
+
+  it("the same draft invoice issued on both sides takes the stock once", async () => {
+    let inv = "";
+    let partId = "";
+    const { A, C, token, sync } = await pair(async (app, t) => {
+      partId = (await createPart(app, t, {}, { qty: 10, unitCostFils: 2000 })).id;
+      const c = await customer(app, t);
+      inv = (await call(app, "POST", "/api/documents", t, {
+        type: "invoice", customerId: c.id, lines: [{ kind: "part", partId, description: "Oil filter", qty: 1, unitPriceFils: 3500, discountPct: 0 }],
+      })).body.document.id;
+    });
+    expect((await call(C, "POST", `/api/documents/${inv}/issue`, token)).status).toBe(200);
+    expect((await call(A, "POST", `/api/documents/${inv}/issue`, token)).status).toBe(200);
+    sync();
+    sync();
+    const part = (app: App) => app.db.get<{ on_hand: number }>("SELECT on_hand FROM parts WHERE id = ?", [partId])!.on_hand;
+    expect(part(C)).toBe(9);
+    expect(part(A)).toBe(9);
+  });
+
   it("payments from both sides add up; the invoice status becomes paid", async () => {
     let inv = "";
     const { A, C, token, sync } = await pair(async (app, t) => {
@@ -179,7 +220,7 @@ describe("merge engine", () => {
     const result = applyAtCloud(C.db, "P1", entries);
     expect(result.issues.map((i) => i.kind)).toEqual(["apply_failed"]);
     expect(C.db.get("SELECT name FROM customers WHERE id = ?", [c.id])).toEqual({ name: "Fatima" });
-    expect(C.db.get("SELECT number FROM documents WHERE id = ?", [doc.id])).toEqual({ number: "EST-00001" });
+    expect(C.db.get("SELECT number FROM documents WHERE id = ?", [doc.id])).toEqual({ number: "EST-P1-00001" });
     expect(C.db.all("SELECT 1 FROM document_lines WHERE document_id = ?", [doc.id])).toHaveLength(0);
   });
 });

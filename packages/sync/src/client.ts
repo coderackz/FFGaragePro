@@ -1,4 +1,5 @@
-import { mkdirSync, readFileSync, renameSync, rmSync, writeFileSync } from "node:fs";
+import { existsSync, mkdirSync, readFileSync, renameSync, rmSync, writeFileSync } from "node:fs";
+import { DatabaseSync } from "node:sqlite";
 import { join } from "node:path";
 import type { FastifyRequest } from "fastify";
 import { Db, HttpError, newId, SCHEMA_VERSION, type NumberSource } from "@ffgp/server";
@@ -89,16 +90,33 @@ async function link(f: typeof fetch, url: string, garageCode: string, body: unkn
   return reply;
 }
 
+/** Whether a garage file has a set-up garage in it (a download must never replace one). Unreadable counts as yes. */
+function hasGarage(file: string): boolean {
+  if (!existsSync(file)) return false;
+  try {
+    const db = new DatabaseSync(file, { readOnly: true });
+    try {
+      const table = db.prepare("SELECT 1 FROM sqlite_master WHERE type = 'table' AND name = 'garage'").get();
+      return !!table && !!db.prepare("SELECT 1 FROM garage").get();
+    } finally {
+      db.close();
+    }
+  } catch {
+    return true;
+  }
+}
+
 /**
  * A new PC joins a cloud garage: signs in, then the garage's whole database is written as `<dataDir>/garage.db`.
  * Call it before the PC's own server opens that file.
  */
 export async function linkDownload(o: { url: string; garageCode: string; username: string; password: string; deviceName: string; dataDir: string; fetch?: typeof fetch }): Promise<CloudLink> {
   const f = o.fetch ?? fetch;
+  const file = join(o.dataDir, "garage.db");
+  if (hasGarage(file)) throw new CloudError("refused", "This PC already has a garage. Upload it to a new cloud garage instead (Settings → Fleetfix cloud).");
   const reply = await link(f, o.url, o.garageCode, { mode: "download", username: o.username, password: o.password, deviceName: o.deviceName });
   const { body, res } = await request<ArrayBuffer>(f, `${base(o.url)}/api/cloud/sync/snapshot`, { headers: garageHeaders(o.garageCode, reply.deviceKey) });
   mkdirSync(o.dataDir, { recursive: true });
-  const file = join(o.dataDir, "garage.db");
   const temp = join(o.dataDir, `garage.download-${newId()}.db`);
   writeFileSync(temp, new Uint8Array(body));
   for (const suffix of ["", "-wal", "-shm"]) rmSync(`${file}${suffix}`, { force: true });
@@ -200,13 +218,19 @@ export class SyncClient {
       }
       for (;;) {
         const since = numState(db, "last_pulled_seq");
-        const { body } = await request<{ entries: ChangeEntry[]; more: boolean; licence: string }>(
+        const issuesSince = numState(db, "last_issue_seq");
+        const { body } = await request<{ entries: ChangeEntry[]; more: boolean; licence: string; issues?: SyncIssue[]; issuesSeq?: number }>(
           this.f,
-          `${this.link.url}/api/cloud/sync/pull?since=${since}&limit=${PAGE}&schema=${SCHEMA_VERSION}`,
+          `${this.link.url}/api/cloud/sync/pull?since=${since}&limit=${PAGE}&schema=${SCHEMA_VERSION}&issuesSince=${issuesSince}`,
           { headers: this.headers() },
         );
         const result = applyAtPc(db, body.entries);
-        setState(db, "licence", body.licence);
+        db.tx(() => {
+          // Issues the cloud recorded about this PC's changes (already known ones are stored once).
+          recordIssues(db, body.issues ?? []);
+          if (body.issuesSeq !== undefined) setState(db, "last_issue_seq", String(body.issuesSeq));
+          setState(db, "licence", body.licence);
+        });
         pulled += result.applied;
         issues += result.issues.length;
         if (!body.more || !body.entries.length) break;

@@ -81,4 +81,5 @@ export async function startGarageServer(o: {
   return { address, sharing, status, db: app.db, close: () => app.close() };
 }
 export { SCHEMA_VERSION } from "./migrations";
+export { reconcileDocumentStock } from "./stock";
 export { reserveNumber, takeNumber, type NumberKind, type NumberSource, type Reserved } from "./numbering";

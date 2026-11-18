@@ -217,11 +217,13 @@ ipcMain.handle("ffgp:cloudLink", async (_event, args: CloudLinkArgs) => {
   const url = args.url.trim().replace(/\/+$/, "");
   if (!/^https?:\/\/[^\s]+$/.test(url)) return { error: "Type the cloud address, e.g. http://localhost:4790" };
   const garageCode = args.garageCode.trim().toLowerCase();
-  const configured = await fetch(`${connection.apiBase}/api/setup/status`).then((r) => r.json() as Promise<{ configured: boolean }>).catch(() => null);
+  // Asked of the database itself: a failed check must never look like "no garage here".
+  if (!server) return { error: "The garage isn't open. Restart Fleetfix Garage Pro and try again." };
+  const configured = { configured: !!server.db.get("SELECT 1 FROM garage WHERE id = 1") };
   try {
     let link: CloudLink;
     if (args.mode === "download") {
-      if (configured?.configured) return { error: "This PC already has a garage. Use Settings → Fleetfix cloud to upload it instead." };
+      if (configured.configured) return { error: "This PC already has a garage. Use Settings → Fleetfix cloud to upload it instead." };
       await server?.close();
       server = null;
       try {
@@ -231,7 +233,7 @@ ipcMain.handle("ffgp:cloudLink", async (_event, args: CloudLinkArgs) => {
         throw error;
       }
     } else {
-      if (!configured?.configured || !server) return { error: "Set up this PC's garage first, or sign in to download the cloud garage." };
+      if (!configured.configured || !server) return { error: "Set up this PC's garage first, or sign in to download the cloud garage." };
       link = await linkUpload({ url, garageCode, setupCode: args.setupCode ?? "", deviceName: args.deviceName, db: server.db });
     }
     writeConfig({ mode: "local", cloud: link });

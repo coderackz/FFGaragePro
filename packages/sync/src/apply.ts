@@ -1,4 +1,4 @@
-import { newId, type Db } from "@ffgp/server";
+import { newId, reconcileDocumentStock, type Db } from "@ffgp/server";
 import { changesSince, columns, ownOrigin, syncedColumns, type ChangeEntry, type Row } from "./capture";
 import { recomputeDocument, recomputePart, recomputePurchaseOrder } from "./recompute";
 import { numState, setState } from "./state";
@@ -42,19 +42,36 @@ interface Ctx {
   own: string;
   issues: SyncIssue[];
   touched: { parts: Set<string>; docs: Set<string>; pos: Set<string> };
+  /** Work to do once the row is written (logging the cloud's own version of it). */
+  afterWrite: (() => void)[];
 }
 
 function addIssue(c: Ctx, kind: IssueKind, table: string, rowId: string, message: string, detail: unknown = null): void {
   const issue: SyncIssue = { id: newId(), at: new Date().toISOString(), kind, table, rowId, message, detail };
-  storeIssue(c.db, issue);
+  storeIssue(c.db, issue, c.mode === "cloud" ? c.from : null);
   c.issues.push(issue);
 }
 
-function storeIssue(db: Db, i: SyncIssue): void {
+function storeIssue(db: Db, i: SyncIssue, forDevice: string | null = null): void {
   db.run(
-    "INSERT OR IGNORE INTO sync_issues (id, at, kind, table_name, row_id, message, detail) VALUES (?, ?, ?, ?, ?, ?, ?)",
-    [i.id, i.at, i.kind, i.table, i.rowId, i.message, i.detail == null ? null : JSON.stringify(i.detail)],
+    "INSERT OR IGNORE INTO sync_issues (id, at, kind, table_name, row_id, message, detail, for_device) VALUES (?, ?, ?, ?, ?, ?, ?, ?)",
+    [i.id, i.at, i.kind, i.table, i.rowId, i.message, i.detail == null ? null : JSON.stringify(i.detail), forDevice],
   );
+}
+
+/**
+ * The cloud's issues about a PC's changes after `afterId` (an internal position), so the PC hears of every one
+ * even if the reply to its push was lost. Recording them again is harmless: an issue is stored once by its id.
+ */
+export function issuesFor(db: Db, device: string, afterId: number): { issues: SyncIssue[]; lastId: number } {
+  const rows = db.all<{ rid: number; id: string; at: string; kind: IssueKind; table_name: string; row_id: string; message: string; detail: string | null }>(
+    "SELECT rowid AS rid, * FROM sync_issues WHERE for_device = ? AND rowid > ? ORDER BY rowid LIMIT 500",
+    [device, afterId],
+  );
+  return {
+    issues: rows.map((r) => ({ id: r.id, at: r.at, kind: r.kind, table: r.table_name, rowId: r.row_id, message: r.message, detail: r.detail ? JSON.parse(r.detail) : null })),
+    lastId: rows.at(-1)?.rid ?? afterId,
+  };
 }
 
 /** A PC keeps the issues the cloud reported for its changes, so the owner sees them on the PC too. */
@@ -152,8 +169,43 @@ function writeRow(c: Ctx, t: SyncTable, id: string, data: Row, values: Row, curr
   }
 }
 
+const docNumber = (db: Db, id: unknown) => db.get<{ number: string }>("SELECT number FROM documents WHERE id = ?", [id as string])?.number ?? "a document";
+
+/**
+ * The same estimate or job card converted in two places: both new documents are kept, the first one received keeps
+ * the link to what it was converted from (a document converts only once), the other is kept without it.
+ */
+function conversionClash(c: Ctx, id: string, data: Row, values: Row, current: Row | undefined): Row {
+  const source = (values.source_id !== undefined ? values.source_id : current?.source_id) as string | null | undefined;
+  if (!source) return values;
+  const other = c.db.get<{ id: string }>("SELECT id FROM documents WHERE source_id = ? AND id <> ?", [source, id]);
+  if (!other) return values;
+  const number = String(data.number ?? current?.number ?? "A document");
+  const message = (kept: string, unlinked: string) =>
+    `${docNumber(c.db, source)} was converted in two places, to ${kept} and ${unlinked}. Both are kept; ${unlinked} is no longer linked to ${docNumber(c.db, source)}.`;
+  if (c.mode === "cloud") {
+    c.afterWrite.push(() => {
+      logOwn(c, tableInfo("documents")!, id, ["source_id"]);
+      addIssue(c, "unique_rename", "documents", id, message(docNumber(c.db, other.id), number), { kept: other.id, source });
+    });
+    return { ...values, source_id: null };
+  }
+  const unpushed = unpushedColumns(c.db, c.own, "documents", other.id);
+  const unlink = () => c.db.run("UPDATE documents SET source_id = NULL WHERE id = ?", [other.id]);
+  if (unpushed !== "all" && unpushed.size === 0) unlink();
+  else {
+    as(c.db, c.own, null, unlink);
+    addIssue(c, "unique_rename", "documents", other.id, message(number, docNumber(c.db, other.id)), { kept: id, source });
+  }
+  return values;
+}
+
 /** Applies a row change, keeping unique values unique: the cloud renames the incoming row, a PC renames its own. */
 function upsert(c: Ctx, t: SyncTable, id: string, data: Row, values: Row, current: Row | undefined): void {
+  if (t.name === "documents") {
+    values = conversionClash(c, id, data, values, current);
+    if (!current && values.source_id === null) data = { ...data, source_id: null };
+  }
   const u = UNIQUE[t.name];
   const other = u && u.col in values ? clash(c.db, t.name, id, values, current) : null;
   if (!other || !u) return writeRow(c, t, id, data, values, current);
@@ -201,6 +253,7 @@ function touch(c: Ctx, table: string, row: Row | null, rowId: string): void {
   const s = c.touched;
   if (table === "parts") s.parts.add(rowId);
   if (table === "stock_movements" && row?.part_id) s.parts.add(String(row.part_id));
+  if (table === "stock_movements" && row?.document_id) s.docs.add(String(row.document_id));
   if (table === "documents") s.docs.add(rowId);
   if (table === "document_lines") s.docs.add(rowId);
   if (table === "payments" && row?.document_id) s.docs.add(String(row.document_id));
@@ -275,6 +328,7 @@ function applyEntry(c: Ctx, e: ChangeEntry): boolean {
     }
   }
   upsert(c, t, e.rowId, data, values, current);
+  for (const fn of c.afterWrite.splice(0)) fn();
   touch(c, t.name, { ...current, ...data }, e.rowId);
   return true;
 }
@@ -293,11 +347,30 @@ function applyAll(c: Ctx, entries: ChangeEntry[], attribution: (e: ChangeEntry) 
       addIssue(c, "apply_failed", e.table, e.rowId, `A change from ${c.from} couldn't be applied: ${(error as Error).message}`, { entry: e });
     }
   }
+  if (c.mode === "cloud") reconcileStock(c);
   // Derived figures are this side's own, from everything it now has.
   for (const id of c.touched.parts) recomputePart(c.db, id);
   for (const id of c.touched.pos) recomputePurchaseOrder(c.db, id);
   for (const id of c.touched.docs) recomputeDocument(c.db, id);
   return applied;
+}
+
+/**
+ * Stock taken for a document is made to match its lines once more, at the cloud only, as the cloud's own change
+ * (so the correction reaches every PC). Two places that each took stock for the same job card or invoice
+ * would otherwise take it twice.
+ */
+function reconcileStock(c: Ctx): void {
+  for (const docId of c.touched.docs) {
+    const doc = c.db.get<{ type: string; status: string; created_by: string | null }>("SELECT type, status, created_by FROM documents WHERE id = ?", [docId]);
+    if (!doc) continue;
+    const moves = (doc.type === "jobcard" && doc.status !== "converted") || (doc.type === "invoice" && doc.status !== "draft");
+    if (!moves) continue;
+    const before = c.db.get<{ n: number }>("SELECT COUNT(*) AS n FROM stock_movements")!.n;
+    reconcileDocumentStock(c.db, docId, doc.created_by as string);
+    if (c.db.get<{ n: number }>("SELECT COUNT(*) AS n FROM stock_movements")!.n === before) continue;
+    for (const { part_id } of c.db.all<{ part_id: string }>("SELECT DISTINCT part_id FROM stock_movements WHERE document_id = ?", [docId])) c.touched.parts.add(part_id);
+  }
 }
 
 const newCtx = (db: Db, mode: Ctx["mode"], from: string): Ctx => ({
@@ -307,6 +380,7 @@ const newCtx = (db: Db, mode: Ctx["mode"], from: string): Ctx => ({
   own: ownOrigin(db),
   issues: [],
   touched: { parts: new Set(), docs: new Set(), pos: new Set() },
+  afterWrite: [],
 });
 
 /**

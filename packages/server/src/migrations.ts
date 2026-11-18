@@ -354,8 +354,11 @@ CREATE TABLE sync_issues (
   row_id TEXT NOT NULL,
   message TEXT NOT NULL,
   detail TEXT,
-  dismissed_at TEXT
+  dismissed_at TEXT,
+  -- Cloud only: the PC whose changes caused it, so that PC is told on its next pull.
+  for_device TEXT
 );
+CREATE INDEX sync_issues_device ON sync_issues(for_device);
 
 -- Cloud only: the last change applied from each PC, so a re-sent page is applied once.
 CREATE TABLE sync_peers (device_code TEXT PRIMARY KEY, last_origin_seq INTEGER NOT NULL);

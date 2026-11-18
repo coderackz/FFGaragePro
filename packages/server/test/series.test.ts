@@ -52,6 +52,26 @@ describe("number series", () => {
     }
   });
 
+  it("a stale counter never hands out a number that's already used (a PC after leaving the cloud)", async () => {
+    const app = await appWith(undefined);
+    try {
+      const owner = await setUp(app);
+      const customer = (await call(app, "POST", "/api/customers", owner, { name: "Ahmed" })).body.customer;
+      const inv = async () => await call(app, "POST", "/api/documents", owner, { type: "invoice", customerId: customer.id, lines: [LINE] });
+      expect((await inv()).body.document.number).toBe("INV-00001");
+      // Numbers 2 and 3 arrived from the cloud while this PC's counter stood still.
+      const t = new Date().toISOString();
+      for (const n of [2, 3]) {
+        app.db.run("INSERT INTO documents (id, type, series, seq, number, status, customer_id, created_at, updated_at) VALUES (?, 'invoice', '', ?, ?, 'draft', ?, ?, ?)", [`synced-${n}`, n, `INV-0000${n}`, customer.id, t, t]);
+      }
+      const next = await inv();
+      expect(next.status).toBe(200);
+      expect(next.body.document.number).toBe("INV-00004");
+    } finally {
+      await app.close();
+    }
+  });
+
   it("existing databases migrate", async () => {
     const dir = tempDir();
     const file = join(dir, "garage.db");

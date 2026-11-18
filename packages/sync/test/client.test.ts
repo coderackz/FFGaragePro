@@ -124,6 +124,34 @@ describe("PC sync client", () => {
     expect(client.status().issues).toBe(0);
   });
 
+  it("the clash issue reaches the PC even when the push reply is lost", async () => {
+    const { cloud, browser, net, app, client, pcToken } = await cloudAndPc();
+    const c = (await call(app, "POST", "/api/customers", pcToken, { name: "Owner" })).body.customer;
+    await client.syncOnce();
+    await call(app, "POST", "/api/vehicles", pcToken, { customerId: c.id, plate: "DXB A 7" });
+    await browserCall(cloud.url, browser, "POST", "/api/vehicles", { customerId: c.id, plate: "DXB A 7" });
+    net.state.failNext = { path: "/sync/push", after: true };
+    expect(await client.syncOnce()).toMatchObject({ ok: false });
+    expect(await client.syncOnce()).toMatchObject({ ok: true });
+    expect(client.status().issues).toBe(1);
+    await client.syncOnce();
+    expect(client.status().issues).toBe(1);
+  });
+
+  it("downloading never replaces a garage that's already set up on this PC", async () => {
+    const cloud = await startCloud();
+    await garageReady(cloud, "alquoz-auto");
+    const dataDir = tempDir();
+    const standalone = await buildApp({ dataDir });
+    const setup = await call(standalone, "POST", "/api/setup", undefined, { garage: { name: "Mine" }, owner: { name: "Mona Saleh", username: "mona", password: "my-pass-123" } });
+    expect(setup.status).toBe(200);
+    await standalone.close();
+    await expect(linkDownload({ url: cloud.url, garageCode: "alquoz-auto", username: "rashid", password: SETUP.owner.password, deviceName: "PC", dataDir })).rejects.toThrow(/already has a garage/);
+    const again = await buildApp({ dataDir });
+    apps.push(again);
+    expect(again.db.get("SELECT name FROM garage")).toEqual({ name: "Mine" });
+  });
+
   it("existing PC garage uploads into an empty cloud garage; browser sign-in works with the PC owner's password", async () => {
     const cloud = await startCloud();
     const g = cloud.admin.createGarage({ code: "pc-garage", name: "PC Garage", notes: null, now: Date.now() });
