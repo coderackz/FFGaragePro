@@ -29,3 +29,20 @@ export interface DocumentSummary {
   id: string; type: DocType; number: string; status: string; customerName: string; plate: string | null; grossFils: number;
   paidFils: number; balanceFils: number; createdAt: string; issuedAt: string | null;
 }
+
+// ---- Inventory ----
+
+export interface Part {
+  id: string; partNo: string; name: string; brand: string | null; unit: string; stocked: boolean; sellPriceFils: number;
+  onHand: number; reorderLevel: number; location: string | null; fits: string | null; active: boolean; lowStock: boolean;
+  avgCostFils?: number; stockValueFils?: number;
+}
+export interface StockMovement {
+  id: string; qty: number; reason: "receive" | "job" | "invoice" | "adjust" | "opening"; note: string | null; createdAt: string;
+  createdBy: string | null; documentId: string | null; documentNumber: string | null; purchaseOrderId: string | null;
+  purchaseOrderNumber: string | null; unitCostFils?: number;
+}
+export interface Supplier {
+  id: string; name: string; trn: string | null; phone: string | null; email: string | null; address: string | null; notes: string | null;
+  isFleetfix: boolean;
+}

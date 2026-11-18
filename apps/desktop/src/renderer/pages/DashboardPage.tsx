@@ -1,10 +1,10 @@
-import { FileText, Plus, Receipt, Wrench } from "lucide-react";
+import { FileText, Package, Plus, Receipt, Wrench } from "lucide-react";
 import { useMemo } from "react";
 import { Link, useNavigate } from "react-router";
 import { Button, Card, Empty, PageHeader, StatusBadge, Table } from "../components/ui";
 import { useAuth } from "../lib/auth";
 import { formatAED, formatDate } from "../lib/format";
-import type { DocumentSummary } from "../lib/types";
+import type { DocumentSummary, Part } from "../lib/types";
 import { useApi } from "../lib/useApi";
 
 export function DashboardPage() {
@@ -13,6 +13,8 @@ export function DashboardPage() {
   const estimates = useApi<{ documents: DocumentSummary[] }>("/api/documents?type=estimate");
   const jobs = useApi<{ documents: DocumentSummary[] }>("/api/documents?type=jobcard");
   const invoices = useApi<{ documents: DocumentSummary[] }>("/api/documents?type=invoice");
+  const lowStock = useApi<{ parts: Part[] }>("/api/parts?lowStock=1&active=1");
+  const lowCount = lowStock.data?.parts.length ?? 0;
 
   const stats = useMemo(() => {
     const est = estimates.data?.documents ?? [];
@@ -51,6 +53,13 @@ export function DashboardPage() {
         <Stat to="/invoices" label="Unpaid invoices" value={stats.unpaidCount} note={`${stats.draftInvoices} drafts not issued`} />
         <Stat to="/invoices" label="Outstanding" value={formatAED(stats.unpaidFils)} note="Balance across unpaid invoices" />
       </div>
+      {lowCount > 0 && (
+        <Link to="/parts?lowStock=1" data-testid="low-stock" className="mb-5 flex items-center gap-2 rounded-lg border border-amber-200 bg-amber-50 px-4 py-2.5 text-sm text-amber-900 hover:bg-amber-100">
+          <Package className="size-4" />
+          <span><b>Low stock: {lowCount}</b> {lowCount === 1 ? "part is" : "parts are"} at or below the reorder level.</span>
+          <span className="ml-auto font-medium">View</span>
+        </Link>
+      )}
       <Card title="Workshop now" padded={false} actions={<Link to="/jobcards" className="text-sm text-brand-700 hover:underline">All job cards</Link>}>
         <Table
           rows={stats.openJobs.slice(0, 12)}

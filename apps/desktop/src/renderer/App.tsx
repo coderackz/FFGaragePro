@@ -14,6 +14,9 @@ import { SettingsPage } from "./pages/SettingsPage";
 import { SetupPage } from "./pages/SetupPage";
 import { UsersPage } from "./pages/UsersPage";
 import { VehiclesPage } from "./pages/VehiclesPage";
+import { PartPage } from "./pages/PartPage";
+import { PartsPage } from "./pages/PartsPage";
+import { SuppliersPage } from "./pages/SuppliersPage";
 
 export function App() {
   const { state, can, retry, startConnect } = useAuth();
@@ -66,6 +69,9 @@ export function App() {
         <Route path="/customers" element={<CustomersPage />} />
         <Route path="/customers/:id" element={<CustomerPage />} />
         <Route path="/vehicles" element={<VehiclesPage />} />
+        <Route path="/parts" element={<PartsPage />} />
+        <Route path="/parts/:id" element={<PartPage />} />
+        <Route path="/suppliers" element={<SuppliersPage />} />
         {can("users.manage") && <Route path="/users" element={<UsersPage />} />}
         {can("settings.manage") && <Route path="/settings" element={<SettingsPage />} />}
         <Route path="*" element={<Navigate to="/" replace />} />
