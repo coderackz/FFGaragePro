@@ -1,5 +1,6 @@
 import { join } from "node:path";
 import { buildApp, type AppOptions } from "@ffgp/server";
+import { installCapture } from "@ffgp/sync";
 
 export type GarageApp = Awaited<ReturnType<typeof buildApp>>;
 
@@ -29,7 +30,12 @@ export class GarageHost {
     if (app) this.open.delete(garageId);
     else {
       app = buildApp({ ...this.optionsFor(garageId), dataDir: this.dir(garageId), cloud: true })
-        .then(async (a) => (await a.ready(), a))
+        .then(async (a) => {
+          await a.ready();
+          // Every change in the cloud is logged for the garage's PCs.
+          installCapture(a.db, "cloud");
+          return a;
+        })
         .catch((error: unknown) => {
           if (this.open.get(garageId) === app) this.open.delete(garageId);
           throw error;
@@ -58,6 +64,13 @@ export class GarageHost {
       this.open.delete(id);
       await closeQuietly(app);
     }
+  }
+
+  /** Closes one garage (its file is about to be replaced); the next request opens it again. */
+  async close(garageId: string): Promise<void> {
+    const app = this.open.get(garageId);
+    this.open.delete(garageId);
+    if (app) await closeQuietly(app);
   }
 
   async closeAll(): Promise<void> {

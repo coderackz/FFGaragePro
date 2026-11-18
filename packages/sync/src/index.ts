@@ -3,3 +3,4 @@ export { LOCAL_SETTING_PREFIX, SYNC_TABLES, tableInfo, type SyncTable } from "./
 export { applyAtCloud, applyAtPc, changesFor, recordIssues, type ApplyResult, type IssueKind, type SyncIssue } from "./apply";
 export { recomputeDocument, recomputePart, recomputePurchaseOrder } from "./recompute";
 export { getState, numState, setState } from "./state";
+export { verifyLicence, type LicencePayload } from "./licence";

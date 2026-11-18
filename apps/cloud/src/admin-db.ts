@@ -62,7 +62,30 @@ CREATE TABLE audit (
 );
 `,
   },
+  {
+    id: 2,
+    sql: `
+-- PCs linked to a garage. The key itself is only on the PC; here its hash.
+CREATE TABLE devices (
+  id TEXT PRIMARY KEY,
+  garage_id TEXT NOT NULL REFERENCES garages(id),
+  device_code TEXT NOT NULL,
+  name TEXT NOT NULL,
+  key_hash TEXT NOT NULL UNIQUE,
+  link_mode TEXT NOT NULL CHECK (link_mode IN ('download','upload')),
+  created_at TEXT NOT NULL,
+  last_sync_at TEXT,
+  revoked_at TEXT,
+  UNIQUE (garage_id, device_code)
+);
+`,
+  },
 ];
+
+export interface DeviceRow {
+  id: string; garage_id: string; device_code: string; name: string; key_hash: string; link_mode: "download" | "upload";
+  created_at: string; last_sync_at: string | null; revoked_at: string | null;
+}
 
 /** Fleet Fix's own database: which garages exist, their licences, and Fleet Fix staff. */
 export class AdminDb {
@@ -153,6 +176,35 @@ export class AdminDb {
     return this.raw.prepare(
       `SELECT s.* FROM staff_sessions ss JOIN staff s ON s.id = ss.staff_id WHERE ss.token_hash = ? AND ss.expires_at > ? AND s.active = 1`,
     ).get(tokenHash(token), iso(now)) as StaffRow | undefined;
+  }
+
+  /** Links a PC to a garage: the next device code (P1, P2…) and a new key, returned once. */
+  addDevice(o: { garageId: string; name: string; linkMode: DeviceRow["link_mode"]; now: number }): { device: DeviceRow; key: string } {
+    const n = (this.raw.prepare("SELECT COUNT(*) AS n FROM devices WHERE garage_id = ?").get(o.garageId) as { n: number }).n + 1;
+    const key = randomBytes(32).toString("base64url");
+    const id = randomUUID();
+    this.raw.prepare("INSERT INTO devices (id, garage_id, device_code, name, key_hash, link_mode, created_at) VALUES (?, ?, ?, ?, ?, ?, ?)")
+      .run(id, o.garageId, `P${n}`, o.name, tokenHash(key), o.linkMode, iso(o.now));
+    return { device: this.raw.prepare("SELECT * FROM devices WHERE id = ?").get(id) as unknown as DeviceRow, key };
+  }
+
+  /** The garage's linked, not revoked device with this key. */
+  deviceByKey(garageId: string, key: string): DeviceRow | undefined {
+    return this.raw.prepare("SELECT * FROM devices WHERE garage_id = ? AND key_hash = ? AND revoked_at IS NULL").get(garageId, tokenHash(key)) as DeviceRow | undefined;
+  }
+
+  revokeDevice(garageId: string, deviceCode: string, now: number): void {
+    this.raw.prepare("UPDATE devices SET revoked_at = ? WHERE garage_id = ? AND device_code = ?").run(iso(now), garageId, deviceCode);
+  }
+
+  /** Records a sync, on the device and on the garage (the admin list shows it). */
+  synced(device: DeviceRow, now: number): void {
+    this.raw.prepare("UPDATE devices SET last_sync_at = ? WHERE id = ?").run(iso(now), device.id);
+    this.raw.prepare("UPDATE garages SET last_sync_at = ? WHERE id = ?").run(iso(now), device.garage_id);
+  }
+
+  clearSetupCode(garageId: string, now: number): void {
+    this.raw.prepare("UPDATE garages SET setup_code = NULL, setup_code_expires_at = NULL, updated_at = ? WHERE id = ?").run(iso(now), garageId);
   }
 
   audit(o: { staffId: string | null; garageId: string | null; action: string; detail?: unknown; now: number }): void {

@@ -6,6 +6,7 @@ import fastifyStatic from "@fastify/static";
 import { GARAGE_HEADER, licenceState, normalizeGarageCode, SETUP_CODE_HEADER } from "@ffgp/shared";
 import { AdminDb, type GarageRow } from "./admin-db";
 import { GarageHost } from "./garages";
+import { loadOrCreateKey } from "./licence-token";
 
 export interface CloudOptions {
   dataDir: string;
@@ -81,6 +82,8 @@ export async function createCloudServer(o: CloudOptions): Promise<CloudServer> {
 
   const { adminRoutes } = await import("./admin-routes");
   adminRoutes(cloudApp, { admin, host, now });
+  const { syncRoutes } = await import("./sync-routes");
+  syncRoutes(cloudApp, { admin, host, now, dataDir: o.dataDir, key: loadOrCreateKey(o.dataDir), throttleFor });
 
   if (o.webDir && existsSync(o.webDir)) {
     await cloudApp.register(fastifyStatic, { root: o.webDir, prefix: "/", index: ["index.html"] });
