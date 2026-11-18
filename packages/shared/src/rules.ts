@@ -27,12 +27,16 @@ export const ACTIONS = [
   "payments.record",
   "costs.view",
   "reports.view",
+  "inventory.edit",
+  "purchases.manage",
 ] as const;
 export type Action = (typeof ACTIONS)[number];
 
 const PERMISSIONS: Record<Role, ReadonlySet<Action>> = {
   owner: new Set(ACTIONS),
-  accountant: new Set<Action>(["customers.edit", "documents.edit", "invoices.issue", "payments.record", "costs.view", "reports.view"]),
+  accountant: new Set<Action>([
+    "customers.edit", "documents.edit", "invoices.issue", "payments.record", "costs.view", "reports.view", "inventory.edit", "purchases.manage",
+  ]),
   advisor: new Set<Action>(["customers.edit", "documents.edit", "invoices.issue"]),
 };
 
@@ -60,7 +64,20 @@ export const STATUS_LABELS: Record<string, string> = {
   issued: "Issued",
   part_paid: "Part Paid",
   paid: "Paid",
+  part_received: "Part Received",
+  received: "Received",
+  cancelled: "Cancelled",
 };
 
 /** Next document in the chain: estimate → job card → invoice. */
 export const CONVERTS_TO: Partial<Record<DocType, DocType>> = { estimate: "jobcard", jobcard: "invoice" };
+
+export const PO_STATUSES = ["draft", "sent", "part_received", "received", "cancelled"] as const;
+export type PoStatus = (typeof PO_STATUSES)[number];
+
+export function formatPoNumber(n: number): string {
+  return `PO-${String(n).padStart(5, "0")}`;
+}
+
+/** The built-in Fleet Fix supplier (inserted by migration 3). */
+export const FLEETFIX_SUPPLIER_ID = "00000000-0000-4000-8000-0000000f1ee7";

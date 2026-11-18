@@ -62,3 +62,9 @@ export function parseAED(text: string): number | null {
   if (!/^-?\d+(\.\d+)?$/.test(cleaned) && !/^-?\.\d+$/.test(cleaned)) return null;
   return roundFils(Number(cleaned) * 100);
 }
+
+/** Weighted average cost after receiving `qtyIn` at `costFils`. With nothing (or less) on hand, the new cost wins. */
+export function averageCost(onHand: number, avgFils: number, qtyIn: number, costFils: number): number {
+  if (onHand <= 0) return costFils;
+  return roundFils((onHand * avgFils + qtyIn * costFils) / (onHand + qtyIn));
+}

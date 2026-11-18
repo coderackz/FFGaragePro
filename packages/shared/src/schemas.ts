@@ -64,6 +64,7 @@ export const vehicleSchema = z.object({
 export type VehicleInput = z.infer<typeof vehicleSchema>;
 
 export const LINE_KINDS = ["labour", "part", "other"] as const;
+export const SUPPLIED_BY = ["garage", "fleetfix"] as const;
 export type LineKind = (typeof LINE_KINDS)[number];
 
 export const lineSchema = z.object({
@@ -72,7 +73,10 @@ export const lineSchema = z.object({
   qty: z.number().min(0).max(100000),
   unitPriceFils: z.number().int().min(0).max(10_000_000_00),
   discountPct: z.number().min(0).max(100).default(0),
-});
+  partId: z.string().uuid().nullable().optional(),
+  suppliedBy: z.enum(SUPPLIED_BY).default("garage"),
+  poLineId: z.string().uuid().nullable().optional(),
+}).refine((l) => l.suppliedBy === "garage" || l.kind === "part", { message: "Only parts can be supplied by Fleet Fix", path: ["suppliedBy"] });
 export type LineInput = z.infer<typeof lineSchema>;
 
 export const documentCreateSchema = z.object({
@@ -101,3 +105,74 @@ export const paymentSchema = z.object({
   paidAt: z.string().datetime().optional(),
 });
 export type PaymentInput = z.infer<typeof paymentSchema>;
+
+// ---- Inventory ----
+
+const money = z.number().int().min(0).max(10_000_000_00);
+
+export const partSchema = z.object({
+  partNo: text(60).min(1, "Part number is required"),
+  name: text().min(1, "Name is required"),
+  brand: optionalText(80),
+  unit: text(20).min(1).default("each"),
+  stocked: z.boolean(),
+  sellPriceFils: money,
+  reorderLevel: z.number().min(0).max(1_000_000).default(0),
+  location: optionalText(60),
+  fits: optionalText(500),
+  active: z.boolean().default(true),
+});
+export type PartInput = z.infer<typeof partSchema>;
+
+export const supplierSchema = z.object({
+  name: text().min(1, "Name is required"),
+  trn: optionalText(20),
+  phone: optionalText(40),
+  email: optionalText(120),
+  address: optionalText(500),
+  notes: optionalText(2000),
+});
+export type SupplierInput = z.infer<typeof supplierSchema>;
+
+export const ADJUSTMENT_REASONS = ["count", "damaged", "lost", "opening", "other"] as const;
+export const adjustmentSchema = z.object({
+  qty: z.number().min(-1_000_000).max(1_000_000).refine((q) => q !== 0, "Quantity can't be zero"),
+  reason: z.enum(ADJUSTMENT_REASONS),
+  note: optionalText(500),
+  unitCostFils: money.optional(),
+});
+
+export const poLineSchema = z.object({
+  partId: z.string().uuid().nullable().optional(),
+  description: text(500).min(1, "Description is required"),
+  qty: z.number().positive().max(100000),
+  unitCostFils: money.default(0),
+  jobDocumentId: z.string().uuid().nullable().optional(),
+});
+export const poSchema = z.object({
+  supplierId: z.string().uuid(),
+  notes: optionalText(4000),
+  lines: z.array(poLineSchema).max(200).default([]),
+});
+export const poUpdateSchema = z.object({
+  notes: optionalText(4000),
+  status: z.enum(["sent", "cancelled"]).optional(),
+  lines: z.array(poLineSchema.extend({ id: z.string().uuid().optional() })).max(200).optional(),
+});
+
+export const receiveSchema = z.object({
+  supplierInvoiceNo: optionalText(60),
+  supplierInvoiceDate: optionalText(10),
+  vatFils: money.default(0),
+  lines: z.array(z.object({ poLineId: z.string().uuid(), qty: z.number().positive().max(100000), unitCostFils: money })).min(1, "Receive at least one line"),
+});
+
+export const requestPartSchema = z.object({
+  documentId: z.string().uuid(),
+  position: z.number().int().min(0),
+  supplierId: z.string().uuid(),
+  qty: z.number().positive().max(100000),
+  alreadyBought: z.boolean().default(false),
+  unitCostFils: money.optional(),
+  supplierInvoiceNo: optionalText(60),
+});
