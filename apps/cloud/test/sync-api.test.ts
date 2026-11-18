@@ -2,10 +2,13 @@ import { readFileSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { mkdtempSync } from "node:fs";
 import { tmpdir } from "node:os";
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, vi } from "vitest";
 import { buildApp, Db, SCHEMA_VERSION } from "@ffgp/server";
 import { installCapture, localChanges, verifyLicence } from "@ffgp/sync";
 import { api, garageReady, SETUP, startCloud } from "./helpers";
+
+// Each test runs a real cloud and a PC garage (password hashing, file copies): slow on Windows CI runners.
+vi.setConfig({ testTimeout: 30_000, hookTimeout: 30_000 });
 
 async function raw(url: string, method: string, path: string, headers: Record<string, string>, body?: Uint8Array) {
   return fetch(url + path, { method, headers, body: body as BodyInit | undefined });

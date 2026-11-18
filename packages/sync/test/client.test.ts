@@ -1,8 +1,11 @@
-import { afterEach, describe, expect, it } from "vitest";
+import { afterEach, describe, expect, it, vi } from "vitest";
 import { buildApp, SCHEMA_VERSION } from "@ffgp/server";
 import { linkDownload, linkUpload, readOnlyGuard, setState, getState, SyncClient, type CloudLink } from "../src/index";
 import { api, garageReady, makeClock, SETUP, startCloud } from "../../../apps/cloud/test/helpers";
 import { call, tempDir, type App } from "./helpers";
+
+// Each test runs a real cloud and a PC garage (password hashing, file copies): slow on Windows CI runners.
+vi.setConfig({ testTimeout: 30_000, hookTimeout: 30_000 });
 
 const apps: App[] = [];
 afterEach(async () => {
