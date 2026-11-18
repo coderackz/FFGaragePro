@@ -10,6 +10,10 @@ customers** (user: "garage has credit customers"), with terms, limits, statement
 invoices; a legal way to correct an issued invoice (credit notes); backups for PCs without the cloud; and
 **WhatsApp and email** to customers (user). All garages print on **A4** (user), so there is one layout.
 
+**Insurance (user, 2026-11-19):** most garages do accident and insurance work, but it will be a **separate paid
+add-on, bought later** — not part of this project. This project must leave room for it (see *Ready for the insurance
+add-on*), because insurers will be most garages' largest credit customers.
+
 ## Goals
 **A. Settings screen.** One Settings page with a section list on the left. Only the Owner (`settings.manage`)
 changes settings; others don't see the page. Every change is written to the audit log (G).
@@ -125,7 +129,9 @@ download the garage again instead.
 ## Non-goals (this project)
 WhatsApp Business API (automatic WhatsApp, delivery ticks) — phase 2, through the cloud; SMS; online estimate
 approval link; **UAE e-invoicing** (Peppol via an accredited provider) itself — but this project makes the data ready
-(see Anti-goals); insurance claims and split billing; one combined monthly invoice for a fleet; vehicle check-in
+(see Anti-goals); **insurance and accident repairs** (claims, surveyors, insurer approvals and supplementary
+approvals, one bill split between insurer and owner's excess) — a paid add-on later, see *Ready for the insurance
+add-on*; one combined monthly invoice for a fleet; vehicle check-in
 (fuel, damage photos, checklist); service menu / fixed-price packages; technicians and appointments; storage fees;
 structured UAE plates; daily cash-up; zero-rated/exempt VAT lines; Arabic screens.
 
@@ -137,6 +143,20 @@ structured UAE plates; daily cash-up; zero-rated/exempt VAT lines; Arabic screen
 - A balance that doesn't match the statement.
 - E-invoicing later forcing a rebuild: invoices, credit notes and customers must already hold what a structured
   invoice needs (TRN, address, due date, LPO, reasons, the invoice a credit note corrects).
+- The insurance add-on later forcing a rebuild (see below).
+
+## Ready for the insurance add-on
+Nothing insurance-specific is built now, but nothing built here may assume what an insurance job breaks:
+- **One job card, several invoices, several payers.** Balances, statements, aging, receipts and the "convert job card
+  to invoice" flow must work per invoice and per invoice's customer, never assume one invoice per job card or that the
+  invoice's customer is the job card's customer. Today `documents_one_conversion` (unique `source_id`) allows exactly
+  one document per source; migration 7 narrows it so credit notes don't count against it (an invoice can have several
+  partial credit notes), and the add-on will later allow one invoice per payer.
+- **References on invoices.** The insurer's approval arrives as an LPO, so the `lpo_number` added here is reused; the
+  add-on adds claim number, policy, police report and surveyor without changing existing columns.
+- **Paid add-ons in the licence.** The add-on is switched on per garage by Fleet Fix. When it is built, the licence
+  token gains a list of add-ons (absent = none) and the admin console a switch per garage; the PC enforces it from the
+  signed token like the paid-until date. *(Not built in this project.)*
 
 ## Approaches
 1. **Picked: settings as validated keys in the existing `settings` table**, one Zod schema per section in
@@ -201,9 +221,17 @@ and the daily statement/reminder jobs. The browser app gets the same screens; Ba
 its own).
 
 ## Rollout
-1. **Before the first live garage:** settings screen and storage, garage/printing/numbering/tax/pricing settings,
-   credit customers, receipts with allocation, credit notes, audit log, backups.
-2. **Then:** contacts, messages (WhatsApp click-to-send, email, outbox, log), English + Arabic documents.
+Three parts, each planned, built, reviewed and released on its own (user asked to start with Settings, 2026-11-19):
+1. **Settings and printing:** the Settings screen and settings storage; Garage, Documents & printing, Numbering, Tax,
+   Pricing, Inventory, Security and Backups sections; A4 printing with logo, stamp, signature, letterhead mode,
+   watermarks and the job-card signature box; audit log; PC backups and restore.
+2. **Credit customers and credit notes:** customer credit fields, due dates and LPO, receipts with allocation,
+   statements, aging, over-limit rules, credit notes, the Customers & credit settings section — built *Ready for the
+   insurance add-on*.
+3. **Messages and Arabic:** contacts, WhatsApp click-to-send, email, outbox and log, the Messages settings section,
+   English + Arabic documents (and the Arabic garage name and address fields).
+
+Parts 1 and 2 come before the first live garage.
 
 ## Tests
 Vitest: settings schemas and defaults; this-PC keys never captured; secrets never in API output; numbering never
@@ -215,8 +243,8 @@ Arabic; restore a backup. Sync e2e: allocation made on two PCs at once adds up o
 sent once by the cloud.
 
 ## Open questions
-1. **Insurance and accident repairs** — do any garages do them? If yes, split billing (insurer + customer excess)
-   needs its own project, and it changes how invoices relate to jobs.
+1. ~~**Insurance and accident repairs** — do any garages do them?~~ **Answered (user, 2026-11-19):** most garages
+   do; it becomes a separate paid add-on later. See *Ready for the insurance add-on*.
 2. **Monthly combined invoice for fleets** — wanted, or is one invoice per job plus a monthly statement enough?
    (Assumed enough for now.)
 3. **WhatsApp phase 2** — the garage's own business number, or a shared Fleetfix number? (Click-to-send uses the
