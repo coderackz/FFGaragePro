@@ -1,8 +1,8 @@
 import { useState, type FormEvent } from "react";
 import { Button, Field, Input, Modal } from "./ui";
 
-/** The cloud address used until Fleetfix cloud has its own web address (Stage 3). */
-export const DEFAULT_CLOUD_URL = "http://localhost:4790";
+/** Fleetfix cloud's address (the local development cloud when running from source). */
+export const DEFAULT_CLOUD_URL = import.meta.env.DEV ? "http://localhost:4790" : "https://garagepro.fleetfix.ae";
 
 /**
  * Links this PC to its Fleetfix cloud garage.

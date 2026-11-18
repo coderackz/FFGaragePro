@@ -96,6 +96,9 @@ export function syncRoutes(
     };
     const isSetUp = (a: GarageApp) => !!a.db.get("SELECT 1 FROM garage WHERE id = 1");
 
+    // Public: PC app builds can carry this key, and refuse a server at the cloud's address that signs with another.
+    scope.get("/api/cloud/licence-key", async () => ({ publicKey: key.publicKeyPem }));
+
     scope.post("/api/cloud/sync/link", async (req) => {
       const g = garageOf(req);
       const input = linkSchema.parse(req.body);

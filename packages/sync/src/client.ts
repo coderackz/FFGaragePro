@@ -8,6 +8,7 @@ import { recordIssues, applyAtPc, type SyncIssue } from "./apply";
 import { installCapture, localChanges, maxSeq, removeCapture, type ChangeEntry } from "./capture";
 import { licenceView, type LicenceView } from "./licence";
 import { getState, numState, setState } from "./state";
+import { trustedLink } from "./trust";
 
 /** What a PC keeps (in its config) about the cloud garage it's linked to. */
 export interface CloudLink {
@@ -110,11 +111,16 @@ function hasGarage(file: string): boolean {
  * A new PC joins a cloud garage: signs in, then the garage's whole database is written as `<dataDir>/garage.db`.
  * Call it before the PC's own server opens that file.
  */
-export async function linkDownload(o: { url: string; garageCode: string; username: string; password: string; deviceName: string; dataDir: string; fetch?: typeof fetch }): Promise<CloudLink> {
+export async function linkDownload(o: {
+  url: string; garageCode: string; username: string; password: string; deviceName: string; dataDir: string; fetch?: typeof fetch;
+  /** Licence keys built into the app, by cloud address: a server at that address with another key is refused. */
+  pinned?: Record<string, string>;
+}): Promise<CloudLink> {
   const f = o.fetch ?? fetch;
   const file = join(o.dataDir, "garage.db");
   if (hasGarage(file)) throw new CloudError("refused", "This PC already has a garage. Upload it to a new cloud garage instead (Settings → Fleetfix cloud).");
   const reply = await link(f, o.url, o.garageCode, { mode: "download", username: o.username, password: o.password, deviceName: o.deviceName });
+  const linked = trustedLink({ url: base(o.url), garageCode: o.garageCode, deviceCode: reply.deviceCode, deviceKey: reply.deviceKey, publicKey: reply.publicKey }, o.pinned ?? {}, { linking: true });
   const { body, res } = await request<ArrayBuffer>(f, `${base(o.url)}/api/cloud/sync/snapshot`, { headers: garageHeaders(o.garageCode, reply.deviceKey) });
   mkdirSync(o.dataDir, { recursive: true });
   const temp = join(o.dataDir, `garage.download-${newId()}.db`);
@@ -132,13 +138,16 @@ export async function linkDownload(o: { url: string; garageCode: string; usernam
   } finally {
     db.close();
   }
-  return { url: base(o.url), garageCode: o.garageCode, deviceCode: reply.deviceCode, deviceKey: reply.deviceKey, publicKey: reply.publicKey };
+  return linked;
 }
 
 /** An existing standalone PC garage moves into a new, empty cloud garage (with its setup code), losing nothing. */
-export async function linkUpload(o: { url: string; garageCode: string; setupCode: string; deviceName: string; db: Db; fetch?: typeof fetch }): Promise<CloudLink> {
+export async function linkUpload(o: {
+  url: string; garageCode: string; setupCode: string; deviceName: string; db: Db; fetch?: typeof fetch; pinned?: Record<string, string>;
+}): Promise<CloudLink> {
   const f = o.fetch ?? fetch;
   const reply = await link(f, o.url, o.garageCode, { mode: "upload", setupCode: o.setupCode, deviceName: o.deviceName });
+  const linked = trustedLink({ url: base(o.url), garageCode: o.garageCode, deviceCode: reply.deviceCode, deviceKey: reply.deviceKey, publicKey: reply.publicKey }, o.pinned ?? {}, { linking: true });
   const dir = join(o.db.raw.location() ?? ".", "..");
   const temp = join(dir, `garage.upload-${newId()}.db`);
   // Capture starts before the copy, so anything saved while the file is uploading is pushed afterwards.
@@ -162,7 +171,7 @@ export async function linkUpload(o: { url: string; garageCode: string; setupCode
     setState(o.db, "last_pulled_seq", "0");
     setState(o.db, "licence", reply.licence);
   });
-  return { url: base(o.url), garageCode: o.garageCode, deviceCode: reply.deviceCode, deviceKey: reply.deviceKey, publicKey: reply.publicKey };
+  return linked;
 }
 
 /** A linked PC's side of sync: push its changes, pull the cloud's, keep the licence token. */

@@ -229,6 +229,16 @@ describe("cloud sync API", () => {
     expect(verifyLicence(l.body.publicKey, "garbage")).toBeNull();
   });
 
+  it("the licence public key is published, the same one each link returns", async () => {
+    const cloud = await startCloud();
+    await garageReady(cloud, "alquoz-auto");
+    const published = await api(cloud.url, "GET", "/api/cloud/licence-key");
+    const l = await link(cloud.url, "alquoz-auto", { mode: "download", username: "rashid", password: SETUP.owner.password, deviceName: "PC" });
+    expect(published.status).toBe(200);
+    expect(published.body.publicKey).toBe(l.body.publicKey);
+    expect(published.body.publicKey).toMatch(/^-----BEGIN PUBLIC KEY-----/);
+  });
+
   it("revoked device → 401", async () => {
     const cloud = await startCloud();
     await garageReady(cloud, "alquoz-auto");
