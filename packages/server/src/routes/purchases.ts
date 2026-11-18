@@ -6,6 +6,7 @@ import { newId, now, type Db } from "../db";
 import { badRequest, conflict, notFound } from "../errors";
 import { postMovement, round3 } from "../stock";
 import type { DocumentOut } from "./documents";
+import { reserveNumber, takeNumber, type NumberSource, type Reserved } from "../numbering";
 import { garage } from "./setup";
 
 interface PoRow {
@@ -24,15 +25,13 @@ const lineNet = (qty: number, costFils: number) => roundFils(qty * costFils);
 /** Documents that may still change. Issued invoices and converted job cards are never touched. */
 const EDITABLE_DOCS = `SELECT id FROM documents WHERE NOT ((type = 'jobcard' AND status = 'converted') OR (type = 'invoice' AND status <> 'draft'))`;
 
-export function purchaseRoutes(app: FastifyInstance, db: Db, docs: { full: DocumentOut }): void {
+export function purchaseRoutes(app: FastifyInstance, db: Db, docs: { full: DocumentOut }, numbers?: NumberSource): void {
   const getPo = (id: string) => db.get<PoRow>("SELECT * FROM purchase_orders WHERE id = ?", [id]);
   const poLines = (poId: string) => db.all<PoLineRow>("SELECT * FROM po_lines WHERE po_id = ? ORDER BY position", [poId]);
 
-  function nextPoNumber(): { seq: number; number: string } {
-    const row = db.get<{ next: number }>("SELECT next FROM counters WHERE type = 'purchase_order'");
-    const seq = row?.next ?? 1;
-    db.run("INSERT INTO counters (type, next) VALUES ('purchase_order', ?) ON CONFLICT(type) DO UPDATE SET next = excluded.next", [seq + 1]);
-    return { seq, number: formatPoNumber(seq) };
+  function nextPoNumber(reserved: Reserved | null): { series: string; seq: number; number: string } {
+    const { series, seq } = takeNumber(db, "purchase_order", reserved, numbers);
+    return { series, seq, number: formatPoNumber(seq, series) };
   }
 
   function checkSupplier(id: string) {
@@ -55,15 +54,15 @@ export function purchaseRoutes(app: FastifyInstance, db: Db, docs: { full: Docum
     db.run(`UPDATE document_lines SET po_line_id = NULL WHERE po_line_id IN (${poLineIdsSql}) AND document_id IN (${EDITABLE_DOCS})`, params);
   }
 
-  function createPo(user: SessionUser, supplierId: string, notes: string | null): string {
+  function createPo(user: SessionUser, supplierId: string, notes: string | null, reserved: Reserved | null): string {
     checkSupplier(supplierId);
-    const { seq, number } = nextPoNumber();
+    const { series, seq, number } = nextPoNumber(reserved);
     const id = newId();
     const t = now();
     db.run(
-      `INSERT INTO purchase_orders (id, seq, number, supplier_id, status, notes, created_by, created_at, updated_at)
-       VALUES (?, ?, ?, ?, 'draft', ?, ?, ?, ?)`,
-      [id, seq, number, supplierId, notes, user.id, t, t],
+      `INSERT INTO purchase_orders (id, series, seq, number, supplier_id, status, notes, created_by, created_at, updated_at)
+       VALUES (?, ?, ?, ?, ?, 'draft', ?, ?, ?, ?)`,
+      [id, series, seq, number, supplierId, notes, user.id, t, t],
     );
     return id;
   }
@@ -196,7 +195,7 @@ export function purchaseRoutes(app: FastifyInstance, db: Db, docs: { full: Docum
       `SELECT po.*, s.name AS supplier_name, (SELECT COUNT(*) FROM po_lines WHERE po_id = po.id) AS line_count
        FROM purchase_orders po JOIN suppliers s ON s.id = po.supplier_id
        WHERE (:status IS NULL OR po.status = :status) AND (:supplier IS NULL OR po.supplier_id = :supplier)
-       ORDER BY po.seq DESC LIMIT 300`,
+       ORDER BY po.created_at DESC, po.rowid DESC LIMIT 300`,
       { status: req.query.status ?? null, supplier: req.query.supplierId ?? null },
     );
     const showCost = can(user.role, "costs.view");
@@ -217,8 +216,9 @@ export function purchaseRoutes(app: FastifyInstance, db: Db, docs: { full: Docum
     const user = sessionUser(db, req);
     requireAction(user, "purchases.manage");
     const input = poSchema.parse(req.body);
+    const reserved = await reserveNumber(numbers, "purchase_order");
     const id = db.tx(() => {
-      const poId = createPo(user, input.supplierId, input.notes);
+      const poId = createPo(user, input.supplierId, input.notes, reserved);
       for (const line of input.lines) addLine(poId, line);
       updateNet(poId);
       return poId;
@@ -276,6 +276,9 @@ export function purchaseRoutes(app: FastifyInstance, db: Db, docs: { full: Docum
       requireAction(user, "purchases.manage");
       if (input.unitCostFils === undefined) throw badRequest("Enter what the part cost");
     }
+    // A number is only needed if no draft PO for this supplier is open (or it's bought now, which gets its own PO).
+    const needsPo = input.alreadyBought || !db.get("SELECT 1 FROM purchase_orders WHERE supplier_id = ? AND status = 'draft'", [input.supplierId]);
+    const reserved = needsPo ? await reserveNumber(numbers, "purchase_order") : null;
     db.tx(() => {
       const doc = db.get<{ id: string; type: string; status: string }>("SELECT id, type, status FROM documents WHERE id = ?", [input.documentId]);
       if (!doc) throw notFound("Document not found");
@@ -293,8 +296,8 @@ export function purchaseRoutes(app: FastifyInstance, db: Db, docs: { full: Docum
 
       const draft = input.alreadyBought
         ? undefined
-        : db.get<{ id: string }>("SELECT id FROM purchase_orders WHERE supplier_id = ? AND status = 'draft' ORDER BY seq DESC LIMIT 1", [input.supplierId]);
-      const poId = draft?.id ?? createPo(user, input.supplierId, null);
+        : db.get<{ id: string }>("SELECT id FROM purchase_orders WHERE supplier_id = ? AND status = 'draft' ORDER BY created_at DESC, rowid DESC LIMIT 1", [input.supplierId]);
+      const poId = draft?.id ?? createPo(user, input.supplierId, null, reserved);
       const poLineId = addLine(poId, {
         // Only Owner/Accountant buying it now set a cost; a plain request is priced on the PO.
         partId: line.part_id, description: line.description, qty: input.qty, unitCostFils: input.alreadyBought ? input.unitCostFils! : 0, jobDocumentId: doc.id,

@@ -1,7 +1,7 @@
 import type { Db } from "./db";
 
 /** Ordered, append-only. Never edit a shipped migration; add a new one. */
-const MIGRATIONS: { id: number; sql: string }[] = [
+const MIGRATIONS: { id: number; sql: string; foreignKeysOff?: boolean }[] = [
   {
     id: 1,
     sql: `
@@ -255,16 +255,97 @@ ALTER TABLE document_lines ADD COLUMN po_line_id TEXT REFERENCES po_lines(id);
 ALTER TABLE purchase_orders ADD COLUMN version INTEGER NOT NULL DEFAULT 0;
 `,
   },
+  {
+    id: 5,
+    // Number series: the cloud's main series is '', an offline PC numbers from its own ('P1', 'P2'…), so the
+    // uniqueness of a number becomes (type, series, seq). SQLite can't change a UNIQUE constraint in place, so
+    // both tables are rebuilt (with foreign keys off, as SQLite's ALTER TABLE guide prescribes).
+    foreignKeysOff: true,
+    sql: `
+CREATE TABLE documents_new (
+  id TEXT PRIMARY KEY,
+  type TEXT NOT NULL CHECK (type IN ('estimate','jobcard','invoice')),
+  series TEXT NOT NULL DEFAULT '',
+  seq INTEGER NOT NULL,
+  number TEXT NOT NULL,
+  status TEXT NOT NULL,
+  customer_id TEXT NOT NULL REFERENCES customers(id),
+  vehicle_id TEXT REFERENCES vehicles(id),
+  odometer INTEGER,
+  notes TEXT,
+  source_id TEXT REFERENCES documents(id),
+  issued_at TEXT,
+  net_fils INTEGER NOT NULL DEFAULT 0,
+  vat_fils INTEGER NOT NULL DEFAULT 0,
+  gross_fils INTEGER NOT NULL DEFAULT 0,
+  paid_fils INTEGER NOT NULL DEFAULT 0,
+  created_by TEXT REFERENCES users(id),
+  created_at TEXT NOT NULL,
+  updated_at TEXT NOT NULL,
+  UNIQUE (type, series, seq)
+);
+INSERT INTO documents_new (id, type, series, seq, number, status, customer_id, vehicle_id, odometer, notes, source_id, issued_at,
+  net_fils, vat_fils, gross_fils, paid_fils, created_by, created_at, updated_at)
+SELECT id, type, '', seq, number, status, customer_id, vehicle_id, odometer, notes, source_id, issued_at,
+  net_fils, vat_fils, gross_fils, paid_fils, created_by, created_at, updated_at FROM documents;
+DROP TABLE documents;
+ALTER TABLE documents_new RENAME TO documents;
+CREATE INDEX documents_type_status ON documents(type, status);
+CREATE INDEX documents_customer ON documents(customer_id);
+CREATE UNIQUE INDEX documents_one_conversion ON documents(source_id) WHERE source_id IS NOT NULL;
+
+CREATE TABLE purchase_orders_new (
+  id TEXT PRIMARY KEY,
+  series TEXT NOT NULL DEFAULT '',
+  seq INTEGER NOT NULL,
+  number TEXT NOT NULL,
+  supplier_id TEXT NOT NULL REFERENCES suppliers(id),
+  status TEXT NOT NULL CHECK (status IN ('draft','sent','part_received','received','cancelled')),
+  notes TEXT,
+  net_fils INTEGER NOT NULL DEFAULT 0,
+  created_by TEXT REFERENCES users(id),
+  created_at TEXT NOT NULL,
+  updated_at TEXT NOT NULL,
+  version INTEGER NOT NULL DEFAULT 0,
+  UNIQUE (series, seq)
+);
+INSERT INTO purchase_orders_new (id, series, seq, number, supplier_id, status, notes, net_fils, created_by, created_at, updated_at, version)
+SELECT id, '', seq, number, supplier_id, status, notes, net_fils, created_by, created_at, updated_at, version FROM purchase_orders;
+DROP TABLE purchase_orders;
+ALTER TABLE purchase_orders_new RENAME TO purchase_orders;
+CREATE INDEX purchase_orders_supplier ON purchase_orders(supplier_id, status);
+`,
+  },
 ];
 
-export function migrate(db: Db): void {
+/** The newest migration this code knows: the garage database's schema version. */
+export const SCHEMA_VERSION = Math.max(...MIGRATIONS.map((m) => m.id));
+
+export function migrate(db: Db, upTo = Infinity): void {
   db.raw.exec("CREATE TABLE IF NOT EXISTS schema_migrations (id INTEGER PRIMARY KEY, applied_at TEXT NOT NULL)");
   const done = new Set(db.all<{ id: number }>("SELECT id FROM schema_migrations").map((r) => r.id));
   for (const m of MIGRATIONS) {
-    if (done.has(m.id)) continue;
-    db.tx(() => {
-      db.raw.exec(m.sql);
-      db.run("INSERT INTO schema_migrations (id, applied_at) VALUES (?, ?)", [m.id, new Date().toISOString()]);
-    });
+    if (done.has(m.id) || m.id > upTo) continue;
+    const apply = () =>
+      db.tx(() => {
+        db.raw.exec(m.sql);
+        if (m.foreignKeysOff) {
+          // Checked before COMMIT, so a rebuild that broke a reference rolls back.
+          const broken = db.all("PRAGMA foreign_key_check");
+          if (broken.length) throw new Error(`Migration ${m.id} would leave ${broken.length} broken references`);
+        }
+        db.run("INSERT INTO schema_migrations (id, applied_at) VALUES (?, ?)", [m.id, new Date().toISOString()]);
+      });
+    if (!m.foreignKeysOff) {
+      apply();
+      continue;
+    }
+    // PRAGMA foreign_keys is ignored inside a transaction, so it is switched around it.
+    db.raw.exec("PRAGMA foreign_keys = OFF");
+    try {
+      apply();
+    } finally {
+      db.raw.exec("PRAGMA foreign_keys = ON");
+    }
   }
 }

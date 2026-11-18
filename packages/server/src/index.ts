@@ -69,3 +69,5 @@ export async function startGarageServer(o: { dataDir: string; networkPort?: numb
   const address = await app.listen({ host: "127.0.0.1", port: 0 });
   return { address, sharing, status, close: () => app.close() };
 }
+export { SCHEMA_VERSION } from "./migrations";
+export { reserveNumber, takeNumber, type NumberKind, type NumberSource, type Reserved } from "./numbering";

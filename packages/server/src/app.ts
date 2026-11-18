@@ -4,6 +4,7 @@ import { ZodError } from "zod";
 import type { LoginThrottle } from "./auth";
 import { Db } from "./db";
 import { HttpError } from "./errors";
+import type { NumberSource } from "./numbering";
 import { deviceGuard, NETWORK_PORT, networkRoutes, type NetworkStatus } from "./network";
 import { customerRoutes } from "./routes/customers";
 import { documentRoutes } from "./routes/documents";
@@ -34,6 +35,8 @@ export interface AppOptions {
   guard?: (req: FastifyRequest, route: string | undefined) => void;
   /** Sign-in lockouts, kept by the caller so they outlive this app instance (the cloud closes idle garages). */
   loginThrottle?: LoginThrottle;
+  /** A cloud-linked PC: numbers from the cloud when it answers, else from this PC's own series. Absent: as before. */
+  numbers?: NumberSource;
 }
 
 /** The app's own pages: Electron (file:// sends "null") and local dev servers. */
@@ -75,9 +78,9 @@ export async function buildApp(options: AppOptions): Promise<FastifyInstance & {
   if (!options.cloud) networkRoutes(app, db, { now, port: options.networkPort ?? NETWORK_PORT, status: options.networkStatus ?? { listening: false, error: null } });
   userRoutes(app, db);
   customerRoutes(app, db);
-  const documents = documentRoutes(app, db);
+  const documents = documentRoutes(app, db, options.numbers);
   partRoutes(app, db);
-  purchaseRoutes(app, db, documents);
+  purchaseRoutes(app, db, documents, options.numbers);
 
   app.addHook("onClose", async () => db.close());
   return Object.assign(app, { db }) as unknown as FastifyInstance & { db: Db };

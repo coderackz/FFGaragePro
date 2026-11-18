@@ -14,10 +14,11 @@ export class Db {
   readonly raw: DatabaseSync;
   private depth = 0;
 
-  constructor(file: string) {
+  /** `migrateTo` stops at that migration (tests that build an older database). */
+  constructor(file: string, options: { migrateTo?: number } = {}) {
     this.raw = new DatabaseSync(file);
     this.raw.exec("PRAGMA journal_mode = WAL; PRAGMA foreign_keys = ON; PRAGMA busy_timeout = 5000; PRAGMA synchronous = FULL;");
-    migrate(this);
+    migrate(this, options.migrateTo);
   }
 
   static open(dataDir: string): Db {

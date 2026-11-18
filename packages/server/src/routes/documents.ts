@@ -8,6 +8,7 @@ import { requireAction, sessionUser, type SessionUser } from "../auth";
 import { newId, now, type Db } from "../db";
 import { badRequest, conflict, notFound } from "../errors";
 import { documentCost, reconcileDocumentStock } from "../stock";
+import { reserveNumber, takeNumber, type NumberSource, type Reserved } from "../numbering";
 import { garage } from "./setup";
 
 interface DocRow {
@@ -36,15 +37,13 @@ function linesEditable(doc: DocRow): boolean {
 
 export type DocumentOut = (id: string, user: SessionUser) => unknown;
 
-export function documentRoutes(app: FastifyInstance, db: Db): { full: DocumentOut } {
+export function documentRoutes(app: FastifyInstance, db: Db, numbers?: NumberSource): { full: DocumentOut } {
   const vatRate = () => garage(db)?.vat_rate_bp ?? 500;
   const getDoc = (id: string) => db.get<DocRow>("SELECT * FROM documents WHERE id = ?", [id]);
 
-  function nextNumber(type: DocType): { seq: number; number: string } {
-    const row = db.get<{ next: number }>("SELECT next FROM counters WHERE type = ?", [type]);
-    const seq = row?.next ?? 1;
-    db.run("INSERT INTO counters (type, next) VALUES (?, ?) ON CONFLICT(type) DO UPDATE SET next = excluded.next", [type, seq + 1]);
-    return { seq, number: formatDocNumber(type, seq) };
+  function nextNumber(type: DocType, reserved: Reserved | null): { series: string; seq: number; number: string } {
+    const { series, seq } = takeNumber(db, type, reserved, numbers);
+    return { series, seq, number: formatDocNumber(type, seq, series) };
   }
 
   /**
@@ -108,14 +107,19 @@ export function documentRoutes(app: FastifyInstance, db: Db): { full: DocumentOu
     }
   }
 
-  function insertDoc(user: SessionUser, d: { type: DocType; customerId: string; vehicleId: string | null; odometer: number | null; notes: string | null; sourceId: string | null }, lines: LineInput[]): string {
+  function insertDoc(
+    user: SessionUser,
+    d: { type: DocType; customerId: string; vehicleId: string | null; odometer: number | null; notes: string | null; sourceId: string | null },
+    lines: LineInput[],
+    reserved: Reserved | null,
+  ): string {
     const id = newId();
-    const { seq, number } = nextNumber(d.type);
+    const { series, seq, number } = nextNumber(d.type, reserved);
     const t = now();
     db.run(
-      `INSERT INTO documents (id, type, seq, number, status, customer_id, vehicle_id, odometer, notes, source_id, created_by, created_at, updated_at)
-       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
-      [id, d.type, seq, number, DOC_STATUSES[d.type][0], d.customerId, d.vehicleId, d.odometer, d.notes, d.sourceId, user.id, t, t],
+      `INSERT INTO documents (id, type, series, seq, number, status, customer_id, vehicle_id, odometer, notes, source_id, created_by, created_at, updated_at)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+      [id, d.type, series, seq, number, DOC_STATUSES[d.type][0], d.customerId, d.vehicleId, d.odometer, d.notes, d.sourceId, user.id, t, t],
     );
     writeLines(id, lines, user.id);
     if (d.vehicleId && d.odometer) {
@@ -204,9 +208,10 @@ export function documentRoutes(app: FastifyInstance, db: Db): { full: DocumentOu
     const user = sessionUser(db, req);
     requireAction(user, "documents.edit");
     const input = documentCreateSchema.parse(req.body);
+    const reserved = await reserveNumber(numbers, input.type);
     const id = db.tx(() => {
       checkVehicle(input.customerId, input.vehicleId);
-      return insertDoc(user, { type: input.type, customerId: input.customerId, vehicleId: input.vehicleId ?? null, odometer: input.odometer ?? null, notes: input.notes, sourceId: null }, input.lines);
+      return insertDoc(user, { type: input.type, customerId: input.customerId, vehicleId: input.vehicleId ?? null, odometer: input.odometer ?? null, notes: input.notes, sourceId: null }, input.lines, reserved);
     });
     return { document: full(id, user) };
   });
@@ -257,6 +262,9 @@ export function documentRoutes(app: FastifyInstance, db: Db): { full: DocumentOu
   app.post<{ Params: { id: string } }>("/api/documents/:id/convert", async (req) => {
     const user = sessionUser(db, req);
     requireAction(user, "documents.edit");
+    const before = getDoc(req.params.id);
+    const convertsTo = before && CONVERTS_TO[before.type as DocType];
+    const reserved = convertsTo ? await reserveNumber(numbers, convertsTo) : null;
     const id = db.tx(() => {
       const d = getDoc(req.params.id);
       if (!d) throw notFound("Document not found");
@@ -269,7 +277,7 @@ export function documentRoutes(app: FastifyInstance, db: Db): { full: DocumentOu
         kind: l.kind as LineInput["kind"], description: l.description, qty: l.qty, unitPriceFils: l.unit_price_fils, discountPct: l.discount_pct,
         partId: l.part_id, suppliedBy: l.supplied_by as LineInput["suppliedBy"], poLineId: l.po_line_id,
       }));
-      const newDocId = insertDoc(user, { type: target, customerId: d.customer_id, vehicleId: d.vehicle_id, odometer: d.odometer, notes: d.notes, sourceId: d.id }, lines);
+      const newDocId = insertDoc(user, { type: target, customerId: d.customer_id, vehicleId: d.vehicle_id, odometer: d.odometer, notes: d.notes, sourceId: d.id }, lines, target === convertsTo ? reserved : null);
       db.run("UPDATE documents SET status = 'converted', updated_at = ? WHERE id = ?", [now(), d.id]);
       return newDocId;
     });
