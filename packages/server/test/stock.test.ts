@@ -100,8 +100,9 @@ describe("stock follows documents", () => {
 
   it("stock can go negative", async () => {
     const { app, owner, a, customer } = await world();
-    await newDoc(app, owner, "jobcard", customer.id, [partLine(a, 12)]);
+    const jc = await newDoc(app, owner, "jobcard", customer.id, [partLine(a, 12)]);
     expect(await onHand(app, owner, a.id)).toBe(-2);
+    expect(jc.lines[0]).toMatchObject({ partNo: "A-1", partStocked: true, partOnHand: -2, partUnit: "each" });
   });
 
   it("fractional litres", async () => {

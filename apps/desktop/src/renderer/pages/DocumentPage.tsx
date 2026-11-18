@@ -1,4 +1,4 @@
-import { ArrowLeft, ArrowRight, Banknote, CircleCheck, FileDown, Plus, Printer, Save, Trash2 } from "lucide-react";
+import { ArrowLeft, ArrowRight, Banknote, CircleCheck, FileDown, PackagePlus, Plus, Printer, Save, Trash2, TriangleAlert } from "lucide-react";
 import { useEffect, useMemo, useState } from "react";
 import { Link, useNavigate, useParams, useSearchParams } from "react-router";
 import { toast } from "sonner";
@@ -7,7 +7,9 @@ import {
 } from "@ffgp/shared";
 import { CustomerPicker } from "../components/CustomerPicker";
 import { CustomerFormModal } from "../components/forms";
-import { Button, Card, Empty, Field, Input, Modal, MoneyInput, NumberInput, PageHeader, Select, Spinner, StatusBadge, Textarea } from "../components/ui";
+import { PartLink, PartPicker } from "../components/PartPicker";
+import { RequestPartDialog } from "../components/RequestPartDialog";
+import { Badge, Button, Card, Empty, Field, Input, Modal, MoneyInput, NumberInput, PageHeader, Select, Spinner, StatusBadge, Textarea } from "../components/ui";
 import { get, patch, post } from "../lib/api";
 import { useAuth } from "../lib/auth";
 import { PAYMENT_LABELS, formatAED, formatDate, formatDateTime, formatKm } from "../lib/format";
@@ -45,6 +47,7 @@ export function DocumentPage() {
   const [busy, setBusy] = useState<string | null>(null);
   const [newCustomer, setNewCustomer] = useState<string | null>(null);
   const [paying, setPaying] = useState(false);
+  const [requesting, setRequesting] = useState<{ documentId: string; position: number; line: DocLine } | null>(null);
 
   // Initialise from the loaded document, or from ?customerId= for a new one.
   useEffect(() => {
@@ -96,7 +99,10 @@ export function DocumentPage() {
       toast.error(problem);
       return null;
     }
-    const lines = cleanLines().map(({ kind, description, qty, unitPriceFils, discountPct }) => ({ kind, description: description.trim(), qty, unitPriceFils, discountPct }));
+    const lines = cleanLines().map(({ kind, description, qty, unitPriceFils, discountPct, partId, suppliedBy, poLineId }) => ({
+      kind, description: description.trim(), qty, unitPriceFils, discountPct,
+      partId: kind === "part" ? partId ?? null : null, suppliedBy: kind === "part" ? suppliedBy ?? "garage" : "garage", poLineId: poLineId ?? null,
+    }));
     const body = { vehicleId: draft.vehicleId, odometer: draft.odometer, notes: draft.notes, lines };
     if (isNew) {
       const res = await post<{ document: DocumentFull }>("/api/documents", { type, customerId: draft.customer!.id, ...body });
@@ -149,6 +155,15 @@ export function DocumentPage() {
     const res = await post<{ document: DocumentFull }>(`/api/documents/${id}/issue`);
     docQuery.setData(res);
     toast.success(`${res.document.number} issued`);
+  });
+
+  /** Saves first if needed, then opens "Request part" for the line (positions are counted after blank lines are dropped). */
+  const onRequest = (i: number) => run("request", async () => {
+    const line = draft.lines[i]!;
+    const position = cleanLines().indexOf(line);
+    const id = await save();
+    if (!id || position < 0) return;
+    setRequesting({ documentId: id, position, line });
   });
 
   const onPrint = (mode: "pdf" | "print") => run(mode, async () => {
@@ -261,7 +276,12 @@ export function DocumentPage() {
               <Button key={k} size="sm" variant="ghost" icon={<Plus className="size-3.5" />} onClick={() => update({ lines: [...draft.lines, blankLine(k)] })}>{KIND_LABELS[k]}</Button>
             ))}
           >
-            <LinesTable lines={draft.lines} editable={editable} vatRate={vatRate} onChange={updateLine} onRemove={(i) => update({ lines: draft.lines.filter((_, j) => j !== i) })} />
+            <LinesTable
+              lines={draft.lines} editable={editable} vatRate={vatRate} onChange={updateLine}
+              onRemove={(i) => update({ lines: draft.lines.filter((_, j) => j !== i) })}
+              onRequest={type === "jobcard" && !isNew && editable && can("documents.edit") ? onRequest : undefined}
+              showCost={can("costs.view")}
+            />
           </Card>
 
           {(editable || draft.notes) && <Card title="Notes">
@@ -283,6 +303,13 @@ export function DocumentPage() {
               <Row label={`VAT ${vatRate / 100}%`} value={formatAED(totals.vatFils)} />
               <div className="my-1 border-t border-dashed border-zinc-200" />
               <Row label="Total" value={formatAED(totals.grossFils)} strong />
+              {doc && doc.partsCostFils !== undefined && !dirty && (
+                <div className="mt-1 flex flex-col gap-1.5 border-t border-zinc-100 pt-2" data-testid="job-cost">
+                  <Row label="Parts cost" value={formatAED(doc.partsCostFils)} />
+                  <Row label="Margin (before VAT)" value={formatAED(doc.marginFils ?? 0)} />
+                  {doc.costPending && <div className="text-xs text-amber-700">Some parts haven't been received yet, so their cost isn't counted.</div>}
+                </div>
+              )}
               {isInvoice && doc && doc.status !== "draft" && (
                 <>
                   <Row label="Paid" value={formatAED(doc.paidFils)} />
@@ -334,6 +361,7 @@ export function DocumentPage() {
         onClose={() => setNewCustomer(null)}
         onSaved={(c) => update({ customer: c, vehicleId: null })}
       />
+      <RequestPartDialog request={requesting} onClose={() => setRequesting(null)} onDone={(d) => docQuery.setData({ document: d })} />
       {doc && <PaymentModal open={paying} doc={doc} onClose={() => setPaying(false)} onPaid={(d) => docQuery.setData({ document: d })} />}
     </>
   );
@@ -348,7 +376,10 @@ function Row({ label, value, strong }: { label: string; value: string; strong?: 
   );
 }
 
-function LinesTable({ lines, editable, vatRate, onChange, onRemove }: { lines: DocLine[]; editable: boolean; vatRate: number; onChange: (i: number, l: Partial<DocLine>) => void; onRemove: (i: number) => void }) {
+function LinesTable({ lines, editable, vatRate, onChange, onRemove, onRequest, showCost }: {
+  lines: DocLine[]; editable: boolean; vatRate: number; onChange: (i: number, l: Partial<DocLine>) => void; onRemove: (i: number) => void;
+  onRequest?: (i: number) => void; showCost: boolean;
+}) {
   if (lines.length === 0) return <Empty title="No items" />;
   return (
     <div className="overflow-x-auto">
@@ -369,7 +400,7 @@ function LinesTable({ lines, editable, vatRate, onChange, onRemove }: { lines: D
         {lines.map((line, i) => {
           const t = lineTotals(line, vatRate);
           return (
-            <tr key={i} className="align-middle">
+            <tr key={i} className="align-top">
               <td className="px-3 py-1.5">
                 {editable ? (
                   <Select value={line.kind} onChange={(e) => onChange(i, { kind: e.target.value as LineKind })} className="h-8" aria-label="Line type">
@@ -380,17 +411,20 @@ function LinesTable({ lines, editable, vatRate, onChange, onRemove }: { lines: D
                 )}
               </td>
               <td className="px-2 py-1.5 break-words">
-                {editable ? (
-                  <Input value={line.description} onChange={(e) => onChange(i, { description: e.target.value })} placeholder={line.kind === "labour" ? "e.g. Replace front brake pads" : line.kind === "part" ? "e.g. Brake pad set (front)" : "Description"} className="h-8" />
+                {editable && line.kind === "part" ? (
+                  <PartPicker line={line} onChange={(p) => onChange(i, p)} />
+                ) : editable ? (
+                  <Input value={line.description} onChange={(e) => onChange(i, { description: e.target.value })} placeholder={line.kind === "labour" ? "e.g. Replace front brake pads" : "Description"} className="h-8" />
                 ) : (
                   line.description
                 )}
+                {line.kind === "part" && <PartControls line={line} editable={editable} showCost={showCost} onChange={(p) => onChange(i, p)} onRequest={onRequest && (() => onRequest(i))} />}
               </td>
               <td className="px-2 py-1.5 text-right tabular">
                 {editable ? <NumberInput value={line.qty} onChange={(qty) => onChange(i, { qty })} className="h-8" aria-label="Quantity" /> : line.qty}
               </td>
               <td className="px-2 py-1.5 text-right tabular">
-                {editable ? <MoneyInput fils={line.unitPriceFils} onChange={(unitPriceFils) => onChange(i, { unitPriceFils })} className="h-8" aria-label="Unit price" /> : formatAED(line.unitPriceFils).replace("AED ", "")}
+                {editable && line.suppliedBy !== "fleetfix" ? <MoneyInput fils={line.unitPriceFils} onChange={(unitPriceFils) => onChange(i, { unitPriceFils })} className="h-8" aria-label="Unit price" /> : formatAED(line.unitPriceFils).replace("AED ", "")}
               </td>
               <td className="px-2 py-1.5 text-right tabular">
                 {editable ? <NumberInput value={line.discountPct} onChange={(discountPct) => onChange(i, { discountPct: Math.min(100, discountPct) })} className="h-8" aria-label="Discount percent" /> : line.discountPct || "—"}
@@ -409,6 +443,41 @@ function LinesTable({ lines, editable, vatRate, onChange, onRemove }: { lines: D
         })}
       </tbody>
     </table>
+    </div>
+  );
+}
+
+/** The row of part details under a part line: Fleet Fix supply, order status, shelf warning, request button. */
+function PartControls({ line, editable, showCost, onChange, onRequest }: {
+  line: DocLine; editable: boolean; showCost: boolean; onChange: (p: Partial<DocLine>) => void; onRequest?: () => void;
+}) {
+  const fleetfix = line.suppliedBy === "fleetfix";
+  const short = line.partStocked && !fleetfix && line.pickedOnHand !== undefined && line.qty > line.pickedOnHand;
+  const canRequest = onRequest && !fleetfix && !line.poLineId && line.description.trim() !== "";
+  const hasAny = line.partId || fleetfix || line.orderStatus || editable || (showCost && line.costFils !== undefined);
+  if (!hasAny) return null;
+  return (
+    <div className="mt-1 flex flex-wrap items-center gap-x-3 gap-y-1 text-xs">
+      <PartLink line={line} editable={editable} onUnlink={() => onChange({ partId: null, partNo: null, partStocked: null, partOnHand: null, pickedOnHand: undefined })} />
+      {editable ? (
+        <label className="inline-flex items-center gap-1 text-zinc-600">
+          <input type="checkbox" checked={fleetfix} disabled={!!line.poLineId} onChange={(e) => onChange(e.target.checked ? { suppliedBy: "fleetfix", unitPriceFils: 0, discountPct: 0 } : { suppliedBy: "garage" })} />
+          Supplied by Fleet Fix
+        </label>
+      ) : fleetfix ? <Badge tone="brand">Supplied by Fleet Fix</Badge> : null}
+      {line.orderStatus === "on_order" && <Badge tone="zinc">On order · {line.purchaseOrderNumber}</Badge>}
+      {line.orderStatus === "received" && <Badge tone="brand">Received · {line.purchaseOrderNumber}</Badge>}
+      {short && (
+        <span className="inline-flex items-center gap-1 text-red-700"><TriangleAlert className="size-3" />Only {line.pickedOnHand} on the shelf — stock will go below zero</span>
+      )}
+      {showCost && line.costFils !== undefined && !fleetfix && (
+        <span className="text-zinc-500">Cost {line.costFils === null ? "pending" : formatAED(line.costFils)}</span>
+      )}
+      {canRequest && (
+        <button type="button" onClick={onRequest} className="inline-flex items-center gap-1 font-medium text-brand-700 hover:underline">
+          <PackagePlus className="size-3.5" />Request part
+        </button>
+      )}
     </div>
   );
 }

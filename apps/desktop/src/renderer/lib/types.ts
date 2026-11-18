@@ -15,6 +15,11 @@ export interface Vehicle {
 export interface DocLine {
   id?: string; kind: LineKind; description: string; qty: number; unitPriceFils: number; discountPct: number;
   netFils?: number; vatFils?: number; grossFils?: number;
+  partId?: string | null; partNo?: string | null; partStocked?: boolean | null; partOnHand?: number | null; partUnit?: string | null;
+  suppliedBy?: "garage" | "fleetfix"; poLineId?: string | null; orderStatus?: "on_order" | "received" | null;
+  purchaseOrderId?: string | null; purchaseOrderNumber?: string | null; costFils?: number | null;
+  /** Set in the editor when a part was just picked: its shelf count before this line takes any. */
+  pickedOnHand?: number;
 }
 export interface Payment { id: string; amountFils: number; method: string; reference: string | null; paidAt: string; createdBy: string | null }
 export interface DocRef { id: string; number: string; type: DocType }
@@ -24,6 +29,7 @@ export interface DocumentFull {
   createdAt: string; updatedAt: string; createdBy: string | null; editable: boolean;
   customer: Customer; vehicle: Vehicle | null; source: DocRef | null; derived: DocRef | null;
   lines: DocLine[]; totals: { netFils: number; vatFils: number; grossFils: number }; paidFils: number; balanceFils: number; payments: Payment[];
+  partsCostFils?: number; marginFils?: number; costPending?: boolean;
 }
 export interface DocumentSummary {
   id: string; type: DocType; number: string; status: string; customerName: string; plate: string | null; grossFils: number;

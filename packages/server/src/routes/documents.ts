@@ -18,7 +18,7 @@ interface DocRow {
 interface LineRow {
   id: string; position: number; kind: string; description: string; qty: number; unit_price_fils: number;
   discount_pct: number; net_fils: number; vat_fils: number; gross_fils: number; part_id: string | null; supplied_by: string;
-  po_line_id: string | null; part_no?: string | null; po_qty?: number | null; po_received?: number | null; po_number?: string | null;
+  po_line_id: string | null; part_no?: string | null; part_stocked?: number | null; part_on_hand?: number | null; part_unit?: string | null; po_qty?: number | null; po_received?: number | null; po_number?: string | null;
   po_id?: string | null;
 }
 
@@ -100,7 +100,7 @@ export function documentRoutes(app: FastifyInstance, db: Db): { full: DocumentOu
     const d = getDoc(id);
     if (!d) throw notFound("Document not found");
     const lines = db.all<LineRow>(
-      `SELECT dl.*, p.part_no, pl.qty AS po_qty, pl.received_qty AS po_received, po.number AS po_number, po.id AS po_id
+      `SELECT dl.*, p.part_no, p.stocked AS part_stocked, p.on_hand AS part_on_hand, p.unit AS part_unit, pl.qty AS po_qty, pl.received_qty AS po_received, po.number AS po_number, po.id AS po_id
        FROM document_lines dl
        LEFT JOIN parts p ON p.id = dl.part_id
        LEFT JOIN po_lines pl ON pl.id = dl.po_line_id
@@ -128,7 +128,8 @@ export function documentRoutes(app: FastifyInstance, db: Db): { full: DocumentOu
       lines: lines.map((l) => ({
         id: l.id, kind: l.kind, description: l.description, qty: l.qty, unitPriceFils: l.unit_price_fils,
         discountPct: l.discount_pct, netFils: l.net_fils, vatFils: l.vat_fils, grossFils: l.gross_fils,
-        partId: l.part_id, partNo: l.part_no ?? null, suppliedBy: l.supplied_by, poLineId: l.po_line_id,
+        partId: l.part_id, partNo: l.part_no ?? null,
+        partStocked: l.part_id ? !!l.part_stocked : null, partOnHand: l.part_id ? l.part_on_hand ?? null : null, partUnit: l.part_unit ?? null, suppliedBy: l.supplied_by, poLineId: l.po_line_id,
         purchaseOrderId: l.po_id ?? null, purchaseOrderNumber: l.po_number ?? null,
         orderStatus: l.po_line_id ? ((l.po_received ?? 0) >= (l.po_qty ?? 0) ? "received" : "on_order") : null,
         ...(cost ? { costFils: cost.lineCosts.get(l.id) ?? null } : {}),
