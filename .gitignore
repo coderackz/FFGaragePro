@@ -7,3 +7,4 @@ release/
 .superpowers/
 test-results/
 .dev-data/
+apps/cloud/.cloud-data
