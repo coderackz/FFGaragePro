@@ -34,7 +34,9 @@ function linesEditable(doc: DocRow): boolean {
   return doc.status !== "converted";
 }
 
-export function documentRoutes(app: FastifyInstance, db: Db): void {
+export type DocumentOut = (id: string, user: SessionUser) => unknown;
+
+export function documentRoutes(app: FastifyInstance, db: Db): { full: DocumentOut } {
   const vatRate = () => garage(db)?.vat_rate_bp ?? 500;
   const getDoc = (id: string) => db.get<DocRow>("SELECT * FROM documents WHERE id = ?", [id]);
 
@@ -278,4 +280,5 @@ export function documentRoutes(app: FastifyInstance, db: Db): void {
     });
     return { document: full(req.params.id, user) };
   });
+  return { full };
 }

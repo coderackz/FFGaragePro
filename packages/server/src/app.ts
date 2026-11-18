@@ -7,6 +7,7 @@ import { deviceGuard, NETWORK_PORT, networkRoutes, type NetworkStatus } from "./
 import { customerRoutes } from "./routes/customers";
 import { documentRoutes } from "./routes/documents";
 import { partRoutes } from "./routes/parts";
+import { purchaseRoutes } from "./routes/purchases";
 import { setupRoutes } from "./routes/setup";
 import { userRoutes } from "./routes/users";
 
@@ -53,8 +54,9 @@ export async function buildApp(options: AppOptions): Promise<FastifyInstance & {
   networkRoutes(app, db, { now, port: options.networkPort ?? NETWORK_PORT, status: options.networkStatus ?? { listening: false, error: null } });
   userRoutes(app, db);
   customerRoutes(app, db);
-  documentRoutes(app, db);
+  const documents = documentRoutes(app, db);
   partRoutes(app, db);
+  purchaseRoutes(app, db, documents);
 
   app.addHook("onClose", async () => db.close());
   return Object.assign(app, { db }) as unknown as FastifyInstance & { db: Db };

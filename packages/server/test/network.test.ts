@@ -120,7 +120,7 @@ describe("main-computer mode", () => {
     } finally {
       await close();
     }
-  });
+  }, 20_000); // scrypt-heavy: many password checks; slow when the whole suite runs in parallel
 
   it("answers only the app's own pages across origins", async () => {
     const { app, close } = await clockApp();
