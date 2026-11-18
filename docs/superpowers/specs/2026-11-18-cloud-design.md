@@ -181,6 +181,12 @@ part requests to network garages) on the same cloud.
   - the signature (Ed25519, public key built into the app) stops tampering with the date.
 
 ### Hosting
+**For now (user, 2026-11-18): a local web server for development.** The cloud runs on this Mac at
+`http://localhost:4790`, with garage files under a data folder. The PC app's cloud URL is a setting (default
+`http://localhost:4790` in development builds). The web address and hosting provider are chosen before Stage 3.
+Nothing in Stages 1–2 depends on that choice.
+
+**Later (Stage 3):**
 - One Linux server in a UAE or GCC region, with HTTPS on a Fleet Fix domain. Node runs under a process manager,
   with nightly off-server backups and basic uptime and disk alerts.
 - Infrastructure as a short script plus a README, so the server can be rebuilt.
@@ -197,7 +203,8 @@ part requests to network garages) on the same cloud.
    - PC Connect, upload and download;
    - licence token;
    - sync issues.
-3. **Go live:** the server, domain, HTTPS, backups and monitoring, and the installer pointing at the cloud.
+3. **Go live (later, once the user picks hosting and a domain):** the server, domain, HTTPS, backups and
+   monitoring, and the installer pointing at the cloud.
 
 ## Left to the builder
 - Screen layouts for the admin console, Cloud settings and sync-issue list, and tablet breakpoints.
