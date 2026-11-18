@@ -1,8 +1,10 @@
 import type { FastifyInstance } from "fastify";
-import { adjustmentSchema, can, partSchema, supplierSchema, type PartInput } from "@ffgp/shared";
+import { adjustmentSchema, can, parseAED, partSchema, supplierSchema, type PartInput } from "@ffgp/shared";
+import { z } from "zod";
 import { requireAction, sessionUser } from "../auth";
 import { newId, now, type Db } from "../db";
-import { badRequest, conflict, notFound } from "../errors";
+import { parseCsv } from "../csv";
+import { badRequest, conflict, HttpError, notFound } from "../errors";
 import { postMovement } from "../stock";
 
 export interface PartRow {
@@ -150,6 +152,92 @@ export function partRoutes(app: FastifyInstance, db: Db): void {
       });
     });
     return { part: partOut(getPart(req.params.id)!, true) };
+  });
+
+  // ---- CSV import ----
+
+  const COLUMNS = ["part_no", "name", "brand", "unit", "stocked", "sell_price", "cost", "qty", "reorder_level", "location", "fits"] as const;
+  type Column = (typeof COLUMNS)[number];
+  class RollBack extends Error {}
+
+  app.post("/api/parts/import", async (req) => {
+    const user = sessionUser(db, req);
+    requireAction(user, "inventory.edit");
+    const { csv, dryRun } = z.object({ csv: z.string().max(4_000_000), dryRun: z.boolean().default(false) }).parse(req.body);
+    const rows = parseCsv(csv);
+    const header = (rows[0] ?? []).map((h) => h.trim().toLowerCase().replace(/\s+/g, "_"));
+    const col = new Map<Column, number>();
+    COLUMNS.forEach((c) => { const i = header.indexOf(c); if (i >= 0) col.set(c, i); });
+    if (!col.has("part_no") || !col.has("name")) {
+      return { created: 0, updated: 0, errors: [{ row: 1, message: "The first row must name the columns, including part_no and name" }] };
+    }
+    const errors: { row: number; message: string }[] = [];
+    let created = 0, updated = 0;
+    const seen = new Set<string>();
+    try {
+      db.tx(() => {
+        rows.slice(1).forEach((cells, i) => {
+          const rowNo = i + 2;
+          const has = (c: Column) => col.has(c);
+          const cell = (c: Column) => (cells[col.get(c)!] ?? "").trim();
+          const money = (c: Column): number | undefined => {
+            if (!has(c) || cell(c) === "") return undefined;
+            const v = parseAED(cell(c));
+            if (v === null || v < 0) throw badRequest(`${c}: "${cell(c)}" is not an amount`);
+            return v;
+          };
+          const num = (c: Column): number | undefined => {
+            if (!has(c) || cell(c) === "") return undefined;
+            const v = Number(cell(c));
+            if (!Number.isFinite(v) || v < 0) throw badRequest(`${c}: "${cell(c)}" is not a number`);
+            return v;
+          };
+          try {
+            const partNo = cell("part_no");
+            if (seen.has(partNo.toLowerCase())) throw badRequest(`part_no ${partNo} appears twice in the file`);
+            seen.add(partNo.toLowerCase());
+            const existing = partNo ? db.get<PartRow>("SELECT * FROM parts WHERE active = 1 AND part_no = ? COLLATE NOCASE", [partNo]) ?? null : null;
+            const stockedText = has("stocked") ? cell("stocked").toLowerCase() : "";
+            if (stockedText && !["yes", "no", "y", "n", "1", "0", "true", "false"].includes(stockedText)) {
+              throw badRequest(`stocked: "${cell("stocked")}" should be yes or no`);
+            }
+            const text = (c: Column, keep: string | null) => (has(c) ? cell(c) || null : keep);
+            const parsed = partSchema.safeParse({
+              partNo, name: cell("name"),
+              brand: text("brand", existing?.brand ?? null),
+              unit: text("unit", existing?.unit ?? null) ?? "each",
+              stocked: stockedText ? ["yes", "y", "1", "true"].includes(stockedText) : existing ? !!existing.stocked : true,
+              sellPriceFils: money("sell_price") ?? existing?.sell_price_fils ?? 0,
+              reorderLevel: num("reorder_level") ?? existing?.reorder_level ?? 0,
+              location: text("location", existing?.location ?? null),
+              fits: text("fits", existing?.fits ?? null),
+              active: true,
+            });
+            if (!parsed.success) {
+              const issue = parsed.error.issues[0];
+              throw badRequest(`${String(issue?.path[0] ?? "row")}: ${issue?.message ?? "invalid"}`);
+            }
+            const cost = money("cost");
+            const qty = num("qty");
+            const id = savePart(parsed.data, existing);
+            if (existing) updated++;
+            else {
+              created++;
+              if (parsed.data.stocked && qty) {
+                postMovement(db, { partId: id, qty, reason: "opening", unitCostFils: cost ?? 0, note: "CSV import", userId: user.id });
+              }
+            }
+          } catch (error) {
+            if (error instanceof HttpError) errors.push({ row: rowNo, message: error.message });
+            else throw error;
+          }
+        });
+        if (errors.length || dryRun) throw new RollBack();
+      });
+    } catch (error) {
+      if (!(error instanceof RollBack)) throw error;
+    }
+    return errors.length ? { created: 0, updated: 0, errors } : { created, updated, errors };
   });
 
   // ---- Suppliers ----
