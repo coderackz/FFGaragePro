@@ -296,7 +296,7 @@ export function DocumentPage() {
         </div>
 
         {/* Beside the items on wide screens; below them, in two columns, on small garage screens. */}
-        <div className="grid content-start gap-5 md:grid-cols-2 min-[1440px]:grid-cols-1">
+        <div className="grid content-start gap-5 md:max-[1439px]:grid-cols-2">
           <Card title="Summary">
             <dl className="flex flex-col gap-2 text-sm">
               <Row label="Subtotal" value={formatAED(totals.netFils)} />
@@ -470,7 +470,7 @@ function PartControls({ line, editable, showCost, onChange, onRequest }: {
       {short && (
         <span className="inline-flex items-center gap-1 text-red-700"><TriangleAlert className="size-3" />Only {line.pickedOnHand} on the shelf — stock will go below zero</span>
       )}
-      {showCost && line.costFils !== undefined && !fleetfix && (
+      {showCost && line.costFils !== undefined && !fleetfix && (line.partId || line.poLineId) && (
         <span className="text-zinc-500">Cost {line.costFils === null ? "pending" : formatAED(line.costFils)}</span>
       )}
       {canRequest && (

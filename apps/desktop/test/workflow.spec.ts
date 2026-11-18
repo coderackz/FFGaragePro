@@ -1,8 +1,9 @@
 import { expect, test } from "@playwright/test";
 import { renderDocumentHtml } from "../src/renderer/print/templates";
-import { garageDay, shooter } from "./flow";
+import { garageDay, shooter, stockDay } from "./flow";
 
 test("garage day: setup → customer → estimate → job card → invoice → paid", async ({ page, request }) => {
+  test.setTimeout(150_000);
   page.on("pageerror", (e) => console.log("PAGEERROR", e.message));
   page.on("console", (m) => m.type() === "error" && console.log("CONSOLE", m.text()));
   page.on("response", (r) => r.status() >= 400 && console.log("HTTP", r.status(), r.url()));
@@ -52,4 +53,7 @@ test("garage day: setup → customer → estimate → job card → invoice → p
     await printPage.pdf({ path: `test-results/screens/print-${name}.pdf`, format: "A4", printBackground: true });
     await printPage.close();
   }
+
+  // Inventory: shelf stock, a part requested from Fleet Fix for the job, received, invoiced.
+  await stockDay(page, shot);
 });

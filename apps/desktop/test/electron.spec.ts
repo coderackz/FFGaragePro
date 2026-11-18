@@ -3,13 +3,13 @@ import { mkdirSync, mkdtempSync, readFileSync, statSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
 import { launchApp, screenPrefix as prefix } from "./electron-app";
-import { garageDay, OWNER, shooter } from "./flow";
+import { garageDay, OWNER, shooter, stockDay } from "./flow";
 
 // The real desktop app, end to end (built app, or the installed one when FFGP_EXE is set).
 const launch = (dataDir: string) => launchApp({ FFGP_USER_DATA: dataDir });
 
 test("desktop app: garage day, PDF tax invoice, data kept after restart", async () => {
-  test.setTimeout(180_000);
+  test.setTimeout(360_000);
   const dataDir = mkdtempSync(join(tmpdir(), "ffgp-electron-"));
   const pdfPath = resolve(`test-results/screens/${prefix}INV-00001.pdf`);
   mkdirSync(resolve("test-results/screens"), { recursive: true });
@@ -43,5 +43,9 @@ test("desktop app: garage day, PDF tax invoice, data kept after restart", async 
   await win.getByRole("cell", { name: "INV-00001" }).click();
   await expect(win.getByText("AED 180.40").first()).toBeVisible();
   await shooter(win, prefix)("07-after-restart");
+
+  // Inventory on the real app (and on the installed Windows app in CI).
+  win.on("dialog", (d) => void d.accept());
+  await stockDay(win, shooter(win, prefix));
   await app.close();
 });
