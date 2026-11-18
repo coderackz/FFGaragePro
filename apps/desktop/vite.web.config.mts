@@ -13,6 +13,11 @@ export default defineConfig({
   build: {
     outDir: resolve(import.meta.dirname, "dist-web"),
     emptyOutDir: true,
-    rollupOptions: { input: { index: resolve(import.meta.dirname, "src/renderer/index.html") } },
+    rollupOptions: {
+      input: {
+        index: resolve(import.meta.dirname, "src/renderer/index.html"),
+        admin: resolve(import.meta.dirname, "src/renderer/admin.html"),
+      },
+    },
   },
 });
