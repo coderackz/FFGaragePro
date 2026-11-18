@@ -52,3 +52,19 @@ export interface Supplier {
   id: string; name: string; trn: string | null; phone: string | null; email: string | null; address: string | null; notes: string | null;
   isFleetfix: boolean;
 }
+
+export interface PoLine {
+  id?: string; partId: string | null; partNo?: string | null; stocked?: boolean | null; description: string; qty: number; receivedQty?: number;
+  jobDocumentId: string | null; jobDocumentNumber?: string | null; unitCostFils?: number; netFils?: number;
+}
+export interface GoodsReceipt {
+  id: string; supplierInvoiceNo: string | null; supplierInvoiceDate: string | null; netFils: number; vatFils: number; grossFils: number;
+  createdAt: string; createdBy: string | null;
+}
+export interface PurchaseOrder {
+  id: string; number: string; status: string; notes: string | null; createdAt: string; updatedAt: string; createdBy: string | null;
+  supplier: Supplier; editable: boolean; lines: PoLine[]; netFils?: number; receipts?: GoodsReceipt[];
+}
+export interface PurchaseOrderSummary {
+  id: string; number: string; status: string; supplierId: string; supplierName: string; lineCount: number; createdAt: string; netFils?: number;
+}

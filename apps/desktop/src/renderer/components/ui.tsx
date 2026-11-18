@@ -175,6 +175,9 @@ const statusTone: Record<string, string> = {
   issued: "bg-sky-50 text-sky-700 ring-sky-200",
   part_paid: "bg-amber-50 text-amber-800 ring-amber-200",
   paid: "bg-emerald-50 text-emerald-700 ring-emerald-200",
+  part_received: "bg-amber-50 text-amber-800 ring-amber-200",
+  received: "bg-emerald-50 text-emerald-700 ring-emerald-200",
+  cancelled: "bg-zinc-100 text-zinc-500 ring-zinc-200 line-through",
 };
 
 export function StatusBadge({ status }: { status: string }) {

@@ -1,5 +1,5 @@
 import clsx from "clsx";
-import { Car, FileText, LayoutDashboard, LogOut, Package, Receipt, Settings, Truck, UserCog, Users, Wrench } from "lucide-react";
+import { Car, FileText, LayoutDashboard, LogOut, Package, Receipt, Settings, ShoppingCart, Truck, UserCog, Users, Wrench } from "lucide-react";
 import type { ReactNode } from "react";
 import { NavLink } from "react-router";
 import { ROLE_LABELS } from "@ffgp/shared";
@@ -19,6 +19,7 @@ export function Layout({ children }: { children: ReactNode }) {
     { to: "/vehicles", label: "Vehicles", icon: Car },
     { section: "Inventory" },
     { to: "/parts", label: "Parts", icon: Package },
+    { to: "/purchase-orders", label: "Purchases", icon: ShoppingCart },
     { to: "/suppliers", label: "Suppliers", icon: Truck },
     ...(can("users.manage") || can("settings.manage") ? [{ section: "Admin" }] : []),
     ...(can("users.manage") ? [{ to: "/users", label: "Users", icon: UserCog }] : []),

@@ -16,6 +16,8 @@ import { UsersPage } from "./pages/UsersPage";
 import { VehiclesPage } from "./pages/VehiclesPage";
 import { PartPage } from "./pages/PartPage";
 import { PartsPage } from "./pages/PartsPage";
+import { PurchaseOrderPage } from "./pages/PurchaseOrderPage";
+import { PurchaseOrdersPage } from "./pages/PurchaseOrdersPage";
 import { SuppliersPage } from "./pages/SuppliersPage";
 
 export function App() {
@@ -72,6 +74,9 @@ export function App() {
         <Route path="/parts" element={<PartsPage />} />
         <Route path="/parts/:id" element={<PartPage />} />
         <Route path="/suppliers" element={<SuppliersPage />} />
+        <Route path="/purchase-orders" element={<PurchaseOrdersPage />} />
+        <Route path="/purchase-orders/new" element={<PurchaseOrderPage />} />
+        <Route path="/purchase-orders/:id" element={<PurchaseOrderPage />} />
         {can("users.manage") && <Route path="/users" element={<UsersPage />} />}
         {can("settings.manage") && <Route path="/settings" element={<SettingsPage />} />}
         <Route path="*" element={<Navigate to="/" replace />} />

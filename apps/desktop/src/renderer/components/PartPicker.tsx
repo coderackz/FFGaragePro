@@ -10,7 +10,7 @@ import { Input } from "./ui";
  * Description field for a part line. Typing searches the parts list; picking a part links the line to it
  * (stock and cost follow it). Typing without picking keeps a free-text line.
  */
-export function PartPicker({ line, onChange }: { line: DocLine; onChange: (patch: Partial<DocLine>) => void }) {
+export function PartPicker({ line, onChange, onPick }: { line: DocLine; onChange: (patch: Partial<DocLine>) => void; onPick?: (p: Part) => void }) {
   const [open, setOpen] = useState(false);
   const [results, setResults] = useState<Part[]>([]);
   const [active, setActive] = useState(0);
@@ -38,6 +38,7 @@ export function PartPicker({ line, onChange }: { line: DocLine; onChange: (patch
       partId: p.id, partNo: p.partNo, partStocked: p.stocked, partOnHand: p.onHand, partUnit: p.unit, pickedOnHand: p.onHand,
       description: `${p.name} (${p.partNo})`, unitPriceFils: line.suppliedBy === "fleetfix" ? 0 : p.sellPriceFils,
     });
+    onPick?.(p);
     setOpen(false);
   };
 

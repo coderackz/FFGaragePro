@@ -1,14 +1,21 @@
 import { toast } from "sonner";
-import type { DocumentFull, Garage } from "../lib/types";
-import { renderDocumentHtml } from "./templates";
+import type { DocumentFull, Garage, PurchaseOrder } from "../lib/types";
+import { renderDocumentHtml, renderPurchaseOrderHtml } from "./templates";
 
-export async function printDocument(doc: DocumentFull, garage: Garage, mode: "pdf" | "print"): Promise<void> {
-  const html = renderDocumentHtml(doc, garage);
+export function printDocument(doc: DocumentFull, garage: Garage, mode: "pdf" | "print"): Promise<void> {
+  return printHtml(renderDocumentHtml(doc, garage), `${doc.number} - ${doc.customer.name}`, mode);
+}
+
+export function printPurchaseOrder(po: PurchaseOrder, garage: Garage, mode: "pdf" | "print"): Promise<void> {
+  return printHtml(renderPurchaseOrderHtml(po, garage), `${po.number} - ${po.supplier.name}`, mode);
+}
+
+async function printHtml(html: string, title: string, mode: "pdf" | "print"): Promise<void> {
   const bridge = window.ffgp;
   if (bridge) {
     if (mode === "pdf") {
-      const safeName = doc.customer.name.replace(/[\\/:*?"<>|]+/g, " ").trim();
-      const path = await bridge.savePdf(html, `${doc.number} - ${safeName}.pdf`);
+      const safeName = title.replace(/[\\/:*?"<>|]+/g, " ").trim();
+      const path = await bridge.savePdf(html, `${safeName}.pdf`);
       if (path) toast.success("PDF saved", { description: path });
     } else {
       await bridge.print(html);
