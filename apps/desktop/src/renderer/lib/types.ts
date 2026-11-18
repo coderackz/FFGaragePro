@@ -29,7 +29,7 @@ export interface DocumentFull {
   createdAt: string; updatedAt: string; createdBy: string | null; editable: boolean;
   customer: Customer; vehicle: Vehicle | null; source: DocRef | null; derived: DocRef | null;
   lines: DocLine[]; totals: { netFils: number; vatFils: number; grossFils: number }; paidFils: number; balanceFils: number; payments: Payment[];
-  partsCostFils?: number; marginFils?: number; costPending?: boolean;
+  partsCostFils?: number; marginFils?: number; costPending?: boolean; uncostedLines?: number;
 }
 export interface DocumentSummary {
   id: string; type: DocType; number: string; status: string; customerName: string; plate: string | null; grossFils: number;
@@ -62,7 +62,7 @@ export interface GoodsReceipt {
   createdAt: string; createdBy: string | null;
 }
 export interface PurchaseOrder {
-  id: string; number: string; status: string; notes: string | null; createdAt: string; updatedAt: string; createdBy: string | null;
+  id: string; number: string; status: string; version: number; notes: string | null; createdAt: string; updatedAt: string; createdBy: string | null;
   supplier: Supplier; editable: boolean; lines: PoLine[]; netFils?: number; receipts?: GoodsReceipt[];
 }
 export interface PurchaseOrderSummary {

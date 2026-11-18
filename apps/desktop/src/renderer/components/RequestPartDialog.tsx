@@ -28,7 +28,7 @@ export function RequestPartDialog({ request, onClose, onDone }: {
     setBusy(true);
     try {
       const res = await post<{ document: DocumentFull }>("/api/purchase-requests", {
-        documentId: request.documentId, position: request.position, supplierId, qty,
+        documentId: request.documentId, position: request.position, description: request.line.description.trim(), supplierId, qty,
         ...(bought ? { alreadyBought: true, unitCostFils: costFils, supplierInvoiceNo: invoiceNo || null } : {}),
       });
       const line = res.document.lines[request.position];

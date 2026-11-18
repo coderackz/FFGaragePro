@@ -9,7 +9,7 @@ import type { DocumentOut } from "./documents";
 import { garage } from "./setup";
 
 interface PoRow {
-  id: string; seq: number; number: string; supplier_id: string; status: string; notes: string | null; net_fils: number;
+  id: string; seq: number; number: string; supplier_id: string; status: string; notes: string | null; net_fils: number; version: number;
   created_by: string | null; created_at: string; updated_at: string;
 }
 interface PoLineRow {
@@ -20,6 +20,9 @@ type PoLineInput = z.infer<typeof poSchema>["lines"][number] & { id?: string };
 type ReceiveInput = z.infer<typeof receiveSchema>;
 
 const lineNet = (qty: number, costFils: number) => roundFils(qty * costFils);
+
+/** Documents that may still change. Issued invoices and converted job cards are never touched. */
+const EDITABLE_DOCS = `SELECT id FROM documents WHERE NOT ((type = 'jobcard' AND status = 'converted') OR (type = 'invoice' AND status <> 'draft'))`;
 
 export function purchaseRoutes(app: FastifyInstance, db: Db, docs: { full: DocumentOut }): void {
   const getPo = (id: string) => db.get<PoRow>("SELECT * FROM purchase_orders WHERE id = ?", [id]);
@@ -41,9 +44,15 @@ export function purchaseRoutes(app: FastifyInstance, db: Db, docs: { full: Docum
     if (line.jobDocumentId && !db.get("SELECT 1 FROM documents WHERE id = ?", [line.jobDocumentId])) throw badRequest("Job card not found");
   }
 
+  /** Recomputes the PO total and bumps its version; every change to a PO ends here. */
   function updateNet(poId: string) {
     const net = poLines(poId).reduce((sum, l) => sum + lineNet(l.qty, l.unit_cost_fils), 0);
-    db.run("UPDATE purchase_orders SET net_fils = ?, updated_at = ? WHERE id = ?", [net, now(), poId]);
+    db.run("UPDATE purchase_orders SET net_fils = ?, version = version + 1, updated_at = ? WHERE id = ?", [net, now(), poId]);
+  }
+
+  /** Unlinks job lines from PO lines, on documents that can still change only. */
+  function unlinkJobs(poLineIdsSql: string, params: string[]) {
+    db.run(`UPDATE document_lines SET po_line_id = NULL WHERE po_line_id IN (${poLineIdsSql}) AND document_id IN (${EDITABLE_DOCS})`, params);
   }
 
   function createPo(user: SessionUser, supplierId: string, notes: string | null): string {
@@ -93,7 +102,10 @@ export function purchaseRoutes(app: FastifyInstance, db: Db, docs: { full: Docum
     });
     for (const id of existing.keys()) {
       if (keep.has(id)) continue;
-      db.run("UPDATE document_lines SET po_line_id = NULL WHERE po_line_id = ?", [id]);
+      unlinkJobs("?", [id]);
+      if (db.get("SELECT 1 FROM document_lines WHERE po_line_id = ?", [id])) {
+        throw conflict(`${existing.get(id)!.description} is on an invoiced job, so it can't be removed`);
+      }
       db.run("DELETE FROM po_lines WHERE id = ?", [id]);
     }
   }
@@ -158,7 +170,7 @@ export function purchaseRoutes(app: FastifyInstance, db: Db, docs: { full: Docum
     );
     const createdBy = po.created_by ? db.get<{ name: string }>("SELECT name FROM users WHERE id = ?", [po.created_by])?.name ?? null : null;
     return {
-      id: po.id, number: po.number, status: po.status, notes: po.notes, createdAt: po.created_at, updatedAt: po.updated_at, createdBy,
+      id: po.id, number: po.number, status: po.status, version: po.version, notes: po.notes, createdAt: po.created_at, updatedAt: po.updated_at, createdBy,
       supplier: { id: supplier.id, name: supplier.name, trn: supplier.trn, phone: supplier.phone, email: supplier.email, address: supplier.address, isFleetfix: !!supplier.is_fleetfix },
       editable: po.status === "draft",
       lines: lines.map((l) => ({
@@ -221,20 +233,24 @@ export function purchaseRoutes(app: FastifyInstance, db: Db, docs: { full: Docum
     db.tx(() => {
       const po = getPo(req.params.id);
       if (!po) throw notFound("Purchase order not found");
+      if (input.version !== undefined && input.version !== po.version) {
+        throw conflict(`${po.number} was changed on another PC. Reload it and try again.`);
+      }
       if (input.lines) {
         if (po.status !== "draft") throw conflict(`${po.number} has been sent; its lines can't be changed`);
         replaceLines(po.id, input.lines);
         updateNet(po.id);
       }
-      if (input.notes !== undefined) db.run("UPDATE purchase_orders SET notes = ?, updated_at = ? WHERE id = ?", [input.notes, now(), po.id]);
+      if (input.notes !== undefined) db.run("UPDATE purchase_orders SET notes = ? WHERE id = ?", [input.notes, po.id]);
       if (input.status && input.status !== po.status) {
         if (input.status === "sent" && po.status !== "draft") throw conflict(`${po.number} has already been sent`);
         if (input.status === "cancelled") {
           if (poLines(po.id).some((l) => l.received_qty > 0)) throw conflict(`Part of ${po.number} has been received, so it can't be cancelled`);
-          db.run("UPDATE document_lines SET po_line_id = NULL WHERE po_line_id IN (SELECT id FROM po_lines WHERE po_id = ?)", [po.id]);
+          unlinkJobs("SELECT id FROM po_lines WHERE po_id = ?", [po.id]);
         }
-        db.run("UPDATE purchase_orders SET status = ?, updated_at = ? WHERE id = ?", [input.status, now(), po.id]);
+        db.run("UPDATE purchase_orders SET status = ? WHERE id = ?", [input.status, po.id]);
       }
+      updateNet(po.id);
     });
     return { purchaseOrder: full(req.params.id, user) };
   });
@@ -270,6 +286,9 @@ export function purchaseRoutes(app: FastifyInstance, db: Db, docs: { full: Docum
       );
       if (!line || line.kind !== "part" || line.supplied_by !== "garage") throw badRequest("Only parts the garage buys can be requested");
       if (line.po_line_id) throw badRequest("This line is already requested");
+      if (input.description !== undefined && input.description !== line.description) {
+        throw conflict("This job card was changed on another PC. Reload it and try again.");
+      }
       checkSupplier(input.supplierId);
 
       const draft = input.alreadyBought
@@ -277,7 +296,8 @@ export function purchaseRoutes(app: FastifyInstance, db: Db, docs: { full: Docum
         : db.get<{ id: string }>("SELECT id FROM purchase_orders WHERE supplier_id = ? AND status = 'draft' ORDER BY seq DESC LIMIT 1", [input.supplierId]);
       const poId = draft?.id ?? createPo(user, input.supplierId, null);
       const poLineId = addLine(poId, {
-        partId: line.part_id, description: line.description, qty: input.qty, unitCostFils: input.unitCostFils ?? 0, jobDocumentId: doc.id,
+        // Only Owner/Accountant buying it now set a cost; a plain request is priced on the PO.
+        partId: line.part_id, description: line.description, qty: input.qty, unitCostFils: input.alreadyBought ? input.unitCostFils! : 0, jobDocumentId: doc.id,
       });
       db.run("UPDATE document_lines SET po_line_id = ? WHERE id = ?", [poLineId, line.id]);
       updateNet(poId);

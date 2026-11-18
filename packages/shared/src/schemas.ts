@@ -3,6 +3,8 @@ import { DOC_TYPES, ROLES } from "./rules";
 
 const text = (max = 200) => z.string().trim().max(max);
 const optionalText = (max = 200) => text(max).optional().nullable().transform((v) => (v ? v : null));
+/** For PATCH bodies: a missing field stays undefined (leave it alone); empty clears it. */
+const patchText = (max = 200) => text(max).optional().nullable().transform((v) => (v === undefined ? undefined : v || null));
 
 export const garageSchema = z.object({
   name: text().min(1, "Garage name is required"),
@@ -92,7 +94,7 @@ export type DocumentCreateInput = z.infer<typeof documentCreateSchema>;
 export const documentUpdateSchema = z.object({
   vehicleId: z.string().uuid().optional().nullable(),
   odometer: z.number().int().min(0).optional().nullable(),
-  notes: optionalText(4000),
+  notes: patchText(4000),
   status: z.string().optional(),
   lines: z.array(lineSchema).max(500).optional(),
 });
@@ -155,7 +157,9 @@ export const poSchema = z.object({
   lines: z.array(poLineSchema).max(200).default([]),
 });
 export const poUpdateSchema = z.object({
-  notes: optionalText(4000),
+  /** The version the editor loaded; a different current version means another PC changed it. */
+  version: z.number().int().min(0).optional(),
+  notes: patchText(4000),
   status: z.enum(["sent", "cancelled"]).optional(),
   lines: z.array(poLineSchema.extend({ id: z.string().uuid().optional() })).max(200).optional(),
 });
@@ -172,6 +176,8 @@ export const requestPartSchema = z.object({
   position: z.number().int().min(0),
   supplierId: z.string().uuid(),
   qty: z.number().positive().max(100000),
+  /** The line's description as the requesting screen sees it; a mismatch means the job card changed meanwhile. */
+  description: text(500).optional(),
   alreadyBought: z.boolean().default(false),
   unitCostFils: money.optional(),
   supplierInvoiceNo: optionalText(60),

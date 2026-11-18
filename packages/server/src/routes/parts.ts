@@ -44,8 +44,16 @@ export function partRoutes(app: FastifyInstance, db: Db): void {
   /** Creates or updates a part's details (not its stock). */
   function savePart(input: PartInput, existing: PartRow | null): string {
     if (input.active) assertUniquePartNo(input.partNo, existing?.id ?? null);
-    if (existing && !!existing.stocked !== input.stocked && existing.on_hand !== 0) {
-      throw conflict("Bring the stock to zero before changing this");
+    if (existing && !!existing.stocked !== input.stocked) {
+      if (existing.on_hand !== 0) throw conflict("Bring the stock to zero before changing this");
+      // Open jobs still hold (or would take) this part's stock; switching now would strand it.
+      const open = db.all<{ number: string }>(
+        `SELECT DISTINCT d.number FROM document_lines dl JOIN documents d ON d.id = dl.document_id
+         WHERE dl.part_id = ? AND ((d.type = 'jobcard' AND d.status <> 'converted') OR (d.type = 'invoice' AND d.status = 'draft'))
+         ORDER BY d.number LIMIT 5`,
+        [existing.id],
+      );
+      if (open.length) throw conflict(`This part is on ${open.map((o) => o.number).join(", ")}. Finish those or take the part off them first`);
     }
     const t = now();
     const values = [

@@ -307,7 +307,8 @@ export function DocumentPage() {
                 <div className="mt-1 flex flex-col gap-1.5 border-t border-zinc-100 pt-2" data-testid="job-cost">
                   <Row label="Parts cost" value={formatAED(doc.partsCostFils)} />
                   <Row label="Margin (before VAT)" value={formatAED(doc.marginFils ?? 0)} />
-                  {doc.costPending && <div className="text-xs text-amber-700">Some parts haven't been received yet, so their cost isn't counted.</div>}
+                  {doc.costPending && <div className="text-xs text-amber-700">Some parts' cost isn't known yet (not received, or used before a delivery was entered), so it isn't counted.</div>}
+                  {!!doc.uncostedLines && <div className="text-xs text-amber-700">{doc.uncostedLines} typed-in part {doc.uncostedLines === 1 ? "line has" : "lines have"} no cost — pick parts from the list so margin is right.</div>}
                 </div>
               )}
               {isInvoice && doc && doc.status !== "draft" && (

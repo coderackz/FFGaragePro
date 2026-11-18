@@ -50,32 +50,35 @@ export function PurchaseOrderPage() {
     try { await fn(); } catch (error) { toast.error((error as Error).message); } finally { setBusy(null); }
   };
 
-  /** Saves and returns the PO id (creating it if new). */
-  const save = async (): Promise<string> => {
+  /** Saves and returns the PO (creating it if new). Sends the loaded version so a stale screen can't overwrite. */
+  const save = async (): Promise<PurchaseOrder> => {
     const body = {
+      version: po?.version,
       notes,
       lines: clean().map((l) => ({ id: l.id, partId: l.partId, description: l.description.trim(), qty: l.qty, unitCostFils: l.unitCostFils ?? 0, jobDocumentId: l.jobDocumentId })),
     };
     if (isNew) {
-      const res = await post<{ purchaseOrder: PurchaseOrder }>("/api/purchase-orders", { supplierId, ...body, lines: body.lines.map(({ id: _, ...l }) => l) });
+      const res = await post<{ purchaseOrder: PurchaseOrder }>("/api/purchase-orders", { supplierId, notes, lines: body.lines.map(({ id: _, ...l }) => l) });
       setDirty(false);
       navigate(`/purchase-orders/${res.purchaseOrder.id}`, { replace: true });
-      return res.purchaseOrder.id;
+      return res.purchaseOrder;
     }
-    if (dirty && editable) poQuery.setData(await patch<{ purchaseOrder: PurchaseOrder }>(`/api/purchase-orders/${po!.id}`, body));
+    if (!dirty || !editable) return po!;
+    const res = await patch<{ purchaseOrder: PurchaseOrder }>(`/api/purchase-orders/${po!.id}`, body);
+    poQuery.setData(res);
     setDirty(false);
-    return po!.id;
+    return res.purchaseOrder;
   };
 
   const setStatus = (status: "sent" | "cancelled") => run(status, async () => {
     if (status === "cancelled" && !window.confirm(`Cancel ${po!.number}? Job cards waiting on it can request the parts again.`)) return;
-    const poId = await save();
-    poQuery.setData(await patch<{ purchaseOrder: PurchaseOrder }>(`/api/purchase-orders/${poId}`, { status }));
+    const saved = await save();
+    poQuery.setData(await patch<{ purchaseOrder: PurchaseOrder }>(`/api/purchase-orders/${saved.id}`, { status, version: saved.version }));
     toast.success(status === "sent" ? "Marked as sent" : "Purchase order cancelled");
   });
 
   const onPrint = (mode: "pdf" | "print") => run(mode, async () => {
-    const poId = dirty ? await save() : po?.id;
+    const poId = dirty ? (await save()).id : po?.id;
     if (!poId || !garage) return;
     const { purchaseOrder } = await get<{ purchaseOrder: PurchaseOrder }>(`/api/purchase-orders/${poId}`);
     poQuery.setData({ purchaseOrder });

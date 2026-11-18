@@ -95,6 +95,8 @@ export interface DocumentCost {
   lineCosts: Map<string, number | null>;
   partsCostFils: number;
   costPending: boolean;
+  /** Typed-in part lines (not from the parts list, not ordered): their cost is unknown, so margin may be high. */
+  uncostedLines: number;
 }
 
 /**
@@ -105,12 +107,12 @@ export interface DocumentCost {
 export function documentCost(db: Db, docId: string): DocumentCost {
   const doc = db.get<ChainDoc>("SELECT id, type, source_id FROM documents WHERE id = ?", [docId]);
   const lineCosts = new Map<string, number | null>();
-  if (!doc) return { lineCosts, partsCostFils: 0, costPending: false };
+  if (!doc) return { lineCosts, partsCostFils: 0, costPending: false, uncostedLines: 0 };
   const lines = db.all<{
-    id: string; qty: number; supplied_by: string; part_id: string | null; stocked: number | null; avg_cost_fils: number | null;
+    id: string; kind: string; qty: number; supplied_by: string; part_id: string | null; stocked: number | null; avg_cost_fils: number | null;
     po_line_id: string | null; po_received: number | null; po_cost: number | null;
   }>(
-    `SELECT dl.id, dl.qty, dl.supplied_by, dl.part_id, p.stocked, p.avg_cost_fils, dl.po_line_id,
+    `SELECT dl.id, dl.kind, dl.qty, dl.supplied_by, dl.part_id, p.stocked, p.avg_cost_fils, dl.po_line_id,
             pl.received_qty AS po_received, pl.unit_cost_fils AS po_cost
      FROM document_lines dl LEFT JOIN parts p ON p.id = dl.part_id LEFT JOIN po_lines pl ON pl.id = dl.po_line_id
      WHERE dl.document_id = ? ORDER BY dl.position`,
@@ -119,21 +121,26 @@ export function documentCost(db: Db, docId: string): DocumentCost {
   const taken = takenByPart(db, chainIds(db, doc));
   let total = 0;
   let pending = false;
+  let uncosted = 0;
   for (const l of lines) {
     let cost: number | null = 0;
     if (l.supplied_by !== "garage") cost = 0;
-    else if (l.part_id && l.stocked) {
+    else if (l.po_line_id && l.po_received && l.po_received > 0) {
+      // Bought for this job: what was actually paid, even if the part is also kept on the shelf.
+      cost = Math.round((l.po_cost ?? 0) * l.qty);
+    } else if (l.part_id && l.stocked) {
       const t = taken.get(l.part_id);
       const perUnit = t && t.qty > 0 ? t.costFils / t.qty : (l.avg_cost_fils ?? 0);
-      cost = Math.round(perUnit * l.qty);
-    } else if (l.po_line_id) {
-      cost = l.po_received && l.po_received > 0 ? Math.round((l.po_cost ?? 0) * l.qty) : null;
-    } else if (l.part_id) {
-      cost = null; // non-stocked part not requested yet: cost unknown
+      // Taken at no cost: fitted before any delivery was entered, so the real cost isn't known yet.
+      cost = perUnit > 0 ? Math.round(perUnit * l.qty) : null;
+    } else if (l.po_line_id || l.part_id) {
+      cost = null; // ordered but not received, or a per-job part not requested yet
+    } else if (l.kind === "part") {
+      uncosted++;
     }
     lineCosts.set(l.id, cost);
     if (cost === null) pending = true;
     else total += cost;
   }
-  return { lineCosts, partsCostFils: total, costPending: pending };
+  return { lineCosts, partsCostFils: total, costPending: pending, uncostedLines: uncosted };
 }

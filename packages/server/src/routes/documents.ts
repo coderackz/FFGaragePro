@@ -19,7 +19,7 @@ interface LineRow {
   id: string; position: number; kind: string; description: string; qty: number; unit_price_fils: number;
   discount_pct: number; net_fils: number; vat_fils: number; gross_fils: number; part_id: string | null; supplied_by: string;
   po_line_id: string | null; part_no?: string | null; part_stocked?: number | null; part_on_hand?: number | null; part_unit?: string | null; po_qty?: number | null; po_received?: number | null; po_number?: string | null;
-  po_id?: string | null;
+  po_id?: string | null; po_status?: string | null;
 }
 
 /** Statuses a user may set by hand; the rest come from convert / issue / payments. */
@@ -47,16 +47,44 @@ export function documentRoutes(app: FastifyInstance, db: Db): { full: DocumentOu
     return { seq, number: formatDocNumber(type, seq) };
   }
 
+  /**
+   * The server owns each line's link to its purchase-order line: a link the client sends is kept only if it is
+   * one of this job's own, live PO lines; a link the client didn't know about (requested on another PC) is
+   * carried over to the matching line rather than lost.
+   */
+  function resolvePoLinks(docId: string, lines: LineInput[]): LineInput[] {
+    const doc = getDoc(docId);
+    const jobs = [docId, doc?.source_id ?? docId];
+    const valid = (poLineId: string) =>
+      !!db.get(
+        `SELECT 1 FROM po_lines pl JOIN purchase_orders po ON po.id = pl.po_id
+         WHERE pl.id = ? AND pl.job_document_id IN (?, ?) AND po.status <> 'cancelled'`,
+        [poLineId, ...jobs],
+      );
+    const out = lines.map((l) => ({ ...l, poLineId: l.kind === "part" && l.suppliedBy === "garage" && l.poLineId && valid(l.poLineId) ? l.poLineId : null }));
+    const existing = db.all<{ po_line_id: string; part_id: string | null; description: string }>(
+      "SELECT po_line_id, part_id, description FROM document_lines WHERE document_id = ? AND po_line_id IS NOT NULL ORDER BY position",
+      [docId],
+    );
+    for (const old of existing) {
+      if (out.some((l) => l.poLineId === old.po_line_id) || !valid(old.po_line_id)) continue;
+      const match = out.find((l) => l.kind === "part" && l.suppliedBy === "garage" && !l.poLineId &&
+        (old.part_id ? l.partId === old.part_id : l.description.trim() === old.description));
+      if (match) match.poLineId = old.po_line_id;
+    }
+    return out;
+  }
+
   /** Replaces a document's lines. A job card's stock follows its lines straight away. */
-  function writeLines(docId: string, lines: LineInput[], userId: string): void {
+  function writeLines(docId: string, input: LineInput[], userId: string): void {
+    for (const l of input) if (l.partId && !db.get("SELECT 1 FROM parts WHERE id = ?", [l.partId])) throw badRequest("Part not found");
+    const lines = resolvePoLinks(docId, input);
     db.run("DELETE FROM document_lines WHERE document_id = ?", [docId]);
     const rate = vatRate();
     let net = 0, vat = 0, gross = 0;
     lines.forEach((input, i) => {
       // Parts Fleet Fix supplies are never charged to the customer.
       const line = input.suppliedBy === "fleetfix" ? { ...input, unitPriceFils: 0, discountPct: 0 } : input;
-      if (line.partId && !db.get("SELECT 1 FROM parts WHERE id = ?", [line.partId])) throw badRequest("Part not found");
-      if (line.poLineId && !db.get("SELECT 1 FROM po_lines WHERE id = ?", [line.poLineId])) throw badRequest("Purchase order line not found");
       const t = lineTotals(line, rate);
       net += t.netFils; vat += t.vatFils; gross += t.grossFils;
       db.run(
@@ -100,7 +128,7 @@ export function documentRoutes(app: FastifyInstance, db: Db): { full: DocumentOu
     const d = getDoc(id);
     if (!d) throw notFound("Document not found");
     const lines = db.all<LineRow>(
-      `SELECT dl.*, p.part_no, p.stocked AS part_stocked, p.on_hand AS part_on_hand, p.unit AS part_unit, pl.qty AS po_qty, pl.received_qty AS po_received, po.number AS po_number, po.id AS po_id
+      `SELECT dl.*, p.part_no, p.stocked AS part_stocked, p.on_hand AS part_on_hand, p.unit AS part_unit, pl.qty AS po_qty, pl.received_qty AS po_received, po.number AS po_number, po.id AS po_id, po.status AS po_status
        FROM document_lines dl
        LEFT JOIN parts p ON p.id = dl.part_id
        LEFT JOIN po_lines pl ON pl.id = dl.po_line_id
@@ -131,11 +159,13 @@ export function documentRoutes(app: FastifyInstance, db: Db): { full: DocumentOu
         partId: l.part_id, partNo: l.part_no ?? null,
         partStocked: l.part_id ? !!l.part_stocked : null, partOnHand: l.part_id ? l.part_on_hand ?? null : null, partUnit: l.part_unit ?? null, suppliedBy: l.supplied_by, poLineId: l.po_line_id,
         purchaseOrderId: l.po_id ?? null, purchaseOrderNumber: l.po_number ?? null,
-        orderStatus: l.po_line_id ? ((l.po_received ?? 0) >= (l.po_qty ?? 0) ? "received" : "on_order") : null,
+        orderStatus: !l.po_line_id || l.po_status === "cancelled" ? null : (l.po_received ?? 0) >= (l.po_qty ?? 0) ? "received" : "on_order",
         ...(cost ? { costFils: cost.lineCosts.get(l.id) ?? null } : {}),
       })),
       totals: { netFils: d.net_fils, vatFils: d.vat_fils, grossFils: d.gross_fils },
-      ...(cost ? { partsCostFils: cost.partsCostFils, marginFils: d.net_fils - cost.partsCostFils, costPending: cost.costPending } : {}),
+      ...(cost
+        ? { partsCostFils: cost.partsCostFils, marginFils: d.net_fils - cost.partsCostFils, costPending: cost.costPending, uncostedLines: cost.uncostedLines }
+        : {}),
       paidFils: d.paid_fils,
       balanceFils: d.type === "invoice" ? d.gross_fils - d.paid_fils : 0,
       payments: payments.map((p) => ({ id: p.id, amountFils: p.amount_fils, method: p.method, reference: p.reference, paidAt: p.paid_at, createdBy: p.created_by_name })),

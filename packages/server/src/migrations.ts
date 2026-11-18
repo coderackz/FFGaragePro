@@ -248,6 +248,13 @@ ALTER TABLE document_lines ADD COLUMN supplied_by TEXT NOT NULL DEFAULT 'garage'
 ALTER TABLE document_lines ADD COLUMN po_line_id TEXT REFERENCES po_lines(id);
 `,
   },
+  {
+    id: 4,
+    sql: `
+-- Bumped on every change, so a PO saved from a stale screen is refused instead of overwriting.
+ALTER TABLE purchase_orders ADD COLUMN version INTEGER NOT NULL DEFAULT 0;
+`,
+  },
 ];
 
 export function migrate(db: Db): void {
