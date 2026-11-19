@@ -1,3 +1,4 @@
+import { hostname } from "node:os";
 import Fastify, { type FastifyInstance, type FastifyRequest } from "fastify";
 import cors from "@fastify/cors";
 import { ZodError } from "zod";
@@ -46,6 +47,7 @@ const allowedOrigin = (origin: string | undefined) =>
 
 export async function buildApp(options: AppOptions): Promise<FastifyInstance & { db: Db }> {
   const db = Db.open(options.dataDir);
+  db.device = options.cloud ? "Fleetfix cloud" : hostname();
   const app = Fastify({ logger: options.logger ?? false, bodyLimit: 5 * 1024 * 1024 });
   const now = options.now ?? Date.now;
   if (!options.cloud) {

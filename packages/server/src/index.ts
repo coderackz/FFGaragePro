@@ -2,6 +2,7 @@ export { buildApp, type AppOptions } from "./app";
 export { hashPassword, LoginThrottle, verifyPassword } from "./auth";
 export { HttpError } from "./errors";
 export { Db, newId, now } from "./db";
+export { audit, type AuditAction, type AuditEntry } from "./audit";
 export { DISCOVERY_PORT, discoverMainComputers, type FoundComputer } from "./discovery";
 export { DEVICE_HEADER, NETWORK_PORT } from "./network";
 

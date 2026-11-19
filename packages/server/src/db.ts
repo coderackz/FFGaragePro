@@ -12,6 +12,8 @@ export type Params = Record<string, SQLInputValue> | SQLInputValue[];
  */
 export class Db {
   readonly raw: DatabaseSync;
+  /** Where changes are made, for the activity log ("Fleetfix cloud" or the PC's name). */
+  device = "this PC";
   private depth = 0;
 
   /** `migrateTo` stops at that migration (tests that build an older database). */

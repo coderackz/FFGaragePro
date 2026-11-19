@@ -368,6 +368,33 @@ CREATE INDEX sync_issues_device ON sync_issues(for_device);
 CREATE TABLE sync_peers (device_code TEXT PRIMARY KEY, last_origin_seq INTEGER NOT NULL);
 `,
   },
+  {
+    id: 7,
+    // Settings Part 1: prices typed including VAT (fixed per document when it is created), invoice prints
+    // (insert-only rows, so prints on two PCs add up and an issued invoice is never touched), and the activity log.
+    sql: `
+ALTER TABLE documents ADD COLUMN prices_include_vat INTEGER NOT NULL DEFAULT 0;
+CREATE TABLE document_prints (
+  id TEXT PRIMARY KEY,
+  document_id TEXT NOT NULL REFERENCES documents(id),
+  user_id TEXT REFERENCES users(id),
+  printed_at TEXT NOT NULL
+);
+CREATE INDEX document_prints_doc ON document_prints(document_id);
+CREATE TABLE audit_log (
+  id TEXT PRIMARY KEY,
+  action TEXT NOT NULL,
+  entity TEXT NOT NULL,
+  entity_id TEXT,
+  before TEXT,
+  after TEXT,
+  user_id TEXT REFERENCES users(id),
+  device TEXT,
+  created_at TEXT NOT NULL
+);
+CREATE INDEX audit_log_created ON audit_log(created_at);
+`,
+  },
 ];
 
 /** The newest migration this code knows: the garage database's schema version. */
