@@ -1,3 +1,4 @@
+import { readFileSync } from "node:fs";
 import { resolve } from "node:path";
 import { defineConfig } from "vite";
 import react from "@vitejs/plugin-react";
@@ -9,6 +10,7 @@ export default defineConfig({
   root: resolve(import.meta.dirname, "src/renderer"),
   envDir: import.meta.dirname,
   plugins: [react(), tailwind()],
+  define: { __APP_VERSION__: JSON.stringify(JSON.parse(readFileSync(resolve(import.meta.dirname, "package.json"), "utf8")).version) },
   server: { port: 5180, strictPort: true },
   build: {
     outDir: resolve(import.meta.dirname, "dist-web"),

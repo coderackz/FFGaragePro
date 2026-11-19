@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { docTotals, formatAED, lineTotals, parseAED } from "../src/index";
+import { catalogueLinePrice, docTotals, formatAED, lineTotals, parseAED } from "../src/index";
 
 describe("lineTotals", () => {
   it("applies discount then 5% VAT", () => {
@@ -42,5 +42,24 @@ describe("AED formatting", () => {
     expect(parseAED("AED 10")).toBe(1000);
     expect(parseAED("0.005")).toBe(1);
     expect(parseAED("abc")).toBeNull();
+  });
+});
+
+describe("including VAT", () => {
+  it("including VAT: the typed price is the total", () => {
+    expect(lineTotals({ qty: 1, unitPriceFils: 10500, discountPct: 0 }, 500, true)).toEqual({ netFils: 10000, vatFils: 500, grossFils: 10500 });
+    expect(lineTotals({ qty: 1, unitPriceFils: 999, discountPct: 0 }, 500, true)).toEqual({ netFils: 951, vatFils: 48, grossFils: 999 });
+    expect(lineTotals({ qty: 3, unitPriceFils: 1000, discountPct: 10 }, 500, true)).toEqual({ netFils: 2571, vatFils: 129, grossFils: 2700 });
+    expect(docTotals([{ qty: 1, unitPriceFils: 10500, discountPct: 0 }, { qty: 1, unitPriceFils: 999, discountPct: 0 }], 500, true))
+      .toEqual({ netFils: 10951, vatFils: 548, grossFils: 11499 });
+  });
+});
+
+describe("catalogue prices on documents", () => {
+  it("a part's price before VAT becomes the typed price, with VAT added when prices include VAT", () => {
+    expect(catalogueLinePrice(10000, 500, false)).toBe(10000);
+    expect(catalogueLinePrice(10000, 500, true)).toBe(10500);
+    expect(catalogueLinePrice(999, 500, true)).toBe(1049);
+    expect(lineTotals({ qty: 1, unitPriceFils: catalogueLinePrice(10000, 500, true), discountPct: 0 }, 500, true)).toEqual({ netFils: 10000, vatFils: 500, grossFils: 10500 });
   });
 });

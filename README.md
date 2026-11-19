@@ -67,7 +67,27 @@ on Fleetfix's Hostinger Cloud Enterprise plan. The PC app connects there by defa
 - **First staff account:** `FFGP_CLOUD_STAFF` = `username:Full Name:<password or scrypt hash>`, used only while that
   username doesn't exist.
 
-Next: Accounting. See `docs/superpowers/specs/`.
+**Settings (Part 1 of Settings, credit customers & messages):** Settings is a home screen of tiles (Owner only), each
+with a status line (green fine, amber to do, red needs attention) and a "Getting ready" bar until the essentials are
+set. Each tile opens its section with its own Save; every change goes to the Activity log.
+- **Garage details** (TRN, trade licence, bank & IBAN) · **Documents & printing** (logo, stamp, signature, plain or
+  letterhead paper, terms, warranty, estimate validity, part numbers, labour hours, job-card authorisation; live A4
+  preview and "Print a test page"; invoices print COPY from the second print and PAID once paid) · **Numbering**
+  (prefixes and next numbers, never backwards) · **Tax** (prices typed including or excluding VAT, fixed per document;
+  return period) · **Pricing** (labour rate, parts markup, largest discount per role — above it the Owner approves
+  with their password) · **Inventory** (warn or block below zero, default reorder level) · **Users & roles** ·
+  **Security** (lock the screen after idle minutes) · **Activity log** · **Backups** (PC) · **Fleetfix cloud**,
+  **Other PCs** (PC) · **About & support** (garagepro@fleetfix.ae).
+- **Storage:** `section.field` rows in the `settings` table (schemas and defaults in `packages/shared/src/settings.ts`);
+  they sync field by field. `local.` and `network.` keys stay on their PC.
+- **PC backups:** a PC holding the garage writes `Fleetfix <garage> <date time>.db` to its backup folder (default
+  `Documents\Fleetfix Backups`) once a day, keeps 30 days, and warns on the dashboard when the folder is missing or
+  the last copy is over 3 days old. Restore (Owner) checks the file, backs up today's data first, then restarts.
+  A PC linked to the cloud downloads the garage again instead.
+
+    npm run e2e:settings                            # Settings in the browser: sections, preview, numbering, Owner approval, screen lock
+
+Next: Settings Part 2 (credit customers and credit notes), then Accounting. See `docs/superpowers/specs/`.
 
 ## Layout
 | Path | What |

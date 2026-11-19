@@ -1,20 +1,23 @@
 import type { FastifyInstance } from "fastify";
 import {
   can, CONVERTS_TO, DOC_STATUSES, DOC_TYPES, documentCreateSchema, documentUpdateSchema, formatDocNumber, lineSchema, lineTotals,
-  paymentSchema, type DocType, type LineInput,
+  approvalSchema, paymentSchema, prefixOf, type ApprovalInput, type DocType, type LineInput,
 } from "@ffgp/shared";
 import { z } from "zod";
-import { requireAction, sessionUser, type SessionUser } from "../auth";
+import { audit } from "../audit";
+import { LoginThrottle, requireAction, sessionUser, verifyPassword, type SessionUser } from "../auth";
 import { newId, now, type Db } from "../db";
-import { badRequest, conflict, notFound } from "../errors";
-import { documentCost, reconcileDocumentStock } from "../stock";
+import { badRequest, conflict, HttpError, notFound, tooManyRequests } from "../errors";
+import { checkStockAvailable, documentCost, reconcileDocumentStock } from "../stock";
 import { reserveNumber, takeNumber, type NumberSource, type Reserved } from "../numbering";
+import { getSettings } from "../settings";
 import { garage } from "./setup";
 
 interface DocRow {
   id: string; type: DocType; seq: number; number: string; status: string; customer_id: string; vehicle_id: string | null;
   odometer: number | null; notes: string | null; source_id: string | null; issued_at: string | null; net_fils: number;
   vat_fils: number; gross_fils: number; paid_fils: number; created_by: string | null; created_at: string; updated_at: string;
+  prices_include_vat: number;
 }
 interface LineRow {
   id: string; position: number; kind: string; description: string; qty: number; unit_price_fils: number;
@@ -37,13 +40,64 @@ function linesEditable(doc: DocRow): boolean {
 
 export type DocumentOut = (id: string, user: SessionUser) => unknown;
 
-export function documentRoutes(app: FastifyInstance, db: Db, numbers?: NumberSource): { full: DocumentOut } {
+export function documentRoutes(
+  app: FastifyInstance,
+  db: Db,
+  numbers?: NumberSource,
+  auth: { throttle: LoginThrottle; clock: () => number } = { throttle: new LoginThrottle(), clock: Date.now },
+): { full: DocumentOut } {
   const vatRate = () => garage(db)?.vat_rate_bp ?? 500;
+  const blockStock = () => getSettings(db).inventory.belowZero === "block";
+
+  /**
+   * Discounts above the user's limit (Settings -> Pricing) need the Owner's username and password. A line that
+   * was already on the document at the same position with the same or a bigger discount was approved before.
+   * Returns what was approved (for the activity log), or null when nothing needed approving.
+   */
+  function checkDiscounts(user: SessionUser, docId: string | null, lines: LineInput[], approval: ApprovalInput | undefined) {
+    if (user.role === "owner") return null;
+    const pricing = getSettings(db).pricing;
+    const limit = user.role === "accountant" ? pricing.maxDiscountAccountantPct : pricing.maxDiscountAdvisorPct;
+    // Already approved: the very same line (same work or part, quantity and price) at the same place, with the
+    // same or a smaller discount. Any other line over the limit, even in an approved line's place, needs approval.
+    type Saved = { position: number; kind: string; description: string; qty: number; unit_price_fils: number; part_id: string | null; discount_pct: number };
+    const before = docId
+      ? new Map(db.all<Saved>("SELECT position, kind, description, qty, unit_price_fils, part_id, discount_pct FROM document_lines WHERE document_id = ?", [docId])
+          .map((l) => [l.position, l]))
+      : new Map<number, Saved>();
+    const approvedBefore = (l: LineInput, i: number) => {
+      const b = before.get(i);
+      return !!b && b.kind === l.kind && b.description === l.description.trim() && b.qty === l.qty && b.unit_price_fils === l.unitPriceFils &&
+        (b.part_id ?? null) === (l.partId ?? null) && b.discount_pct >= l.discountPct;
+    };
+    const over = lines.filter((l, i) => l.discountPct > limit && !approvedBefore(l, i));
+    if (!over.length) return null;
+    const refuse = () => new HttpError(403, `A discount over ${limit}% needs the Owner's approval`, "discount_approval");
+    if (!approval) throw refuse();
+    const locked = auth.throttle.lockedMinutes(approval.username, auth.clock());
+    if (locked) throw tooManyRequests(`Too many wrong passwords. This login is locked — try again in ${locked} minute${locked === 1 ? "" : "s"}.`);
+    const owner = db.get<{ name: string; password_hash: string }>(
+      "SELECT name, password_hash FROM users WHERE username = ? AND role = 'owner' AND active = 1",
+      [approval.username],
+    );
+    if (!owner || !verifyPassword(approval.password, owner.password_hash)) {
+      auth.throttle.failed(approval.username, auth.clock());
+      throw refuse();
+    }
+    auth.throttle.succeeded(approval.username);
+    return { approvedBy: owner.name, lines: over.map((l) => ({ description: l.description, discountPct: l.discountPct })) };
+  }
+
+  function logApproval(user: SessionUser, docId: string, approved: ReturnType<typeof checkDiscounts>): void {
+    if (!approved) return;
+    const number = getDoc(docId)?.number ?? null;
+    audit(db, { action: "discount.approve", entity: "document", entityId: docId, after: { document: number, ...approved }, userId: user.id });
+  }
   const getDoc = (id: string) => db.get<DocRow>("SELECT * FROM documents WHERE id = ?", [id]);
 
   function nextNumber(type: DocType, reserved: Reserved | null): { series: string; seq: number; number: string } {
     const { series, seq } = takeNumber(db, type, reserved, numbers);
-    return { series, seq, number: formatDocNumber(type, seq, series) };
+    return { series, seq, number: formatDocNumber(type, seq, series, prefixOf(getSettings(db), type)) };
   }
 
   /**
@@ -80,11 +134,13 @@ export function documentRoutes(app: FastifyInstance, db: Db, numbers?: NumberSou
     const lines = resolvePoLinks(docId, input);
     db.run("DELETE FROM document_lines WHERE document_id = ?", [docId]);
     const rate = vatRate();
+    // Fixed when the document was created, so changing the Tax setting never changes a document's totals.
+    const includeVat = !!getDoc(docId)?.prices_include_vat;
     let net = 0, vat = 0, gross = 0;
     lines.forEach((input, i) => {
       // Parts Fleet Fix supplies are never charged to the customer.
       const line = input.suppliedBy === "fleetfix" ? { ...input, unitPriceFils: 0, discountPct: 0 } : input;
-      const t = lineTotals(line, rate);
+      const t = lineTotals(line, rate, includeVat);
       net += t.netFils; vat += t.vatFils; gross += t.grossFils;
       db.run(
         `INSERT INTO document_lines (id, document_id, position, kind, description, qty, unit_price_fils, discount_pct, net_fils, vat_fils, gross_fils,
@@ -97,7 +153,7 @@ export function documentRoutes(app: FastifyInstance, db: Db, numbers?: NumberSou
       );
     });
     db.run("UPDATE documents SET net_fils = ?, vat_fils = ?, gross_fils = ?, updated_at = ? WHERE id = ?", [net, vat, gross, now(), docId]);
-    if (getDoc(docId)?.type === "jobcard") reconcileDocumentStock(db, docId, userId);
+    if (getDoc(docId)?.type === "jobcard") reconcileDocumentStock(db, docId, userId, { block: blockStock() });
   }
 
   function checkVehicle(customerId: string, vehicleId: string | null | undefined): void {
@@ -109,7 +165,10 @@ export function documentRoutes(app: FastifyInstance, db: Db, numbers?: NumberSou
 
   function insertDoc(
     user: SessionUser,
-    d: { type: DocType; customerId: string; vehicleId: string | null; odometer: number | null; notes: string | null; sourceId: string | null },
+    d: {
+      type: DocType; customerId: string; vehicleId: string | null; odometer: number | null; notes: string | null; sourceId: string | null;
+      pricesIncludeVat: boolean;
+    },
     lines: LineInput[],
     reserved: Reserved | null,
   ): string {
@@ -117,9 +176,10 @@ export function documentRoutes(app: FastifyInstance, db: Db, numbers?: NumberSou
     const { series, seq, number } = nextNumber(d.type, reserved);
     const t = now();
     db.run(
-      `INSERT INTO documents (id, type, series, seq, number, status, customer_id, vehicle_id, odometer, notes, source_id, created_by, created_at, updated_at)
-       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
-      [id, d.type, series, seq, number, DOC_STATUSES[d.type][0], d.customerId, d.vehicleId, d.odometer, d.notes, d.sourceId, user.id, t, t],
+      `INSERT INTO documents (id, type, series, seq, number, status, customer_id, vehicle_id, odometer, notes, source_id, prices_include_vat,
+         created_by, created_at, updated_at)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+      [id, d.type, series, seq, number, DOC_STATUSES[d.type][0], d.customerId, d.vehicleId, d.odometer, d.notes, d.sourceId, d.pricesIncludeVat ? 1 : 0, user.id, t, t],
     );
     writeLines(id, lines, user.id);
     if (d.vehicleId && d.odometer) {
@@ -156,6 +216,8 @@ export function documentRoutes(app: FastifyInstance, db: Db, numbers?: NumberSou
       id: d.id, type: d.type, number: d.number, status: d.status, odometer: d.odometer, notes: d.notes,
       issuedAt: d.issued_at, createdAt: d.created_at, updatedAt: d.updated_at, createdBy,
       editable: linesEditable(d),
+      pricesIncludeVat: !!d.prices_include_vat,
+      printCount: db.get<{ n: number }>("SELECT COUNT(*) AS n FROM document_prints WHERE document_id = ?", [id])!.n,
       customer, vehicle, source, derived,
       lines: lines.map((l) => ({
         id: l.id, kind: l.kind, description: l.description, qty: l.qty, unitPriceFils: l.unit_price_fils,
@@ -208,10 +270,19 @@ export function documentRoutes(app: FastifyInstance, db: Db, numbers?: NumberSou
     const user = sessionUser(db, req);
     requireAction(user, "documents.edit");
     const input = documentCreateSchema.parse(req.body);
+    // Everything that can refuse the save runs before a number is taken (on a linked PC, from the cloud's series).
+    checkVehicle(input.customerId, input.vehicleId);
+    const approved = checkDiscounts(user, null, input.lines, input.approval);
+    if (input.type === "jobcard" && blockStock()) checkStockAvailable(db, input.lines, []);
     const reserved = await reserveNumber(numbers, input.type);
     const id = db.tx(() => {
       checkVehicle(input.customerId, input.vehicleId);
-      return insertDoc(user, { type: input.type, customerId: input.customerId, vehicleId: input.vehicleId ?? null, odometer: input.odometer ?? null, notes: input.notes, sourceId: null }, input.lines, reserved);
+      const docId = insertDoc(user, {
+        type: input.type, customerId: input.customerId, vehicleId: input.vehicleId ?? null, odometer: input.odometer ?? null, notes: input.notes,
+        sourceId: null, pricesIncludeVat: getSettings(db).tax.pricesIncludeVat,
+      }, input.lines, reserved);
+      logApproval(user, docId, approved);
+      return docId;
     });
     return { document: full(id, user) };
   });
@@ -241,7 +312,11 @@ export function documentRoutes(app: FastifyInstance, db: Db, numbers?: NumberSou
           d.id,
         ],
       );
-      if (input.lines) writeLines(d.id, input.lines, user.id);
+      if (input.lines) {
+        const approved = checkDiscounts(user, d.id, input.lines, input.approval);
+        writeLines(d.id, input.lines, user.id);
+        logApproval(user, d.id, approved);
+      }
     });
     return { document: full(req.params.id, user) };
   });
@@ -249,12 +324,14 @@ export function documentRoutes(app: FastifyInstance, db: Db, numbers?: NumberSou
   app.put<{ Params: { id: string } }>("/api/documents/:id/lines", async (req) => {
     const user = sessionUser(db, req);
     requireAction(user, "documents.edit");
-    const { lines } = z.object({ lines: z.array(lineSchema).max(500) }).parse(req.body);
+    const { lines, approval } = z.object({ lines: z.array(lineSchema).max(500), approval: approvalSchema.optional() }).parse(req.body);
     db.tx(() => {
       const d = getDoc(req.params.id);
       if (!d) throw notFound("Document not found");
       if (!linesEditable(d)) throw conflict(`${d.number} can no longer be edited`);
+      const approved = checkDiscounts(user, d.id, lines, approval);
       writeLines(d.id, lines, user.id);
+      logApproval(user, d.id, approved);
     });
     return { document: full(req.params.id, user) };
   });
@@ -264,6 +341,12 @@ export function documentRoutes(app: FastifyInstance, db: Db, numbers?: NumberSou
     requireAction(user, "documents.edit");
     const before = getDoc(req.params.id);
     const convertsTo = before && CONVERTS_TO[before.type as DocType];
+    if (before && convertsTo === "jobcard" && blockStock()) {
+      const lines = db.all<{ kind: string; part_id: string | null; qty: number; supplied_by: string }>(
+        "SELECT kind, part_id, qty, supplied_by FROM document_lines WHERE document_id = ?", [before.id],
+      ).map((l) => ({ kind: l.kind, partId: l.part_id, qty: l.qty, suppliedBy: l.supplied_by }));
+      checkStockAvailable(db, lines, [before.id]);
+    }
     const reserved = convertsTo ? await reserveNumber(numbers, convertsTo) : null;
     const id = db.tx(() => {
       const d = getDoc(req.params.id);
@@ -277,7 +360,7 @@ export function documentRoutes(app: FastifyInstance, db: Db, numbers?: NumberSou
         kind: l.kind as LineInput["kind"], description: l.description, qty: l.qty, unitPriceFils: l.unit_price_fils, discountPct: l.discount_pct,
         partId: l.part_id, suppliedBy: l.supplied_by as LineInput["suppliedBy"], poLineId: l.po_line_id,
       }));
-      const newDocId = insertDoc(user, { type: target, customerId: d.customer_id, vehicleId: d.vehicle_id, odometer: d.odometer, notes: d.notes, sourceId: d.id }, lines, target === convertsTo ? reserved : null);
+      const newDocId = insertDoc(user, { type: target, customerId: d.customer_id, vehicleId: d.vehicle_id, odometer: d.odometer, notes: d.notes, sourceId: d.id, pricesIncludeVat: !!d.prices_include_vat }, lines, target === convertsTo ? reserved : null);
       db.run("UPDATE documents SET status = 'converted', updated_at = ? WHERE id = ?", [now(), d.id]);
       return newDocId;
     });
@@ -293,11 +376,26 @@ export function documentRoutes(app: FastifyInstance, db: Db, numbers?: NumberSou
       if (d.type !== "invoice") throw badRequest("Only invoices are issued");
       if (d.status !== "draft") throw conflict(`${d.number} is already issued`);
       if (d.gross_fils <= 0) throw badRequest("Add at least one charged line before issuing");
-      reconcileDocumentStock(db, d.id, user.id);
+      reconcileDocumentStock(db, d.id, user.id, { block: blockStock() });
       const t = now();
       db.run("UPDATE documents SET status = 'issued', issued_at = ?, updated_at = ? WHERE id = ?", [t, t, d.id]);
     });
     return { document: full(req.params.id, user) };
+  });
+
+  /**
+   * Records a print of an issued invoice, so the second and later prints say COPY. Prints are rows of their own
+   * (an issued invoice is never changed, and prints on two PCs add up). Anything else isn't counted.
+   */
+  app.post<{ Params: { id: string } }>("/api/documents/:id/prints", async (req) => {
+    const user = sessionUser(db, req);
+    return db.tx(() => {
+      const d = getDoc(req.params.id);
+      if (!d) throw notFound("Document not found");
+      if (d.type !== "invoice" || d.status === "draft") return { count: 0 };
+      db.run("INSERT INTO document_prints (id, document_id, user_id, printed_at) VALUES (?, ?, ?, ?)", [newId(), d.id, user.id, now()]);
+      return { count: db.get<{ n: number }>("SELECT COUNT(*) AS n FROM document_prints WHERE document_id = ?", [d.id])!.n };
+    });
   });
 
   app.post<{ Params: { id: string } }>("/api/documents/:id/payments", async (req) => {

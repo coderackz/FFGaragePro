@@ -199,6 +199,8 @@ describe("PC sync client", () => {
     expect(refused.status).toBe(402);
     expect(refused.body.code).toBe("read_only");
     expect((await call(app, "GET", "/api/customers", pcToken)).status).toBe(200);
+    // Printing still works while read-only: recording a print isn't a change to the garage's records.
+    expect((await call(app, "POST", "/api/documents/00000000-0000-4000-8000-000000000000/prints", pcToken)).status).toBe(404);
     expect(await client.syncOnce()).toMatchObject({ ok: true });
     expect(client.status().readOnly).toBe(false);
     expect((await call(app, "POST", "/api/customers", pcToken, { name: "Allowed" })).status).toBe(200);

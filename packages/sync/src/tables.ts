@@ -27,9 +27,11 @@ export const SYNC_TABLES: SyncTable[] = [
   { name: "goods_receipts", key: "id", insertOnly: true },
   { name: "goods_receipt_lines", key: "id", insertOnly: true },
   { name: "stock_movements", key: "id", insertOnly: true },
+  { name: "document_prints", key: "id", insertOnly: true },
+  { name: "audit_log", key: "id", insertOnly: true },
 ];
 
 export const tableInfo = (name: string) => SYNC_TABLES.find((t) => t.name === name);
 
-/** Settings that belong to one PC (sharing with other PCs on its network). */
-export const LOCAL_SETTING_PREFIX = "network.";
+/** Settings that belong to one PC (network sharing, backup folder): never captured, never sent. */
+export { LOCAL_SETTING_PREFIXES } from "@ffgp/shared";

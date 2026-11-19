@@ -1,7 +1,7 @@
-import type { DocType } from "@ffgp/shared";
+import { readSettings, startOf, type NumberKind } from "@ffgp/shared";
 import type { Db } from "./db";
 
-export type NumberKind = DocType | "purchase_order";
+export type { NumberKind };
 export interface Reserved {
   series: string;
   seq: number;
@@ -26,10 +26,17 @@ export async function reserveNumber(source: NumberSource | undefined, kind: Numb
   }
 }
 
-/** The number to use, inside the transaction: the reserved one, else the next from this database's counter for the series. */
-export function takeNumber(db: Db, kind: NumberKind, reserved: Reserved | null, source: NumberSource | undefined): Reserved {
-  if (reserved) return reserved;
-  const series = source?.offlineSeries ?? "";
+/** The next main-series number of this kind, without taking it. */
+export function previewNumber(db: Db, kind: NumberKind): number {
+  return nextInSeries(db, kind, "");
+}
+
+/** The start the garage chose for its main series ("next invoice number"), 1 by default. */
+function startFor(db: Db, kind: NumberKind): number {
+  return startOf(readSettings(db.all<{ key: string; value: string }>("SELECT key, value FROM settings WHERE key LIKE 'numbering.%'")), kind);
+}
+
+function nextInSeries(db: Db, kind: NumberKind, series: string): number {
   const key = series ? `${kind}@${series}` : kind;
   const counter = db.get<{ next: number }>("SELECT next FROM counters WHERE type = ?", [key])?.next ?? 1;
   // Never below what's already in the series: numbers can arrive from elsewhere (the cloud) while this counter stands still.
@@ -37,7 +44,16 @@ export function takeNumber(db: Db, kind: NumberKind, reserved: Reserved | null, 
     kind === "purchase_order"
       ? db.get<{ m: number | null }>("SELECT MAX(seq) AS m FROM purchase_orders WHERE series = ?", [series])?.m
       : db.get<{ m: number | null }>("SELECT MAX(seq) AS m FROM documents WHERE type = ? AND series = ?", [kind, series])?.m;
-  const seq = Math.max(counter, (used ?? 0) + 1);
+  // The chosen start only lifts the main series; an offline PC's own series (P1, P2…) runs on its own.
+  return Math.max(counter, (used ?? 0) + 1, series ? 1 : startFor(db, kind));
+}
+
+/** The number to use, inside the transaction: the reserved one, else the next from this database's counter for the series. */
+export function takeNumber(db: Db, kind: NumberKind, reserved: Reserved | null, source: NumberSource | undefined): Reserved {
+  if (reserved) return reserved;
+  const series = source?.offlineSeries ?? "";
+  const key = series ? `${kind}@${series}` : kind;
+  const seq = nextInSeries(db, kind, series);
   db.run("INSERT INTO counters (type, next) VALUES (?, ?) ON CONFLICT(type) DO UPDATE SET next = excluded.next", [key, seq + 1]);
   return { series, seq };
 }

@@ -1,3 +1,4 @@
+import type { ReactNode } from "react";
 import { Plus } from "lucide-react";
 import { useEffect, useState } from "react";
 import { toast } from "sonner";
@@ -15,14 +16,14 @@ const ROLE_HELP: Record<Role, string> = {
   advisor: "Customers, vehicles, estimates, job cards and issuing invoices.",
 };
 
-export function UsersPage() {
+export function UsersPage({ back }: { back?: ReactNode } = {}) {
   const { user: me } = useAuth();
   const { data, reload } = useApi<{ users: User[] }>("/api/users");
   const [editing, setEditing] = useState<User | "new" | null>(null);
 
   return (
     <>
-      <PageHeader title="Users" subtitle="Everyone who signs in to this garage" actions={<Button variant="primary" icon={<Plus className="size-4" />} onClick={() => setEditing("new")}>Add user</Button>} />
+      <PageHeader title="Users & roles" subtitle="Everyone who signs in to this garage" back={back} actions={<Button variant="primary" icon={<Plus className="size-4" />} onClick={() => setEditing("new")}>Add user</Button>} />
       <Card padded={false}>
         <Table
           rows={data?.users ?? []}

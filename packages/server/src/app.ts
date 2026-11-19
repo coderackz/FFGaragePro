@@ -1,7 +1,8 @@
+import { hostname } from "node:os";
 import Fastify, { type FastifyInstance, type FastifyRequest } from "fastify";
 import cors from "@fastify/cors";
 import { ZodError } from "zod";
-import type { LoginThrottle } from "./auth";
+import { LoginThrottle } from "./auth";
 import { Db } from "./db";
 import { HttpError } from "./errors";
 import type { NumberSource } from "./numbering";
@@ -10,6 +11,7 @@ import { customerRoutes } from "./routes/customers";
 import { documentRoutes } from "./routes/documents";
 import { partRoutes } from "./routes/parts";
 import { purchaseRoutes } from "./routes/purchases";
+import { settingsRoutes } from "./routes/settings";
 import { setupRoutes } from "./routes/setup";
 import { syncIssueRoutes } from "./routes/sync-issues";
 import { userRoutes } from "./routes/users";
@@ -46,7 +48,10 @@ const allowedOrigin = (origin: string | undefined) =>
 
 export async function buildApp(options: AppOptions): Promise<FastifyInstance & { db: Db }> {
   const db = Db.open(options.dataDir);
-  const app = Fastify({ logger: options.logger ?? false, bodyLimit: 5 * 1024 * 1024 });
+  db.device = options.cloud ? "Fleetfix cloud" : hostname();
+  // Closing drops every connection, including spare ones a browser opened ahead of time without a request yet;
+  // otherwise a restart (sharing on/off, linking to the cloud) waits for them to time out (~1 minute).
+  const app = Fastify({ logger: options.logger ?? false, bodyLimit: 5 * 1024 * 1024, forceCloseConnections: true });
   const now = options.now ?? Date.now;
   if (!options.cloud) {
     // The screens load from file:// (Electron) or a dev server; web pages from anywhere else get no access.
@@ -75,11 +80,14 @@ export async function buildApp(options: AppOptions): Promise<FastifyInstance & {
   }
 
   app.get("/api/health", async () => ({ ok: true }));
-  setupRoutes(app, db, now, options.loginThrottle);
+  // One lockout for every place a password is typed (sign-in and the Owner's approval of a discount).
+  const throttle = options.loginThrottle ?? new LoginThrottle();
+  setupRoutes(app, db, now, throttle);
   if (!options.cloud) networkRoutes(app, db, { now, port: options.networkPort ?? NETWORK_PORT, status: options.networkStatus ?? { listening: false, error: null } });
+  settingsRoutes(app, db);
   userRoutes(app, db);
   customerRoutes(app, db);
-  const documents = documentRoutes(app, db, options.numbers);
+  const documents = documentRoutes(app, db, options.numbers, { throttle, clock: now });
   partRoutes(app, db);
   purchaseRoutes(app, db, documents, options.numbers);
   syncIssueRoutes(app, db);

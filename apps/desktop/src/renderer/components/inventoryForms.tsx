@@ -1,7 +1,8 @@
 import { useEffect, useState, type FormEvent } from "react";
 import { toast } from "sonner";
-import { ADJUSTMENT_REASONS } from "@ffgp/shared";
+import { ADJUSTMENT_REASONS, formatAED, roundFils } from "@ffgp/shared";
 import { patch, post } from "../lib/api";
+import { useAuth } from "../lib/auth";
 import type { Part, Supplier } from "../lib/types";
 import { Button, Field, Input, Modal, MoneyInput, NumberInput, Select, Textarea } from "./ui";
 
@@ -10,14 +11,18 @@ const emptyPart = {
 };
 
 export function PartFormModal({ open, part, onClose, onSaved }: { open: boolean; part?: Part | null; onClose: () => void; onSaved: (p: Part) => void }) {
+  const { settings } = useAuth();
   const [form, setForm] = useState(emptyPart);
   const [busy, setBusy] = useState(false);
   useEffect(() => {
     if (!open) return;
     setForm(part
       ? { partNo: part.partNo, name: part.name, brand: part.brand ?? "", unit: part.unit, stocked: part.stocked, sellPriceFils: part.sellPriceFils, reorderLevel: part.reorderLevel, location: part.location ?? "", fits: part.fits ?? "", active: part.active }
-      : emptyPart);
-  }, [open, part]);
+      : { ...emptyPart, reorderLevel: settings?.inventory.defaultReorderLevel ?? 0 });
+  }, [open, part]); // eslint-disable-line react-hooks/exhaustive-deps
+  // Settings → Pricing markup: a suggested selling price from what the part costs on average.
+  const markup = settings?.pricing.partsMarkupPct ?? null;
+  const suggested = markup != null && part?.avgCostFils ? roundFils(part.avgCostFils * (1 + markup / 100)) : null;
   const set = <K extends keyof typeof form>(k: K, v: (typeof form)[K]) => setForm((f) => ({ ...f, [k]: v }));
 
   const submit = async (e: FormEvent) => {
@@ -42,7 +47,15 @@ export function PartFormModal({ open, part, onClose, onSaved }: { open: boolean;
         <Field label="Part number"><Input value={form.partNo} onChange={(e) => set("partNo", e.target.value)} required autoFocus /></Field>
         <Field label="Brand"><Input value={form.brand} onChange={(e) => set("brand", e.target.value)} /></Field>
         <Field label="Name" className="col-span-2"><Input value={form.name} onChange={(e) => set("name", e.target.value)} required /></Field>
-        <Field label="Selling price (AED, before VAT)"><MoneyInput fils={form.sellPriceFils} onChange={(v) => set("sellPriceFils", v)} /></Field>
+        <Field label="Selling price (AED, before VAT)">
+          <MoneyInput fils={form.sellPriceFils} onChange={(v) => set("sellPriceFils", v)} />
+          {suggested != null && suggested !== form.sellPriceFils && (
+            <div className="mt-1 text-xs text-zinc-600">
+              Suggested at {markup}% markup: {formatAED(suggested)}{" "}
+              <button type="button" className="font-medium text-zinc-900 underline" onClick={() => set("sellPriceFils", suggested)}>Use</button>
+            </div>
+          )}
+        </Field>
         <Field label="Unit">
           <Select value={form.unit} onChange={(e) => set("unit", e.target.value)}>
             {["each", "set", "pair", "litre", "kg", "metre"].map((u) => <option key={u} value={u}>{u}</option>)}

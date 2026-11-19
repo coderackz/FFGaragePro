@@ -11,9 +11,9 @@ import { DocumentPage } from "./pages/DocumentPage";
 import { DocumentsPage } from "./pages/DocumentsPage";
 import { GaragePage } from "./pages/GaragePage";
 import { LoginPage } from "./pages/LoginPage";
-import { SettingsPage } from "./pages/SettingsPage";
+import { SettingsHome } from "./pages/settings/SettingsHome";
+import { SettingsSectionPage } from "./pages/settings/SettingsSectionPage";
 import { SetupPage } from "./pages/SetupPage";
-import { UsersPage } from "./pages/UsersPage";
 import { VehiclesPage } from "./pages/VehiclesPage";
 import { PartPage } from "./pages/PartPage";
 import { PartsPage } from "./pages/PartsPage";
@@ -79,8 +79,9 @@ export function App() {
         <Route path="/purchase-orders" element={<PurchaseOrdersPage />} />
         <Route path="/purchase-orders/new" element={<PurchaseOrderPage />} />
         <Route path="/purchase-orders/:id" element={<PurchaseOrderPage />} />
-        {canSee("users.manage") && <Route path="/users" element={<UsersPage />} />}
-        {canSee("settings.manage") && <Route path="/settings" element={<SettingsPage />} />}
+        {canSee("settings.manage") && <Route path="/users" element={<Navigate to="/settings/users" replace />} />}
+        {canSee("settings.manage") && <Route path="/settings" element={<SettingsHome />} />}
+        {canSee("settings.manage") && <Route path="/settings/:section" element={<SettingsSectionPage />} />}
         <Route path="*" element={<Navigate to="/" replace />} />
       </Routes>
     </Layout>

@@ -1,13 +1,24 @@
 import clsx from "clsx";
-import { Car, FileText, LayoutDashboard, LogOut, Package, Receipt, Settings, ShoppingCart, Truck, UserCog, Users, Wrench } from "lucide-react";
+import { Car, FileText, LayoutDashboard, LogOut, Package, Receipt, Settings, ShoppingCart, Truck, Users, Wrench } from "lucide-react";
 import type { ReactNode } from "react";
 import { NavLink } from "react-router";
 import { ROLE_LABELS } from "@ffgp/shared";
 import logo from "../assets/fleetfix-logo.png";
 import { useAuth } from "../lib/auth";
+import { UnsavedProvider, useUnsaved } from "../lib/unsaved";
+import { IdleLock } from "./IdleLock";
 
 export function Layout({ children }: { children: ReactNode }) {
-  const { user, garage, canSee: can, signOut, licence } = useAuth();
+  return (
+    <UnsavedProvider>
+      <Frame>{children}</Frame>
+    </UnsavedProvider>
+  );
+}
+
+function Frame({ children }: { children: ReactNode }) {
+  const { confirmLeave } = useUnsaved();
+  const { user, garage, settings, canSee: can, signOut, licence } = useAuth();
   const nav = [
     { to: "/", label: "Dashboard", icon: LayoutDashboard, end: true },
     { section: "Workshop" },
@@ -21,13 +32,13 @@ export function Layout({ children }: { children: ReactNode }) {
     { to: "/parts", label: "Parts", icon: Package },
     { to: "/purchase-orders", label: "Purchases", icon: ShoppingCart },
     { to: "/suppliers", label: "Suppliers", icon: Truck },
-    ...(can("users.manage") || can("settings.manage") ? [{ section: "Admin" }] : []),
-    ...(can("users.manage") ? [{ to: "/users", label: "Users", icon: UserCog }] : []),
-    ...(can("settings.manage") ? [{ to: "/settings", label: "Settings", icon: Settings }] : []),
+    // Users & roles live inside Settings.
+    ...(can("settings.manage") ? [{ section: "Admin" }, { to: "/settings", label: "Settings", icon: Settings }] : []),
   ] as const;
 
   return (
     <div className="flex h-full">
+      <IdleLock minutes={settings?.security.idleLockMinutes ?? 0} />
       {/* Tablets (< 1024 px): icons only, so the work area keeps its width. */}
       <aside className="flex w-60 shrink-0 flex-col bg-ink text-zinc-300 max-lg:w-16">
         <div className="px-5 pt-5 pb-4 max-lg:px-2">
@@ -46,6 +57,7 @@ export function Layout({ children }: { children: ReactNode }) {
                 key={item.to}
                 to={item.to}
                 end={"end" in item ? item.end : false}
+                onClick={(e) => !confirmLeave() && e.preventDefault()}
                 className={({ isActive }) =>
                   clsx(
                     "relative mb-0.5 flex items-center gap-2.5 rounded-md px-3 py-2 text-sm transition-colors max-lg:justify-center max-lg:px-0",

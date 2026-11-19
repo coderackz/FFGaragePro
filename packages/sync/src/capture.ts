@@ -1,5 +1,5 @@
 import type { Db } from "@ffgp/server";
-import { LOCAL_SETTING_PREFIX, SYNC_TABLES, type SyncTable } from "./tables";
+import { LOCAL_SETTING_PREFIXES, SYNC_TABLES, type SyncTable } from "./tables";
 
 export type Op = "insert" | "update" | "delete" | "set";
 export type Row = Record<string, unknown>;
@@ -56,13 +56,14 @@ function triggerSql(db: Db, t: SyncTable): string[] {
       `CREATE TRIGGER ${name("del")} AFTER DELETE ON ${q(t.name)} BEGIN ${body("OLD")} END`,
     ];
   }
-  const skip = (ref: string) => (t.name === "settings" ? ` WHEN ${ref}.key NOT LIKE ${lit(`${LOCAL_SETTING_PREFIX}%`)}` : "");
+  const notLocal = (ref: string) => LOCAL_SETTING_PREFIXES.map((p) => `${ref}.key NOT LIKE ${lit(`${p}%`)}`).join(" AND ");
+  const skip = (ref: string) => (t.name === "settings" ? ` WHEN ${notLocal(ref)}` : "");
   const changedCond = cols.map((c) => `OLD.${q(c)} IS NOT NEW.${q(c)}`).join(" OR ");
   const changedList = `(SELECT json_group_array(c) FROM (${cols
     .map((c) => `SELECT ${lit(c)} AS c WHERE OLD.${q(c)} IS NOT NEW.${q(c)}`)
     .join(" UNION ALL ")}))`;
   const key = (ref: string) => `${ref}.${q(t.key)}`;
-  const updWhen = t.name === "settings" ? `(${changedCond}) AND NEW.key NOT LIKE ${lit(`${LOCAL_SETTING_PREFIX}%`)}` : changedCond;
+  const updWhen = t.name === "settings" ? `(${changedCond}) AND ${notLocal("NEW")}` : changedCond;
   return [
     `CREATE TRIGGER ${name("ins")} AFTER INSERT ON ${q(t.name)}${skip("NEW")} BEGIN ${logInsert(t.name, key("NEW"), "insert", rowJson(cols, "NEW"))} END`,
     `CREATE TRIGGER ${name("upd")} AFTER UPDATE ON ${q(t.name)} WHEN ${updWhen} BEGIN ${logInsert(t.name, key("NEW"), "update", rowJson(cols, "NEW"), changedList)} END`,

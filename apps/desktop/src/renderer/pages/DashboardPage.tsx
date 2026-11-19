@@ -1,11 +1,32 @@
 import { FileText, Package, Plus, Receipt, Wrench } from "lucide-react";
-import { useMemo } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { Link, useNavigate } from "react-router";
 import { Button, Card, Empty, PageHeader, StatusBadge, Table } from "../components/ui";
 import { useAuth } from "../lib/auth";
 import { formatAED, formatDate } from "../lib/format";
-import type { DocumentSummary, Part } from "../lib/types";
+import type { BackupStatus, DocumentSummary, Part } from "../lib/types";
 import { useApi } from "../lib/useApi";
+
+/** PC holding the garage: a red notice when backups have stopped (folder gone, or nothing for over 3 days). */
+function BackupWarning() {
+  const { canSee } = useAuth();
+  const [status, setStatus] = useState<BackupStatus | null>(null);
+  useEffect(() => {
+    void window.ffgp?.backupStatus().then(setStatus).catch(() => setStatus(null));
+  }, []);
+  if (!status) return null;
+  const days = status.last ? Math.floor((Date.now() - Date.parse(status.last)) / 86_400_000) : 0;
+  const message = !status.folderOk
+    ? "The backup folder can't be found (is the USB drive plugged in?)"
+    : status.last && days > 3 ? `Your last backup was ${days} days ago` : null;
+  if (!message) return null;
+  return (
+    <div className="mb-5 flex flex-wrap items-center justify-between gap-2 rounded-lg bg-red-50 px-4 py-3 text-sm text-red-800 ring-1 ring-red-200" data-testid="backup-warning">
+      <span><b>Backups:</b> {message}.</span>
+      {canSee("settings.manage") ? <Link to="/settings/backups" className="font-medium underline underline-offset-2">Check backups</Link> : <span>Tell the Owner.</span>}
+    </div>
+  );
+}
 
 export function DashboardPage() {
   const { user } = useAuth();
@@ -47,6 +68,7 @@ export function DashboardPage() {
           </>
         }
       />
+      <BackupWarning />
       <div className="mb-5 grid grid-cols-4 gap-4">
         <Stat to="/estimates" label="Estimates awaiting reply" value={stats.pendingEstimates} note={`${stats.approvedEstimates} approved, not started`} />
         <Stat to="/jobcards" label="Jobs in the workshop" value={stats.openJobs.length} note={`${stats.readyToInvoice} ready to invoice`} accent />

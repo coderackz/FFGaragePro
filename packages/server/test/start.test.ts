@@ -1,5 +1,5 @@
 import dgram from "node:dgram";
-import { createServer, type Server } from "node:net";
+import { connect, createServer, type Server } from "node:net";
 import { afterEach, describe, expect, it } from "vitest";
 import { discoverMainComputers, startGarageServer } from "../src/index";
 import { SETUP, tempDir } from "./helpers";
@@ -92,3 +92,18 @@ describe("starting the garage server", () => {
     expect(await discoverMainComputers({ port: await freeUdpPort(), timeoutMs: 300 })).toEqual([]);
   });
 });
+
+describe("restarting the server", () => {
+  it("stops promptly even when a connection was opened but no request sent yet", async () => {
+    // Chromium opens spare connections ahead of time; one must not hold up a restart (seen when linking to the cloud).
+    const server = await startGarageServer({ dataDir: tempDir(), networkPort: await freeTcpPort(), discoveryPort: await freeUdpPort() });
+    const { port } = new URL(server.address);
+    const socket = connect(Number(port), "127.0.0.1");
+    await new Promise<void>((resolve) => socket.once("connect", () => resolve()));
+    const started = Date.now();
+    await Promise.race([server.close(), new Promise((_, reject) => setTimeout(() => reject(new Error("close() still waiting after 3 s")), 3000))]);
+    expect(Date.now() - started).toBeLessThan(3000);
+    socket.destroy();
+  });
+});
+

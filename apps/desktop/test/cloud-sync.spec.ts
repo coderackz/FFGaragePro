@@ -50,10 +50,14 @@ async function customerNames(page: Page): Promise<void> {
 
 async function syncNow(win: Page): Promise<void> {
   await win.getByRole("navigation").getByRole("link", { name: "Settings", exact: true }).click();
+  await win.getByTestId("tile-cloud").click();
   const card = win.getByTestId("cloud-card");
   await expect(card).toBeVisible();
+  // A toast from the previous sync may still be showing: wait for it to go, so the next one is this sync's.
+  const synced = win.getByText("Synced with Fleetfix cloud");
+  await expect(synced).toHaveCount(0, { timeout: 15_000 });
   await win.getByRole("button", { name: "Sync now" }).click();
-  await expect(win.getByText("Synced with Fleetfix cloud")).toBeVisible({ timeout: 20_000 });
+  await expect(synced).toBeVisible({ timeout: 20_000 });
 }
 
 test("a new PC downloads the cloud garage and edits meet both ways", async ({ page }) => {
@@ -113,6 +117,7 @@ test("an existing PC garage uploads", async ({ page }) => {
   await addCustomer(win, "Customer on the PC");
 
   await win.getByRole("navigation").getByRole("link", { name: "Settings", exact: true }).click();
+  await win.getByTestId("tile-cloud").click();
   await win.getByRole("button", { name: "Connect to Fleetfix cloud" }).click();
   const dialog = win.getByRole("dialog");
   await expect(dialog).toContainText("The cloud garage must be new");

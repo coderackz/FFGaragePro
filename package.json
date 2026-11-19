@@ -11,6 +11,7 @@
     "typecheck": "tsc -p packages/shared && tsc -p packages/server && tsc -p packages/sync && tsc -p apps/cloud && tsc -p apps/desktop",
     "dev": "npm run dev -w @ffgp/desktop",
     "e2e": "playwright test",
+    "e2e:settings": "playwright test -c playwright.settings.config.ts",
     "e2e:electron": "playwright test -c playwright.electron.config.ts",
     "cloud": "npm run web:cloud -w @ffgp/desktop && npm run dev -w @ffgp/cloud",
     "e2e:cloud": "playwright test -c playwright.cloud.config.ts",

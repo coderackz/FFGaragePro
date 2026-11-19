@@ -66,6 +66,8 @@ describe("cloud server", () => {
     const write = await api(cloud.url, "POST", "/api/customers", { garage: "alquoz-auto", token, body: { name: "X" } });
     expect(write.status).toBe(402);
     expect(write.body.code).toBe("read_only");
+    // "You can still view and print": recording a print of an invoice is allowed.
+    expect((await api(cloud.url, "POST", "/api/documents/00000000-0000-4000-8000-000000000000/prints", { garage: "alquoz-auto", token })).status).toBe(404);
     const licence = await api(cloud.url, "GET", "/api/cloud/licence", { garage: "alquoz-auto" });
     expect(licence.body).toMatchObject({ state: "read_only", garage: { code: "alquoz-auto" } });
     expect((await api(cloud.url, "POST", "/api/auth/logout", { garage: "alquoz-auto", token })).status).toBe(200);

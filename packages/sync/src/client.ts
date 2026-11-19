@@ -297,7 +297,8 @@ export class SyncClient {
 }
 
 const READ_METHODS = new Set(["GET", "HEAD", "OPTIONS"]);
-const ALWAYS_ALLOWED = new Set(["/api/auth/login", "/api/auth/logout"]);
+/** Signing in and out, and counting a print (read-only garages can still view and print). */
+const ALWAYS_ALLOWED = new Set(["/api/auth/login", "/api/auth/logout", "/api/documents/:id/prints"]);
 
 /** The PC's own read-only rule, the same as the cloud's: no writes (except signing in and out) while the licence says so. */
 export function readOnlyGuard(client: SyncClient | (() => SyncClient | undefined)) {

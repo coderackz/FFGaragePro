@@ -23,6 +23,7 @@ test("main computer: share, pair a second PC, work together, remove it", async (
 
   // A: turn on sharing (the server restarts and the window reloads, still signed in), then get a pairing code.
   await nav(pcA, "Settings");
+  await pcA.getByTestId("tile-other-pcs").click();
   await pcA.getByRole("button", { name: "Share with other PCs" }).click();
   await expect(pcA.getByText("Sharing on")).toBeVisible({ timeout: 20_000 });
   const lanAddresses = await pcA.getByTestId("lan-address").allTextContents();
@@ -85,6 +86,7 @@ test("main computer: share, pair a second PC, work together, remove it", async (
 
   // A removes B; B's next action shows it's disconnected.
   await nav(pcA, "Settings");
+  await pcA.getByTestId("tile-other-pcs").click();
   await expect(pcA.getByText("Front desk", { exact: true })).toBeVisible();
   await pcA.getByRole("button", { name: "Remove Front desk" }).click();
   await expect(pcA.getByText("No other PCs yet.")).toBeVisible();

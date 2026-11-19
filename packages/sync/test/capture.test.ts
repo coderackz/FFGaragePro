@@ -21,6 +21,28 @@ const LINES = [
 ];
 
 describe("change capture", () => {
+  it("local and network settings are never captured", async () => {
+    const { app } = await linkedGarage();
+    const before = localChanges(app.db, 0).length;
+    app.db.run("INSERT INTO settings (key, value) VALUES ('local.backup.folder', '\"C:/x\"'), ('network.sharing', '1')");
+    app.db.run("UPDATE settings SET value = '\"D:/y\"' WHERE key = 'local.backup.folder'");
+    app.db.run("DELETE FROM settings WHERE key = 'local.backup.folder'");
+    expect(localChanges(app.db, 0).length).toBe(before);
+    app.db.run("INSERT INTO settings (key, value) VALUES ('pricing.labourRateFils', '18000')");
+    expect(localChanges(app.db, 0).filter((e) => e.table === "settings")).toHaveLength(1);
+  });
+
+  it("prints and audit rows travel insert-only", async () => {
+    const { app, token } = await linkedGarage();
+    const me = (await call(app, "GET", "/api/me", token)).body.user;
+    const c = (await call(app, "POST", "/api/customers", token, { name: "Ahmed" })).body.customer;
+    const doc = (await call(app, "POST", "/api/documents", token, { type: "estimate", customerId: c.id, lines: LINES })).body.document;
+    app.db.run("INSERT INTO document_prints (id, document_id, user_id, printed_at) VALUES ('p1', ?, ?, '2026-11-19T00:00:00.000Z')", [doc.id, me.id]);
+    app.db.run("INSERT INTO audit_log (id, action, entity, user_id, created_at) VALUES ('a1', 'settings.change', 'settings', ?, '2026-11-19T00:00:00.000Z')", [me.id]);
+    const ops = localChanges(app.db, 0).filter((e) => e.table === "document_prints" || e.table === "audit_log").map((e) => `${e.table}:${e.op}`);
+    expect(ops).toEqual(["document_prints:insert", "audit_log:insert"]);
+  });
+
   it("creating a customer logs an insert with the whole row", async () => {
     const { app, token } = await linkedGarage();
     const c = (await call(app, "POST", "/api/customers", token, { name: "Ahmed", phone: "050 1" })).body.customer;
