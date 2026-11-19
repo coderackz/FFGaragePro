@@ -1,3 +1,4 @@
+import { formatAED } from "@ffgp/shared";
 import clsx from "clsx";
 import { ChevronsUpDown, Plus } from "lucide-react";
 import { useEffect, useRef, useState } from "react";
@@ -75,7 +76,10 @@ export function CustomerPicker({ value, onChange, onCreate, disabled }: { value:
               className={clsx("flex w-full items-center justify-between gap-3 px-3 py-1.5 text-left text-sm", i === active && "bg-brand-50")}
             >
               <span className="truncate font-medium">{c.name}</span>
-              <span className="shrink-0 text-xs text-zinc-500">{[c.phone, ...(c.plates ?? []).slice(0, 2)].filter(Boolean).join(" · ")}</span>
+              <span className="shrink-0 text-xs text-zinc-500">
+                {[c.phone, ...(c.plates ?? []).slice(0, 2)].filter(Boolean).join(" · ")}
+                {!!c.balanceFils && <span className={c.overLimit ? "ml-2 font-medium text-red-700" : "ml-2 text-zinc-700"}>{formatAED(c.balanceFils)}{c.overLimit ? " · over limit" : ""}</span>}
+              </span>
             </button>
           ))}
           {results.length === 0 && <div className="px-3 py-2 text-sm text-zinc-500">No customers found</div>}

@@ -1,24 +1,47 @@
 import { useEffect, useState, type FormEvent } from "react";
 import { toast } from "sonner";
+import { filsToInput, parseAED } from "@ffgp/shared";
 import { patch, post } from "../lib/api";
+import { useAuth } from "../lib/auth";
 import type { Customer, Vehicle } from "../lib/types";
 import { CustomerPicker } from "./CustomerPicker";
-import { Button, Field, Input, Modal, Select, Textarea } from "./ui";
+import { Button, Field, Input, Modal, MoneyInput, Select, Textarea } from "./ui";
 
 const emptyCustomer = { kind: "individual" as Customer["kind"], name: "", phone: "", email: "", trn: "", address: "", notes: "" };
+const emptyCredit = { creditAllowed: false, creditLimitFils: 0, termsDays: "", discountPct: "", lpoRequired: false, openingBalance: "", openingBalanceDate: "" };
+const creditOf = (c: Customer) => ({
+  creditAllowed: !!c.creditAllowed, creditLimitFils: c.creditLimitFils ?? 0, termsDays: c.termsDays == null ? "" : String(c.termsDays),
+  discountPct: c.discountPct ? String(c.discountPct) : "", lpoRequired: !!c.lpoRequired,
+  openingBalance: c.openingBalanceFils ? filsToInput(c.openingBalanceFils) : "", openingBalanceDate: c.openingBalanceDate ?? "",
+});
 
 export function CustomerFormModal({ open, customer, initialName, onClose, onSaved }: { open: boolean; customer?: Customer | null; initialName?: string; onClose: () => void; onSaved: (c: Customer) => void }) {
+  const { can } = useAuth();
+  // Credit terms are the Owner's or an Accountant's to set (the server checks too).
+  const canCredit = can("payments.record");
   const [form, setForm] = useState(emptyCustomer);
+  const [credit, setCredit] = useState(emptyCredit);
   const [busy, setBusy] = useState(false);
   useEffect(() => {
-    if (open) setForm(customer ? { kind: customer.kind, name: customer.name, phone: customer.phone ?? "", email: customer.email ?? "", trn: customer.trn ?? "", address: customer.address ?? "", notes: customer.notes ?? "" } : { ...emptyCustomer, name: initialName ?? "" });
+    if (!open) return;
+    setForm(customer ? { kind: customer.kind, name: customer.name, phone: customer.phone ?? "", email: customer.email ?? "", trn: customer.trn ?? "", address: customer.address ?? "", notes: customer.notes ?? "" } : { ...emptyCustomer, name: initialName ?? "" });
+    setCredit(customer ? creditOf(customer) : emptyCredit);
   }, [open, customer, initialName]);
 
   const submit = async (e: FormEvent) => {
     e.preventDefault();
+    const opening = credit.openingBalance.trim() ? parseAED(credit.openingBalance) : 0;
+    if (opening === null) return void toast.error("The opening balance isn't a number");
+    const body = canCredit
+      ? {
+          ...form, creditAllowed: credit.creditAllowed, creditLimitFils: credit.creditLimitFils,
+          termsDays: credit.termsDays.trim() ? Number(credit.termsDays) : null, discountPct: credit.discountPct.trim() ? Number(credit.discountPct) : 0,
+          lpoRequired: credit.lpoRequired, openingBalanceFils: opening, openingBalanceDate: opening ? credit.openingBalanceDate || null : null,
+        }
+      : form;
     setBusy(true);
     try {
-      const res = customer ? await patch<{ customer: Customer }>(`/api/customers/${customer.id}`, form) : await post<{ customer: Customer }>("/api/customers", form);
+      const res = customer ? await patch<{ customer: Customer }>(`/api/customers/${customer.id}`, body) : await post<{ customer: Customer }>("/api/customers", body);
       toast.success(customer ? "Customer updated" : "Customer added");
       onSaved(res.customer);
       onClose();
@@ -69,6 +92,36 @@ export function CustomerFormModal({ open, customer, initialName, onClose, onSave
         <Field label="Notes" className="col-span-2">
           <Textarea {...f("notes")} rows={2} className="min-h-0" />
         </Field>
+        {canCredit && (
+          <fieldset className="col-span-2 rounded-lg border border-zinc-200 p-3" data-testid="credit-terms">
+            <legend className="px-1 text-sm font-semibold text-zinc-900">Credit</legend>
+            <label className="flex items-center gap-2 text-sm">
+              <input type="checkbox" checked={credit.creditAllowed} onChange={(e) => setCredit({ ...credit, creditAllowed: e.target.checked })} className="size-4 accent-zinc-900" />
+              Allow credit (pays later, by its payment terms)
+            </label>
+            <div className="mt-3 grid grid-cols-2 gap-3">
+              <Field label="Credit limit (AED)" hint="0 = no limit">
+                <MoneyInput fils={credit.creditLimitFils} onChange={(v) => setCredit({ ...credit, creditLimitFils: v })} aria-label="Credit limit" />
+              </Field>
+              <Field label="Payment terms (days)" hint="Blank = the garage's default">
+                <Input inputMode="numeric" value={credit.termsDays} onChange={(e) => setCredit({ ...credit, termsDays: e.target.value.replace(/\D/g, "").slice(0, 3) })} aria-label="Payment terms" />
+              </Field>
+              <Field label="Standing discount (%)">
+                <Input inputMode="decimal" value={credit.discountPct} onChange={(e) => setCredit({ ...credit, discountPct: e.target.value.replace(/[^\d.]/g, "").slice(0, 5) })} aria-label="Standing discount" />
+              </Field>
+              <label className="flex items-end gap-2 pb-2 text-sm">
+                <input type="checkbox" checked={credit.lpoRequired} onChange={(e) => setCredit({ ...credit, lpoRequired: e.target.checked })} className="size-4 accent-zinc-900" />
+                Needs an LPO number on invoices
+              </label>
+              <Field label="Opening balance (AED)" hint="Owed before using the app; negative if in credit">
+                <Input inputMode="decimal" value={credit.openingBalance} onChange={(e) => setCredit({ ...credit, openingBalance: e.target.value })} aria-label="Opening balance" />
+              </Field>
+              <Field label="As of">
+                <Input type="date" value={credit.openingBalanceDate} onChange={(e) => setCredit({ ...credit, openingBalanceDate: e.target.value })} aria-label="Opening balance date" />
+              </Field>
+            </div>
+          </fieldset>
+        )}
       </form>
     </Modal>
   );

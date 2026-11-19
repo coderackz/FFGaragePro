@@ -1,3 +1,4 @@
+import { recomputeInvoiceMoney } from "@ffgp/server";
 import type { Db } from "@ffgp/server";
 import { averageCost, roundFils } from "@ffgp/shared";
 
@@ -35,10 +36,13 @@ export function recomputeDocument(db: Db, docId: string): void {
     "SELECT COALESCE(SUM(net_fils),0) AS net, COALESCE(SUM(vat_fils),0) AS vat, COALESCE(SUM(gross_fils),0) AS gross FROM document_lines WHERE document_id = ?",
     [docId],
   )!;
-  const paid = db.get<{ paid: number }>("SELECT COALESCE(SUM(amount_fils),0) AS paid FROM payments WHERE document_id = ?", [docId])!.paid;
-  let status = doc.status;
-  if (doc.type === "invoice" && doc.status !== "draft") status = paid > 0 && paid >= t.gross ? "paid" : paid > 0 ? "part_paid" : "issued";
-  db.run("UPDATE documents SET net_fils = ?, vat_fils = ?, gross_fils = ?, paid_fils = ?, status = ? WHERE id = ?", [t.net, t.vat, t.gross, paid, status, docId]);
+  db.run("UPDATE documents SET net_fils = ?, vat_fils = ?, gross_fils = ? WHERE id = ?", [t.net, t.vat, t.gross, docId]);
+  // Paid (allocations), credited (credit notes) and status for an invoice; a credit note changes its invoice.
+  recomputeInvoiceMoney(db, docId);
+  if (doc.type === "credit_note") {
+    const source = db.get<{ source_id: string | null }>("SELECT source_id FROM documents WHERE id = ?", [docId])?.source_id;
+    if (source) recomputeInvoiceMoney(db, source);
+  }
 }
 
 /** Received quantities from the goods receipts, the PO total, and part/fully received status. */

@@ -105,6 +105,22 @@ test("a new PC downloads the cloud garage and edits meet both ways", async ({ pa
   await customerNames(win);
   await expect(win.getByRole("cell", { name: "Customer C" })).toBeVisible();
   await pcShot("04-pc-sees-browser");
+
+  // A payment taken on the PC reaches the browser's customer balance.
+  const customerB = await win.evaluate(async () => {
+    const base = (window as unknown as { ffgp: { apiBase: string } }).ffgp.apiBase;
+    const h = { authorization: `Bearer ${sessionStorage.getItem("ffgp.token")}`, "content-type": "application/json" };
+    const c = (await (await fetch(`${base}/api/customers?q=Customer%20B`, { headers: h })).json()).customers[0];
+    const line = { kind: "labour", description: "Service", qty: 1, unitPriceFils: 10000, discountPct: 0 };
+    const d = (await (await fetch(`${base}/api/documents`, { method: "POST", headers: h, body: JSON.stringify({ type: "invoice", customerId: c.id, lines: [line] }) })).json()).document;
+    await fetch(`${base}/api/documents/${d.id}/issue`, { method: "POST", headers: h, body: "{}" });
+    await fetch(`${base}/api/receipts`, { method: "POST", headers: h, body: JSON.stringify({ customerId: c.id, amountFils: 4000, method: "cash" }) });
+    return c.id as string;
+  });
+  await syncNow(win);
+  await page.goto(`/#/customers/${customerB}`);
+  await expect(page.getByTestId("account")).toContainText("AED 65.00");
+  await shot("05-browser-sees-pc-payment");
   await app.close();
 });
 

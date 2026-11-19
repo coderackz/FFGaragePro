@@ -85,7 +85,7 @@ describe("settings API", () => {
     await call(app, "PUT", "/api/settings/pricing", owner, { labourRateFils: 18000 });
     const res = await call(app, "GET", "/api/settings/overview", owner);
     expect(res.body).toEqual({
-      nextNumbers: { estimate: "EST-00001", jobcard: "JC-00001", invoice: "INV-00001", purchase_order: "PO-00001" },
+      nextNumbers: { estimate: "EST-00001", jobcard: "JC-00001", invoice: "INV-00001", purchase_order: "PO-00001", credit_note: "CN-00001", receipt: "RCT-00001" },
       users: 1,
       changesThisWeek: 1,
     });

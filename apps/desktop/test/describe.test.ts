@@ -30,4 +30,20 @@ describe("activity log in plain words", () => {
       .toBe("Changed user sara — Role: Service Advisor → Owner");
     expect(describeAudit(entry({ action: "backup.restore", after: { file: "Fleetfix G 2026-11-18 09-00.db" } }))).toBe("Restored a backup (Fleetfix G 2026-11-18 09-00.db)");
   });
+
+  it("credit, receipts and credit notes", () => {
+    expect(describeAudit(entry({ action: "credit.override", after: { document: "INV-00012", approvedBy: "Owner One" } })))
+      .toBe("Approved going over the credit limit on INV-00012");
+    expect(describeAudit(entry({ action: "receipt.create", after: { receipt: "RCT-00004", customer: "Emirates Logistics", amountFils: 30000, allocations: [] } })))
+      .toBe("Received RCT-00004 from Emirates Logistics: AED 300.00");
+    expect(describeAudit(entry({ action: "receipt.create", after: { receipt: "RCT-00005", customer: "Emirates Logistics", amountFils: -1150, allocations: [] } })))
+      .toBe("Refunded RCT-00005 to Emirates Logistics: AED 11.50");
+    expect(describeAudit(entry({ action: "receipt.allocate", after: { receipt: "RCT-00004", allocations: [{ document: "INV-00007", amountFils: 2100 }] } })))
+      .toBe("Allocated AED 21.00 of RCT-00004 to INV-00007");
+    expect(describeAudit(entry({ action: "credit_note.issue", after: { creditNote: "CN-00001", invoice: "INV-00012", reason: "Wrong part", amountFils: 5250 } })))
+      .toBe("Issued CN-00001 against INV-00012: Wrong part");
+    expect(describeAudit(entry({ entityId: "credit", before: { overLimit: "warn" }, after: { overLimit: "block" } })))
+      .toBe("Changed Customers & credit — Over the credit limit: Warn → Block");
+  });
 });
+

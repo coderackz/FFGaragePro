@@ -2,6 +2,7 @@ import { ArrowLeft, Car, FileText, Pencil, Plus, Wrench } from "lucide-react";
 import { useState } from "react";
 import { Link, useNavigate, useParams } from "react-router";
 import { DOC_LABELS } from "@ffgp/shared";
+import { AccountCard } from "../components/AccountCard";
 import { CustomerFormModal, VehicleFormModal } from "../components/forms";
 import { Badge, Button, Card, Empty, PageHeader, Spinner, StatusBadge, Table } from "../components/ui";
 import { formatAED, formatDate, formatKm, vehicleLabel } from "../lib/format";
@@ -59,6 +60,7 @@ export function CustomerPage() {
             ]}
           />
         </Card>
+        <AccountCard customer={customer} onChanged={() => { void reload(); void docs.reload(); }} />
         <Card title="History" className="col-span-3" padded={false}>
           <Table
             rows={docs.data?.documents ?? []}

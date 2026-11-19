@@ -7,13 +7,13 @@ export const ROLE_LABELS: Record<Role, string> = {
   advisor: "Service Advisor",
 };
 
-export const DOC_TYPES = ["estimate", "jobcard", "invoice"] as const;
+export const DOC_TYPES = ["estimate", "jobcard", "invoice", "credit_note"] as const;
 export type DocType = (typeof DOC_TYPES)[number];
 
-const PREFIX: Record<DocType, string> = { estimate: "EST", jobcard: "JC", invoice: "INV" };
+const PREFIX: Record<DocType, string> = { estimate: "EST", jobcard: "JC", invoice: "INV", credit_note: "CN" };
 
 /** Everything that takes a number from a series. */
-export const NUMBER_KINDS = ["estimate", "jobcard", "invoice", "purchase_order"] as const;
+export const NUMBER_KINDS = ["estimate", "jobcard", "invoice", "purchase_order", "credit_note", "receipt"] as const;
 export type NumberKind = (typeof NUMBER_KINDS)[number];
 
 /** `INV-00012` in the main series, `INV-P1-00003` in an offline PC's own series; `prefix` is the garage's own. */
@@ -21,7 +21,7 @@ export function formatDocNumber(type: DocType, n: number, series = "", prefix = 
   return `${prefix}-${series ? `${series}-` : ""}${String(n).padStart(5, "0")}`;
 }
 
-export const DOC_LABELS: Record<DocType, string> = { estimate: "Estimate", jobcard: "Job Card", invoice: "Invoice" };
+export const DOC_LABELS: Record<DocType, string> = { estimate: "Estimate", jobcard: "Job Card", invoice: "Invoice", credit_note: "Credit Note" };
 
 export const ACTIONS = [
   "users.manage",
@@ -35,6 +35,8 @@ export const ACTIONS = [
   "inventory.edit",
   "purchases.manage",
   "audit.view",
+  "credit_notes.issue",
+  "credit.override",
 ] as const;
 export type Action = (typeof ACTIONS)[number];
 
@@ -42,6 +44,7 @@ const PERMISSIONS: Record<Role, ReadonlySet<Action>> = {
   owner: new Set(ACTIONS),
   accountant: new Set<Action>([
     "customers.edit", "documents.edit", "invoices.issue", "payments.record", "costs.view", "reports.view", "inventory.edit", "purchases.manage",
+    "credit_notes.issue",
   ]),
   advisor: new Set<Action>(["customers.edit", "documents.edit", "invoices.issue"]),
 };
@@ -55,6 +58,7 @@ export const DOC_STATUSES = {
   estimate: ["draft", "sent", "approved", "converted"],
   jobcard: ["open", "in_progress", "completed", "converted"],
   invoice: ["draft", "issued", "part_paid", "paid"],
+  credit_note: ["issued"],
 } as const satisfies Record<DocType, readonly string[]>;
 
 export type DocStatus = (typeof DOC_STATUSES)[DocType][number];
@@ -80,6 +84,18 @@ export const CONVERTS_TO: Partial<Record<DocType, DocType>> = { estimate: "jobca
 
 export const PO_STATUSES = ["draft", "sent", "part_received", "received", "cancelled"] as const;
 export type PoStatus = (typeof PO_STATUSES)[number];
+
+/** `RCT-00012`, or `RCT-P1-00003` from an offline PC's own series. */
+export function formatReceiptNumber(n: number, series = "", prefix = "RCT"): string {
+  return `${prefix}-${series ? `${series}-` : ""}${String(n).padStart(5, "0")}`;
+}
+
+/** Any kind of number, e.g. ("receipt", 12) → "RCT-00012" with the default prefix, or the garage's own. */
+export function formatNumberOf(kind: NumberKind, n: number, series = "", prefix?: string): string {
+  if (kind === "purchase_order") return formatPoNumber(n, series, prefix);
+  if (kind === "receipt") return formatReceiptNumber(n, series, prefix);
+  return formatDocNumber(kind, n, series, prefix);
+}
 
 export function formatPoNumber(n: number, series = "", prefix = "PO"): string {
   return `${prefix}-${series ? `${series}-` : ""}${String(n).padStart(5, "0")}`;

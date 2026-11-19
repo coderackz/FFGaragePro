@@ -1,4 +1,4 @@
-import { newId, reconcileDocumentStock, type Db } from "@ffgp/server";
+import { legacyPaymentReceipt, newId, reconcileDocumentStock, releaseOverpayment, type Db } from "@ffgp/server";
 import { changesSince, columns, ownOrigin, syncedColumns, type ChangeEntry, type Row } from "./capture";
 import { recomputeDocument, recomputePart, recomputePurchaseOrder } from "./recompute";
 import { numState, setState } from "./state";
@@ -178,7 +178,9 @@ const docNumber = (db: Db, id: unknown) => db.get<{ number: string }>("SELECT nu
 function conversionClash(c: Ctx, id: string, data: Row, values: Row, current: Row | undefined): Row {
   const source = (values.source_id !== undefined ? values.source_id : current?.source_id) as string | null | undefined;
   if (!source) return values;
-  const other = c.db.get<{ id: string }>("SELECT id FROM documents WHERE source_id = ? AND id <> ?", [source, id]);
+  // Credit notes against an invoice aren't conversions: an invoice may have several.
+  if ((data.type ?? current?.type) === "credit_note") return values;
+  const other = c.db.get<{ id: string }>("SELECT id FROM documents WHERE source_id = ? AND id <> ? AND type <> 'credit_note'", [source, id]);
   if (!other) return values;
   const number = String(data.number ?? current?.number ?? "A document");
   const message = (kept: string, unlinked: string) =>
@@ -246,8 +248,9 @@ function invoiceNumber(c: Ctx, docId: string): string {
   return c.db.get<{ number: string }>("SELECT number FROM documents WHERE id = ?", [docId])?.number ?? "An invoice";
 }
 
+/** Issued invoices and credit notes are never changed (the cloud referees them). */
 const isFrozen = (db: Db, docId: string) =>
-  !!db.get("SELECT 1 FROM documents WHERE id = ? AND type = 'invoice' AND status <> 'draft'", [docId]);
+  !!db.get("SELECT 1 FROM documents WHERE id = ? AND ((type = 'invoice' AND status <> 'draft') OR type = 'credit_note')", [docId]);
 
 function touch(c: Ctx, table: string, row: Row | null, rowId: string): void {
   const s = c.touched;
@@ -256,7 +259,7 @@ function touch(c: Ctx, table: string, row: Row | null, rowId: string): void {
   if (table === "stock_movements" && row?.document_id) s.docs.add(String(row.document_id));
   if (table === "documents") s.docs.add(rowId);
   if (table === "document_lines") s.docs.add(rowId);
-  if (table === "payments" && row?.document_id) s.docs.add(String(row.document_id));
+  if ((table === "receipt_allocations" || table === "payments") && row?.document_id) s.docs.add(String(row.document_id));
   if (table === "purchase_orders") s.pos.add(rowId);
   if ((table === "po_lines" || table === "goods_receipts") && row?.po_id) s.pos.add(String(row.po_id));
   if (table === "goods_receipt_lines" && row?.po_line_id) {
@@ -283,6 +286,13 @@ function applyEntry(c: Ctx, e: ChangeEntry): boolean {
       const now = c.db.all<Row>("SELECT * FROM document_lines WHERE document_id = ? ORDER BY position", [docId]);
       const key = (rows: Row[]) => JSON.stringify(rows.map((r) => cols.filter((k) => k !== "id").map((k) => r[k] ?? null)));
       if (key(now) === key(incoming)) return false;
+      // A credit note arrives already issued, its lines just after it: the first lines it gets are its own.
+      // (An issued invoice always has lines; one without them still refuses changes.)
+      if (now.length === 0 && c.db.get("SELECT 1 FROM documents WHERE id = ? AND type = 'credit_note'", [docId])) {
+        for (const line of incoming) writeRow(c, t, String(line.id), line, line, undefined);
+        touch(c, t.name, null, docId);
+        return true;
+      }
       logOwnSet(c, docId);
       addIssue(c, "frozen_invoice", "documents", docId, `${invoiceNumber(c, docId)} had already been issued, so line changes from ${c.from} were not applied.`, {
         lines: incoming,
@@ -328,6 +338,8 @@ function applyEntry(c: Ctx, e: ChangeEntry): boolean {
     }
   }
   upsert(c, t, e.rowId, data, values, current);
+  // An old payment that was still waiting to sync when the update arrived: the receipt the migration would have made.
+  if (t.name === "payments" && !current) legacyPaymentReceipt(c.db, data as Parameters<typeof legacyPaymentReceipt>[1]);
   for (const fn of c.afterWrite.splice(0)) fn();
   touch(c, t.name, { ...current, ...data }, e.rowId);
   return true;
@@ -336,7 +348,7 @@ function applyEntry(c: Ctx, e: ChangeEntry): boolean {
 const TABLE_LABELS: Record<string, string> = {
   garage: "the garage details", settings: "a setting", users: "a user", customers: "a customer", vehicles: "a vehicle",
   parts: "a part", suppliers: "a supplier", documents: "a document", purchase_orders: "a purchase order", po_lines: "a purchase order line",
-  document_lines: "a document's lines", payments: "a payment", goods_receipts: "a delivery", goods_receipt_lines: "a delivery line",
+  document_lines: "a document's lines", payments: "a payment", receipts: "a receipt", receipt_allocations: "a payment allocation", document_prints: "a print record", audit_log: "an activity log entry", goods_receipts: "a delivery", goods_receipt_lines: "a delivery line",
   stock_movements: "a stock movement",
 };
 
@@ -376,7 +388,12 @@ function applyAll(c: Ctx, entries: ChangeEntry[], attribution: (e: ChangeEntry) 
     for (const id of c.touched.docs) recomputeDocument(c.db, id);
   };
   if (c.mode === "pc") as(c.db, "cloud", null, recompute);
-  else recompute();
+  else {
+    recompute();
+    // The cloud referees: an invoice now paid more than it owes (payments or a credit note from two places) gives the
+    // excess back as the customer's credit — its own change, so every PC hears of it.
+    for (const id of c.touched.docs) releaseOverpayment(c.db, id, null);
+  }
   return applied;
 }
 

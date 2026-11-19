@@ -1,12 +1,15 @@
 import type { FastifyInstance } from "fastify";
-import { customerSchema, vehicleSchema } from "@ffgp/shared";
-import { requireAction, sessionUser } from "../auth";
+import { can, customerSchema, dubaiDate, vehicleSchema, type CustomerInput } from "@ffgp/shared";
+import { requireAction, sessionUser, type SessionUser } from "../auth";
+import { customerBalance, customerLedger } from "../ledger";
 import { newId, now, type Db } from "../db";
-import { conflict, notFound } from "../errors";
+import { badRequest, conflict, forbidden, notFound } from "../errors";
 
 interface CustomerRow {
   id: string; kind: string; name: string; phone: string | null; email: string | null; trn: string | null;
   address: string | null; notes: string | null; created_at: string; plates?: string | null;
+  credit_allowed: number; credit_limit_fils: number; terms_days: number | null; discount_bp: number; lpo_required: number;
+  opening_balance_fils: number; opening_balance_date: string | null;
 }
 interface VehicleRow {
   id: string; customer_id: string; plate: string; make: string | null; model: string | null; year: number | null;
@@ -16,7 +19,26 @@ interface VehicleRow {
 export const customerOut = (c: CustomerRow) => ({
   id: c.id, kind: c.kind, name: c.name, phone: c.phone, email: c.email, trn: c.trn, address: c.address, notes: c.notes,
   createdAt: c.created_at, plates: c.plates ? c.plates.split(",") : undefined,
+  creditAllowed: !!c.credit_allowed, creditLimitFils: c.credit_limit_fils, termsDays: c.terms_days, discountPct: c.discount_bp / 100,
+  lpoRequired: !!c.lpo_required, openingBalanceFils: c.opening_balance_fils, openingBalanceDate: c.opening_balance_date,
 });
+
+/** A customer with where their account stands (balance, overdue, credit, over the credit limit). */
+export function customerWithBalance(db: Db, c: CustomerRow) {
+  const b = customerBalance(db, c.id);
+  return { ...customerOut(c), ...b, overLimit: c.credit_limit_fils > 0 && b.balanceFils > c.credit_limit_fils };
+}
+
+const CREDIT_FIELDS = ["creditAllowed", "creditLimitFils", "termsDays", "discountPct", "lpoRequired", "openingBalanceFils", "openingBalanceDate"] as const;
+
+/** Credit terms are money decisions: only the Owner or an Accountant may set or change them. */
+function checkCreditChange(user: SessionUser, before: Partial<Record<keyof CustomerInput, unknown>>, after: CustomerInput): void {
+  if (can(user.role, "payments.record")) return;
+  if (CREDIT_FIELDS.some((k) => JSON.stringify(before[k] ?? null) !== JSON.stringify(after[k] ?? null))) {
+    throw forbidden("Only the Owner or an Accountant can change a customer's credit terms");
+  }
+}
+const creditDefaults = customerSchema.parse({ name: "x" });
 export const vehicleOut = (v: VehicleRow) => ({
   id: v.id, customerId: v.customer_id, plate: v.plate, make: v.make, model: v.model, year: v.year, vin: v.vin,
   colour: v.colour, odometer: v.odometer, createdAt: v.created_at, customerName: v.customer_name,
@@ -40,7 +62,7 @@ export function customerRoutes(app: FastifyInstance, db: Db): void {
        ORDER BY c.name COLLATE NOCASE LIMIT 300`,
       { q: q || null, like: like(q ?? "") },
     );
-    return { customers: rows.map(customerOut) };
+    return { customers: rows.map((c) => customerWithBalance(db, c)) };
   });
 
   app.get<{ Params: { id: string } }>("/api/customers/:id", async (req) => {
@@ -48,30 +70,51 @@ export function customerRoutes(app: FastifyInstance, db: Db): void {
     const c = getCustomer(req.params.id);
     if (!c) throw notFound("Customer not found");
     const vehicles = db.all<VehicleRow>("SELECT * FROM vehicles WHERE customer_id = ? ORDER BY plate", [c.id]);
-    return { customer: customerOut(c), vehicles: vehicles.map(vehicleOut) };
+    return { customer: customerWithBalance(db, c), vehicles: vehicles.map(vehicleOut) };
   });
 
   app.post("/api/customers", async (req) => {
-    requireAction(sessionUser(db, req), "customers.edit");
+    const user = sessionUser(db, req);
+    requireAction(user, "customers.edit");
     const input = customerSchema.parse(req.body);
+    checkCreditChange(user, creditDefaults, input);
     const id = newId();
     const t = now();
     db.run(
-      "INSERT INTO customers (id, kind, name, phone, email, trn, address, notes, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
-      [id, input.kind, input.name, input.phone, input.email, input.trn, input.address, input.notes, t, t],
+      `INSERT INTO customers (id, kind, name, phone, email, trn, address, notes, credit_allowed, credit_limit_fils, terms_days, discount_bp,
+         lpo_required, opening_balance_fils, opening_balance_date, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+      [id, input.kind, input.name, input.phone, input.email, input.trn, input.address, input.notes, input.creditAllowed ? 1 : 0, input.creditLimitFils,
+        input.termsDays, Math.round(input.discountPct * 100), input.lpoRequired ? 1 : 0, input.openingBalanceFils, input.openingBalanceDate, t, t],
     );
-    return { customer: customerOut(getCustomer(id)!) };
+    return { customer: customerWithBalance(db, getCustomer(id)!) };
   });
 
   app.patch<{ Params: { id: string } }>("/api/customers/:id", async (req) => {
-    requireAction(sessionUser(db, req), "customers.edit");
+    const user = sessionUser(db, req);
+    requireAction(user, "customers.edit");
     const existing = getCustomer(req.params.id);
     if (!existing) throw notFound("Customer not found");
-    const input = customerSchema.parse({ ...customerOut(existing), ...(req.body as object) });
-    db.run("UPDATE customers SET kind = ?, name = ?, phone = ?, email = ?, trn = ?, address = ?, notes = ?, updated_at = ? WHERE id = ?", [
-      input.kind, input.name, input.phone, input.email, input.trn, input.address, input.notes, now(), existing.id,
-    ]);
-    return { customer: customerOut(getCustomer(existing.id)!) };
+    const before = customerOut(existing);
+    const input = customerSchema.parse({ ...before, ...(req.body as object) });
+    checkCreditChange(user, before, input);
+    db.run(
+      `UPDATE customers SET kind = ?, name = ?, phone = ?, email = ?, trn = ?, address = ?, notes = ?, credit_allowed = ?, credit_limit_fils = ?,
+         terms_days = ?, discount_bp = ?, lpo_required = ?, opening_balance_fils = ?, opening_balance_date = ?, updated_at = ? WHERE id = ?`,
+      [input.kind, input.name, input.phone, input.email, input.trn, input.address, input.notes, input.creditAllowed ? 1 : 0, input.creditLimitFils,
+        input.termsDays, Math.round(input.discountPct * 100), input.lpoRequired ? 1 : 0, input.openingBalanceFils, input.openingBalanceDate, now(), existing.id],
+    );
+    return { customer: customerWithBalance(db, getCustomer(existing.id)!) };
+  });
+
+  app.get<{ Params: { id: string }; Querystring: { from?: string; to?: string } }>("/api/customers/:id/statement", async (req) => {
+    sessionUser(db, req);
+    const c = getCustomer(req.params.id);
+    if (!c) throw notFound("Customer not found");
+    const ymd = /^\d{4}-\d{2}-\d{2}$/;
+    const to = req.query.to && ymd.test(req.query.to) ? req.query.to : dubaiDate(new Date().toISOString());
+    const from = req.query.from && ymd.test(req.query.from) ? req.query.from : `${to.slice(0, 8)}01`;
+    if (from > to) throw badRequest("The start date is after the end date");
+    return { customer: customerWithBalance(db, c), from, to, statement: customerLedger(db, c.id, from, to) };
   });
 
   app.get<{ Querystring: { q?: string } }>("/api/vehicles", async (req) => {

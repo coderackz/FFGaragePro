@@ -1,4 +1,4 @@
-import { ArrowLeft, ArrowRight, Banknote, CircleCheck, FileDown, PackagePlus, Plus, Printer, Save, Trash2, TriangleAlert } from "lucide-react";
+import { ArrowLeft, ArrowRight, Banknote, CircleCheck, FileDown, FileMinus, PackagePlus, Plus, Printer, Save, Trash2, TriangleAlert } from "lucide-react";
 import { useEffect, useMemo, useState } from "react";
 import { Link, useNavigate, useParams, useSearchParams } from "react-router";
 import { toast } from "sonner";
@@ -15,12 +15,13 @@ import { useAuth } from "../lib/auth";
 import { PAYMENT_LABELS, formatAED, formatDate, formatDateTime, formatKm } from "../lib/format";
 import type { Customer, DocLine, DocumentFull, Vehicle } from "../lib/types";
 import { useApi } from "../lib/useApi";
+import { CreditNoteDialog } from "../components/CreditNoteDialog";
 import { useOwnerApproval } from "../components/OwnerApproval";
 import { printDocument } from "../print/print";
 
-const LIST_PATH: Record<DocType, string> = { estimate: "/estimates", jobcard: "/jobcards", invoice: "/invoices" };
+const LIST_PATH: Record<DocType, string> = { estimate: "/estimates", jobcard: "/jobcards", invoice: "/invoices", credit_note: "/credit-notes" };
 const KIND_LABELS: Record<LineKind, string> = { labour: "Labour", part: "Part", other: "Other" };
-const MANUAL: Record<DocType, readonly string[]> = { estimate: ["draft", "sent", "approved"], jobcard: ["open", "in_progress", "completed"], invoice: [] };
+const MANUAL: Record<DocType, readonly string[]> = { estimate: ["draft", "sent", "approved"], jobcard: ["open", "in_progress", "completed"], invoice: [], credit_note: [] };
 
 interface Draft {
   customer: { id: string; name: string } | null;
@@ -28,6 +29,8 @@ interface Draft {
   odometer: number | null;
   notes: string;
   lines: DocLine[];
+  /** Invoices: the customer's LPO number. */
+  lpoNumber: string;
 }
 
 /** A new empty line; labour starts at the garage's labour rate (Settings → Pricing). */
@@ -46,7 +49,8 @@ export function DocumentPage() {
   const type = (doc?.type ?? params.type) as DocType;
   const label = DOC_LABELS[type] ?? "Document";
 
-  const [draft, setDraft] = useState<Draft>({ customer: null, vehicleId: null, odometer: null, notes: "", lines: [blankLine("labour", settings?.pricing.labourRateFils)] });
+  const [draft, setDraft] = useState<Draft>({ customer: null, vehicleId: null, odometer: null, notes: "", lines: [blankLine("labour", settings?.pricing.labourRateFils)], lpoNumber: "" });
+  const [crediting, setCrediting] = useState(false);
   const approval = useOwnerApproval();
   const [dirty, setDirty] = useState(false);
   const [busy, setBusy] = useState<string | null>(null);
@@ -63,6 +67,7 @@ export function DocumentPage() {
         odometer: doc.odometer,
         notes: doc.notes ?? "",
         lines: doc.lines.length ? doc.lines : doc.editable ? [blankLine("labour", settings?.pricing.labourRateFils)] : [],
+        lpoNumber: doc.lpoNumber ?? "",
       });
       setDirty(false);
     }
@@ -75,7 +80,9 @@ export function DocumentPage() {
     }
   }, [isNew, presetCustomer.data]);
 
-  const customerDetail = useApi<{ customer: Customer; vehicles: Vehicle[] }>(draft.customer ? `/api/customers/${draft.customer.id}` : null);
+  // Re-read when this document's money changes (issued, paid, credited) so the account balance shown is current.
+  const moneyKey = doc ? `${doc.id}:${doc.status}:${doc.paidFils}:${doc.creditedFils ?? 0}` : "new";
+  const customerDetail = useApi<{ customer: Customer; vehicles: Vehicle[] }>(draft.customer ? `/api/customers/${draft.customer.id}?v=${encodeURIComponent(moneyKey)}` : null);
   const vehicles = customerDetail.data?.vehicles ?? [];
 
   const editable = !readOnly && (isNew || (doc?.editable ?? false));
@@ -110,9 +117,10 @@ export function DocumentPage() {
       kind, description: description.trim(), qty, unitPriceFils, discountPct,
       partId: kind === "part" ? partId ?? null : null, suppliedBy: kind === "part" ? suppliedBy ?? "garage" : "garage", poLineId: poLineId ?? null,
     }));
-    const body = { vehicleId: draft.vehicleId, odometer: draft.odometer, notes: draft.notes, lines };
+    const body = { vehicleId: draft.vehicleId, odometer: draft.odometer, notes: draft.notes, lines, ...(type === "invoice" && !isNew ? { lpoNumber: draft.lpoNumber } : {}) };
     if (isNew) {
-      const res = await approval.withApproval((a) => post<{ document: DocumentFull }>("/api/documents", { type, customerId: draft.customer!.id, ...body, approval: a }));
+      const res = await approval.withApproval((a) => post<{ document: DocumentFull; warning?: string }>("/api/documents", { type, customerId: draft.customer!.id, ...body, approval: a }));
+      if (res.warning) toast.warning(res.warning);
       setDirty(false);
       navigate(`/documents/${res.document.id}`, { replace: true });
       return res.document.id;
@@ -150,8 +158,9 @@ export function DocumentPage() {
   const onConvert = () => run("convert", async () => {
     const id = await save();
     if (!id) return;
-    const res = await post<{ document: DocumentFull }>(`/api/documents/${id}/convert`);
+    const res = await approval.withApproval((a) => post<{ document: DocumentFull; warning?: string }>(`/api/documents/${id}/convert`, { approval: a }));
     toast.success(`${res.document.number} created`);
+    if (res.warning) toast.warning(res.warning);
     navigate(`/documents/${res.document.id}`);
   });
 
@@ -159,9 +168,20 @@ export function DocumentPage() {
     const id = await save();
     if (!id) return;
     if (!window.confirm("Issue this tax invoice? After issuing, it can no longer be edited.")) return;
-    const res = await post<{ document: DocumentFull }>(`/api/documents/${id}/issue`);
-    docQuery.setData(res);
+    // Over the customer's credit limit: a warning, a refusal, or the Owner's approval (Settings → Customers & credit).
+    const res = await approval.withApproval((a) => post<{ document: DocumentFull; warning?: string }>(`/api/documents/${id}/issue`, { approval: a }));
+    docQuery.setData({ document: res.document });
     toast.success(`${res.document.number} issued`);
+    if (res.warning) toast.warning(res.warning);
+  });
+
+  /** A payment put against this invoice by mistake: taken back off, so it becomes the customer's credit again. */
+  const onUndo = (receiptId: string, amountFils: number, key: string) => run(`undo-${key}`, async () => {
+    if (!window.confirm(`Take ${formatAED(amountFils)} back off ${doc!.number}? It becomes the customer's credit, to use on another invoice or refund.`)) return;
+    await post(`/api/receipts/${receiptId}/allocations`, { allocations: [{ documentId: doc!.id, amountFils: -amountFils }] });
+    const { document } = await get<{ document: DocumentFull }>(`/api/documents/${doc!.id}`);
+    docQuery.setData({ document });
+    toast.success("Payment taken back off — it's now the customer's credit");
   });
 
   /** Saves first if needed, then opens "Request part" for the line (positions are counted after blank lines are dropped). */
@@ -184,6 +204,7 @@ export function DocumentPage() {
   if (!isNew && docQuery.error) return <Empty title="Document not found">{docQuery.error}</Empty>;
   if (!isNew && !doc) return <Spinner />;
   if (!DOC_LABELS[type]) return <Empty title="Unknown document type" />;
+  if (isNew && type === "credit_note") return <Empty title="Credit notes are made from an invoice">Open the issued invoice and choose “Credit note”.</Empty>;
 
   const next = CONVERTS_TO[type];
   const isInvoice = type === "invoice";
@@ -204,7 +225,7 @@ export function DocumentPage() {
           doc && (
             <span className="flex items-center gap-3">
               <span>Created {formatDateTime(doc.createdAt)}{doc.createdBy ? ` by ${doc.createdBy}` : ""}</span>
-              {doc.source && <Link className="text-brand-700 hover:underline" to={`/documents/${doc.source.id}`}>from {doc.source.number}</Link>}
+              {doc.source && <Link className="text-brand-700 hover:underline" to={`/documents/${doc.source.id}`}>{type === "credit_note" ? "credit for" : "from"} {doc.source.number}</Link>}
               {doc.derived && <Link className="inline-flex items-center gap-1 font-medium text-brand-700 hover:underline" to={`/documents/${doc.derived.id}`}>converted to {doc.derived.number} <ArrowRight className="size-3.5" /></Link>}
             </span>
           )
@@ -230,6 +251,9 @@ export function DocumentPage() {
             )}
             {doc && isInvoice && doc.status === "draft" && can("invoices.issue") && (
               <Button variant="primary" icon={<CircleCheck className="size-4" />} busy={busy === "issue"} onClick={onIssue}>Issue invoice</Button>
+            )}
+            {doc && isInvoice && doc.status !== "draft" && can("credit_notes.issue") && (
+              <Button icon={<FileMinus className="size-4" />} onClick={() => setCrediting(true)}>Credit note</Button>
             )}
             {doc && isInvoice && ["issued", "part_paid"].includes(doc.status) && can("payments.record") && (
               <Button variant="primary" icon={<Banknote className="size-4" />} onClick={() => setPaying(true)}>Record payment</Button>
@@ -274,6 +298,18 @@ export function DocumentPage() {
                   }}
                 />
               </Field>
+              {isInvoice && (doc || isNew) && (
+                <Field label="LPO number" hint={customerDetail.data?.customer.lpoRequired ? "This customer needs one before the invoice is issued" : "The customer's purchase order, if any"}>
+                  <Input value={draft.lpoNumber} disabled={!editable || isNew} onChange={(e) => update({ lpoNumber: e.target.value })} placeholder={isNew ? "Save first" : ""} aria-label="LPO number" />
+                </Field>
+              )}
+              {customerDetail.data && !!customerDetail.data.customer.balanceFils && (
+                <div className="col-span-3 flex items-center gap-2 text-sm text-zinc-700" data-testid="customer-balance">
+                  Account balance <b className="tabular">{formatAED(customerDetail.data.customer.balanceFils)}</b>
+                  {customerDetail.data.customer.overLimit && <Badge tone="red">Over the credit limit</Badge>}
+                  {!!customerDetail.data.customer.overdueFils && <span className="text-red-700">· {formatAED(customerDetail.data.customer.overdueFils)} overdue</span>}
+                </div>
+              )}
             </div>
           </Card>
 
@@ -281,7 +317,7 @@ export function DocumentPage() {
             title={type === "jobcard" ? "Work & parts" : "Items"}
             padded={false}
             actions={editable && LINE_KINDS.map((k) => (
-              <Button key={k} size="sm" variant="ghost" icon={<Plus className="size-3.5" />} onClick={() => update({ lines: [...draft.lines, blankLine(k, settings?.pricing.labourRateFils)] })}>{KIND_LABELS[k]}</Button>
+              <Button key={k} size="sm" variant="ghost" icon={<Plus className="size-3.5" />} onClick={() => update({ lines: [...draft.lines, { ...blankLine(k, settings?.pricing.labourRateFils), discountPct: customerDetail.data?.customer.discountPct ?? 0 }] })}>{KIND_LABELS[k]}</Button>
             ))}
           >
             <LinesTable
@@ -310,8 +346,8 @@ export function DocumentPage() {
               <Row label="Subtotal" value={formatAED(totals.netFils)} />
               <Row label={`VAT ${vatRate / 100}%`} value={formatAED(totals.vatFils)} />
               <div className="my-1 border-t border-dashed border-zinc-200" />
-              <Row label="Total" value={formatAED(totals.grossFils)} strong />
-              {doc && doc.partsCostFils !== undefined && !dirty && (
+              <Row label={type === "credit_note" ? "Total credit" : "Total"} value={formatAED(totals.grossFils)} strong />
+              {doc && doc.type !== "credit_note" && doc.partsCostFils !== undefined && !dirty && (
                 <div className="mt-1 flex flex-col gap-1.5 border-t border-zinc-100 pt-2" data-testid="job-cost">
                   <Row label="Parts cost" value={formatAED(doc.partsCostFils)} />
                   <Row label="Margin (before VAT)" value={formatAED(doc.marginFils ?? 0)} />
@@ -321,6 +357,8 @@ export function DocumentPage() {
               )}
               {isInvoice && doc && doc.status !== "draft" && (
                 <>
+                  {doc.dueDate && <Row label="Due" value={formatDate(`${doc.dueDate}T00:00:00.000Z`)} />}
+                  {!!doc.creditedFils && <Row label="Credited" value={formatAED(doc.creditedFils)} />}
                   <Row label="Paid" value={formatAED(doc.paidFils)} />
                   <div className="mt-1 flex items-center justify-between rounded-md bg-zinc-50 px-3 py-2">
                     <dt className="font-medium">Balance due</dt>
@@ -343,17 +381,44 @@ export function DocumentPage() {
                 <div className="px-4 py-3 text-sm text-zinc-500">No payments yet</div>
               ) : (
                 <ul className="divide-y divide-zinc-100">
-                  {doc.payments.map((p) => (
-                    <li key={p.id} className="flex items-center justify-between px-4 py-2.5 text-sm">
-                      <div>
-                        <div className="font-medium">{PAYMENT_LABELS[p.method] ?? p.method}{p.reference ? ` · ${p.reference}` : ""}</div>
-                        <div className="text-xs text-zinc-500">{formatDate(p.paidAt)}{p.createdBy ? ` · ${p.createdBy}` : ""}</div>
-                      </div>
-                      <div className="tabular font-medium">{formatAED(p.amountFils)}</div>
-                    </li>
-                  ))}
+                  {doc.payments.map((p) => {
+                    // What this receipt still has on this invoice (after any earlier undo).
+                    const onIt = doc.payments.filter((x) => x.receiptId === p.receiptId).reduce((s, x) => s + x.amountFils, 0);
+                    return (
+                      <li key={p.id} className="flex items-center justify-between gap-2 px-4 py-2.5 text-sm">
+                        <div className="min-w-0">
+                          <div className="font-medium">{p.receiptNumber ? `${p.receiptNumber} · ` : ""}{PAYMENT_LABELS[p.method] ?? p.method}{p.reference ? ` · ${p.reference}` : ""}</div>
+                          <div className="text-xs text-zinc-500">{formatDate(p.paidAt)}{p.createdBy ? ` · ${p.createdBy}` : ""}{p.amountFils < 0 ? " · taken back off" : ""}</div>
+                        </div>
+                        <div className="flex shrink-0 items-center gap-2">
+                          <span className="tabular font-medium">{formatAED(p.amountFils)}</span>
+                          {p.amountFils > 0 && onIt > 0 && p.receiptId && can("payments.record") && (
+                            <Button size="sm" variant="ghost" busy={busy === `undo-${p.id}`} onClick={() => onUndo(p.receiptId!, Math.min(p.amountFils, onIt), p.id)} aria-label={`Undo ${p.receiptNumber ?? "payment"}`}>Undo</Button>
+                          )}
+                        </div>
+                      </li>
+                    );
+                  })}
                 </ul>
               )}
+            </Card>
+          )}
+          {type === "credit_note" && doc && (
+            <Card title="Reason">
+              <div className="text-sm whitespace-pre-line text-zinc-800" data-testid="credit-reason">{doc.reason}</div>
+              <div className="mt-2 text-xs text-zinc-600">A credit note can't be changed. It reduces what {doc.customer.name} owes.</div>
+            </Card>
+          )}
+          {isInvoice && doc && !!doc.creditNotes?.length && (
+            <Card title="Credit notes" padded={false}>
+              <ul className="divide-y divide-zinc-100">
+                {doc.creditNotes.map((c) => (
+                  <li key={c.id} className="flex items-center justify-between px-4 py-2.5 text-sm">
+                    <Link to={`/documents/${c.id}`} className="font-mono font-medium text-brand-700 hover:underline">{c.number}</Link>
+                    <span className="tabular">{formatAED(c.grossFils)}</span>
+                  </li>
+                ))}
+              </ul>
             </Card>
           )}
           {isInvoice && doc?.status === "draft" && (
@@ -372,6 +437,7 @@ export function DocumentPage() {
       />
       <RequestPartDialog request={requesting} onClose={() => setRequesting(null)} onDone={(d) => docQuery.setData({ document: d })} />
       {doc && <PaymentModal open={paying} doc={doc} onClose={() => setPaying(false)} onPaid={(d) => docQuery.setData({ document: d })} />}
+      {doc && isInvoice && <CreditNoteDialog invoice={doc} open={crediting} onClose={() => setCrediting(false)} onDone={(cn) => navigate(`/documents/${cn.id}`)} />}
     </>
   );
 }

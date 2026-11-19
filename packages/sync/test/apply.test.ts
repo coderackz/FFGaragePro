@@ -1,5 +1,6 @@
 import { afterEach, describe, expect, it } from "vitest";
 import { applyAtCloud, applyAtPc, changesFor, getState, installCapture, localChanges, maxSeq, setState } from "../src/index";
+import { customerBalance, legacyPaymentReceipt } from "@ffgp/server";
 import { call, createPart, garageApp, onHand, setUp, twin, type App } from "./helpers";
 
 const apps: App[] = [];
@@ -193,6 +194,107 @@ describe("merge engine", () => {
     expect(doc(A)).toEqual(doc(C));
   });
 
+  it("allocations made on two PCs to the same invoice add up on both sides", async () => {
+    let inv = "";
+    const { A, C, token, sync } = await pair(async (app, t) => {
+      const c = await customer(app, t);
+      inv = (await call(app, "POST", "/api/documents", t, { type: "invoice", customerId: c.id, lines: [LINE] })).body.document.id;
+      await call(app, "POST", `/api/documents/${inv}/issue`, t);
+    });
+    await call(A, "POST", `/api/documents/${inv}/payments`, token, { amountFils: 6000, method: "cash" });
+    await call(C, "POST", `/api/documents/${inv}/payments`, token, { amountFils: 6000, method: "card" });
+    sync();
+    sync();
+    // The cloud takes the excess back off the invoice, so it becomes credit the garage can use or refund.
+    const doc = (app: App) => app.db.get("SELECT status, paid_fils FROM documents WHERE id = ?", [inv]);
+    expect(doc(C)).toEqual({ status: "paid", paid_fils: 10500 });
+    expect(doc(A)).toEqual(doc(C));
+    const cid = C.db.get<{ customer_id: string }>("SELECT customer_id FROM documents WHERE id = ?", [inv])!.customer_id;
+    expect(customerBalance(C.db, cid)).toMatchObject({ balanceFils: -1500, creditFils: 1500 });
+    expect(customerBalance(A.db, cid)).toEqual(customerBalance(C.db, cid));
+    expect(A.db.get("SELECT SUM(amount_fils) AS s FROM receipt_allocations")).toEqual({ s: 10500 });
+  });
+
+  it("a payment recorded before the upgrade (on either side) becomes the same receipt everywhere", async () => {
+    let inv = "";
+    let customerId = "";
+    const { A, C, sync } = await pair(async (app, t) => {
+      const c = await customer(app, t);
+      customerId = c.id;
+      inv = (await call(app, "POST", "/api/documents", t, { type: "invoice", customerId: c.id, lines: [LINE] })).body.document.id;
+      await call(app, "POST", `/api/documents/${inv}/issue`, t);
+    });
+    // As if each side had an old-style payment still waiting to sync when the update arrived: the payment is in its
+    // change log, and its own upgrade already turned it into a receipt (which the upgrade doesn't log).
+    const legacy = (app: App, id: string, amount: number) => {
+      const row = { id, document_id: inv, amount_fils: amount, method: "cash", reference: null, paid_at: "2026-11-18T10:00:00.000Z", created_by: null, created_at: "2026-11-18T10:00:00.000Z" };
+      app.db.run("INSERT INTO payments (id, document_id, amount_fils, method, reference, paid_at, created_by, created_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?)",
+        [row.id, row.document_id, row.amount_fils, row.method, row.reference, row.paid_at, row.created_by, row.created_at]);
+      legacyPaymentReceipt(app.db, row);
+      app.db.run("DELETE FROM change_log WHERE table_name IN ('receipts', 'receipt_allocations')");
+    };
+    legacy(A, "aaaaaaaa-1111-4111-8111-111111111111", 4000);
+    legacy(C, "cccccccc-2222-4222-8222-222222222222", 3000);
+    sync();
+    const receipts = (app: App) => app.db.all("SELECT id, number, customer_id, amount_fils FROM receipts ORDER BY id");
+    expect(receipts(C)).toEqual([
+      { id: "aaaaaaaa-1111-4111-8111-111111111111", number: "RCT-AAAAAAAA11", customer_id: customerId, amount_fils: 4000 },
+      { id: "cccccccc-2222-4222-8222-222222222222", number: "RCT-CCCCCCCC22", customer_id: customerId, amount_fils: 3000 },
+    ]);
+    expect(receipts(A)).toEqual(receipts(C));
+    const doc = (app: App) => app.db.get("SELECT status, paid_fils FROM documents WHERE id = ?", [inv]);
+    expect(doc(C)).toEqual({ status: "part_paid", paid_fils: 7000 });
+    expect(doc(A)).toEqual(doc(C));
+    expect(C.db.all("SELECT kind FROM sync_issues")).toEqual([]);
+    expect(A.db.all("SELECT kind FROM sync_issues")).toEqual([]);
+  });
+
+  it("an issued invoice with no lines at the cloud still refuses lines from a PC", async () => {
+    let inv = "";
+    const { A, C, sync } = await pair(async (app, t) => {
+      const c = await customer(app, t);
+      inv = (await call(app, "POST", "/api/documents", t, { type: "invoice", customerId: c.id, lines: [LINE] })).body.document.id;
+      await call(app, "POST", `/api/documents/${inv}/issue`, t);
+    });
+    C.db.run("DELETE FROM document_lines WHERE document_id = ?", [inv]); // as if an earlier apply had failed
+    A.db.run("UPDATE document_lines SET description = 'Changed offline' WHERE document_id = ?", [inv]);
+    sync();
+    expect(C.db.get("SELECT COUNT(*) AS n FROM document_lines WHERE document_id = ?", [inv])).toEqual({ n: 0 });
+  });
+
+  it("two credit notes over the same line both stand after sync", async () => {
+    let inv = "";
+    const { A, C, sync } = await pair(async (app, t) => {
+      const c = await customer(app, t);
+      inv = (await call(app, "POST", "/api/documents", t, { type: "invoice", customerId: c.id, lines: [LINE] })).body.document.id;
+      await call(app, "POST", `/api/documents/${inv}/issue`, t);
+    });
+    // As if each side issued a credit note for the whole line while offline.
+    const creditNote = (app: App, id: string, series: string) => {
+      const t = new Date().toISOString();
+      const inv0 = app.db.get<{ customer_id: string }>("SELECT customer_id FROM documents WHERE id = ?", [inv])!;
+      app.db.tx(() => {
+        app.db.run(
+          `INSERT INTO documents (id, type, series, seq, number, status, customer_id, source_id, reason, issued_at, net_fils, vat_fils, gross_fils, created_at, updated_at)
+           VALUES (?, 'credit_note', ?, 1, ?, 'issued', ?, ?, 'Wrong', ?, 10000, 500, 10500, ?, ?)`,
+          [id, series, `CN-${series}-1`, inv0.customer_id, inv, t, t, t],
+        );
+        app.db.run(
+          `INSERT INTO document_lines (id, document_id, position, kind, description, qty, unit_price_fils, discount_pct, net_fils, vat_fils, gross_fils, supplied_by)
+           VALUES (?, ?, 0, 'labour', 'Service', 1, 10000, 0, 10000, 500, 10500, 'garage')`,
+          [`${id}-l`, id],
+        );
+      });
+    };
+    creditNote(A, "cn-a", "P1");
+    creditNote(C, "cn-c", "");
+    sync();
+    expect(C.db.all("SELECT kind, message FROM sync_issues")).toEqual([]);
+    const doc = (app: App) => app.db.get("SELECT credited_fils, status FROM documents WHERE id = ?", [inv]);
+    expect(doc(C)).toEqual({ credited_fils: 21000, status: "paid" });
+    expect(doc(A)).toEqual(doc(C));
+  });
+
   it("figures a PC recalculates from the cloud's changes aren't sent back as its own", async () => {
     let inv = "";
     const { A, C, token } = await pair(async (app, t) => {
@@ -202,7 +304,7 @@ describe("merge engine", () => {
     });
     await call(C, "POST", `/api/documents/${inv}/payments`, token, { amountFils: 10500, method: "card" });
     // Only the payment arrives (the invoice's own update was superseded or is in a later page).
-    applyAtPc(A.db, changesFor(C.db, 0, "P1").filter((e) => e.table === "payments"));
+    applyAtPc(A.db, changesFor(C.db, 0, "P1").filter((e) => e.table === "receipts" || e.table === "receipt_allocations"));
     expect(A.db.get("SELECT status FROM documents WHERE id = ?", [inv])).toEqual({ status: "paid" });
     expect(localChanges(A.db, 0)).toEqual([]);
   });

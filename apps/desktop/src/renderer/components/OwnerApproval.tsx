@@ -33,10 +33,11 @@ export function useOwnerApproval() {
       try {
         return await send(approval);
       } catch (err) {
-        if (!(err instanceof ApiError) || err.code !== "discount_approval") throw err;
+        // Any "…_approval" refusal: a discount over the limit, going over a credit limit.
+        if (!(err instanceof ApiError) || !err.code?.endsWith("_approval")) throw err;
         message = approval ? "That username or password isn't right. Ask the Owner to try again." : err.message;
         const given = await request(message);
-        if (!given) throw new Error("Not saved: the discount needs the Owner's approval.");
+        if (!given) throw new Error("Not done: it needs the Owner's approval.");
         approval = given;
       }
     }

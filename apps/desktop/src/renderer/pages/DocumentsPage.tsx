@@ -12,6 +12,7 @@ const SUBTITLES: Record<DocType, string> = {
   estimate: "Quotes for the customer to approve",
   jobcard: "Work in the workshop",
   invoice: "Tax invoices and payments",
+  credit_note: "Tax credit notes correcting issued invoices",
 };
 
 export function DocumentsPage({ type }: { type: DocType }) {
@@ -27,7 +28,7 @@ export function DocumentsPage({ type }: { type: DocType }) {
       <PageHeader
         title={`${label}s`}
         subtitle={SUBTITLES[type]}
-        actions={<Button variant="primary" icon={<Plus className="size-4" />} onClick={() => navigate(`/documents/new/${type}`)}>New {label.toLowerCase()}</Button>}
+        actions={type === "credit_note" ? undefined : <Button variant="primary" icon={<Plus className="size-4" />} onClick={() => navigate(`/documents/new/${type}`)}>New {label.toLowerCase()}</Button>}
       />
       <div className="mb-3 flex items-center justify-between gap-3">
         <div className="flex items-center gap-3">

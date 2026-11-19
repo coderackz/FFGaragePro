@@ -9,6 +9,10 @@ export interface Garage { name: string; trn: string | null; address: string | nu
 export interface Customer {
   id: string; kind: "individual" | "company"; name: string; phone: string | null; email: string | null; trn: string | null;
   address: string | null; notes: string | null; createdAt: string; plates?: string[];
+  creditAllowed?: boolean; creditLimitFils?: number; termsDays?: number | null; discountPct?: number; lpoRequired?: boolean;
+  openingBalanceFils?: number; openingBalanceDate?: string | null;
+  /** Where the account stands: owed (negative = in credit), past due, unallocated payments, over the credit limit. */
+  balanceFils?: number; overdueFils?: number; creditFils?: number; openingDueFils?: number; overLimit?: boolean;
 }
 export interface Vehicle {
   id: string; customerId: string; plate: string; make: string | null; model: string | null; year: number | null; vin: string | null;
@@ -24,8 +28,8 @@ export interface DocLine {
   /** Set in the editor when a part was just picked: its shelf count before this line takes any. */
   pickedOnHand?: number;
 }
-export interface Payment { id: string; amountFils: number; method: string; reference: string | null; paidAt: string; createdBy: string | null }
-export interface DocRef { id: string; number: string; type: DocType }
+export interface Payment { id: string; amountFils: number; method: string; reference: string | null; paidAt: string; createdBy: string | null; receiptNumber?: string; receiptId?: string }
+export interface DocRef { id: string; number: string; type: DocType; issuedAt?: string | null }
 
 export interface DocumentFull {
   id: string; type: DocType; number: string; status: string; odometer: number | null; notes: string | null; issuedAt: string | null;
@@ -34,13 +38,19 @@ export interface DocumentFull {
   pricesIncludeVat: boolean;
   /** Times an issued invoice has been printed (the 2nd print onwards says COPY). */
   printCount?: number;
+  dueDate?: string | null; lpoNumber?: string | null;
+  /** A credit note's reason. */
+  reason?: string | null;
+  /** Invoices: issued credit notes against it, and what's still owed after them and payments. */
+  creditedFils?: number; owedFils?: number; customerBalanceFils?: number;
+  creditNotes?: { id: string; number: string; grossFils: number }[];
   customer: Customer; vehicle: Vehicle | null; source: DocRef | null; derived: DocRef | null;
   lines: DocLine[]; totals: { netFils: number; vatFils: number; grossFils: number }; paidFils: number; balanceFils: number; payments: Payment[];
   partsCostFils?: number; marginFils?: number; costPending?: boolean; uncostedLines?: number;
 }
 export interface DocumentSummary {
   id: string; type: DocType; number: string; status: string; customerName: string; plate: string | null; grossFils: number;
-  paidFils: number; balanceFils: number; createdAt: string; issuedAt: string | null;
+  paidFils: number; balanceFils: number; createdAt: string; issuedAt: string | null; dueDate?: string | null; creditedFils?: number;
 }
 
 // ---- Inventory ----
@@ -75,3 +85,16 @@ export interface PurchaseOrder {
 export interface PurchaseOrderSummary {
   id: string; number: string; status: string; supplierId: string; supplierName: string; lineCount: number; createdAt: string; netFils?: number;
 }
+
+/** A payment from a customer and what it was put against (Settings Part 2). */
+export interface ReceiptAllocation { id: string; documentId: string; number: string; amountFils: number; createdAt: string }
+export interface Receipt {
+  id: string; number: string; customerId: string; customerName: string; amountFils: number; method: string; reference: string | null;
+  chequeDate: string | null; receivedAt: string; createdBy: string | null; allocations: ReceiptAllocation[]; allocatedFils: number; unallocatedFils: number;
+}
+
+export type AgingBucket = "current" | "1-30" | "31-60" | "61-90" | "90+";
+export interface LedgerRow {
+  date: string; kind: "opening" | "invoice" | "credit_note" | "receipt"; number: string; description: string; debitFils: number; creditFils: number; balanceFils: number;
+}
+export interface Statement { openingFils: number; rows: LedgerRow[]; closingFils: number; aging: Record<AgingBucket, number>; creditFils: number }

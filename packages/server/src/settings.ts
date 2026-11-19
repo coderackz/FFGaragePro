@@ -1,11 +1,11 @@
 import {
-  formatDocNumber, formatPoNumber, LOCAL_SETTING_PREFIXES, NUMBER_KINDS, prefixOf, readSettings, sectionRows, startOf, type NumberKind,
+  formatNumberOf, LOCAL_SETTING_PREFIXES, NUMBER_KINDS, prefixOf, readSettings, sectionRows, startOf, type NumberKind,
   type Settings, type SettingsSection,
 } from "@ffgp/shared";
 import { audit } from "./audit";
 import type { Db } from "./db";
 import { badRequest } from "./errors";
-import { previewNumber } from "./numbering";
+import { numberInUse, previewNumber } from "./numbering";
 
 const notLocal = LOCAL_SETTING_PREFIXES.map((p) => `key NOT LIKE '${p}%'`).join(" AND ");
 
@@ -58,7 +58,7 @@ export function nextNumbers(db: Db): Record<NumberKind, string> {
   return Object.fromEntries(
     NUMBER_KINDS.map((k) => {
       const n = previewNumber(db, k);
-      return [k, k === "purchase_order" ? formatPoNumber(n, "", prefixOf(s, k)) : formatDocNumber(k, n, "", prefixOf(s, k))];
+      return [k, formatNumberOf(k, n, "", prefixOf(s, k))];
     }),
   ) as Record<NumberKind, string>;
 }
@@ -71,15 +71,12 @@ export function checkNumbering(db: Db, next: Settings["numbering"]): void {
   const current = getSettings(db);
   const proposed: Settings = { ...current, numbering: next };
   // A prefix already printed on another type's documents would give two documents the same number.
-  const PLURAL: Record<NumberKind, string> = { estimate: "estimates", jobcard: "job cards", invoice: "invoices", purchase_order: "purchase orders" };
+  const PLURAL: Record<NumberKind, string> = {
+    estimate: "estimates", jobcard: "job cards", invoice: "invoices", purchase_order: "purchase orders", credit_note: "credit notes", receipt: "receipts",
+  };
   const usedBy = (prefix: string, kind: NumberKind): NumberKind | null => {
-    const like = `${prefix}-%`;
     for (const other of NUMBER_KINDS) {
-      if (other === kind) continue;
-      const found = other === "purchase_order"
-        ? db.get("SELECT 1 FROM purchase_orders WHERE number LIKE ? LIMIT 1", [like])
-        : db.get("SELECT 1 FROM documents WHERE type = ? AND number LIKE ? LIMIT 1", [other, like]);
-      if (found) return other;
+      if (other !== kind && numberInUse(db, other, prefix)) return other;
     }
     return null;
   };
@@ -94,7 +91,7 @@ export function checkNumbering(db: Db, next: Settings["numbering"]): void {
     const upcoming = previewNumber(db, kind);
     if (startOf(proposed, kind) < upcoming) {
       const prefix = prefixOf(proposed, kind);
-      const shown = kind === "purchase_order" ? formatPoNumber(upcoming, "", prefix) : formatDocNumber(kind, upcoming, "", prefix);
+      const shown = formatNumberOf(kind, upcoming, "", prefix);
       throw badRequest(`${prefix} can't go back: the next number is ${shown}`);
     }
   }

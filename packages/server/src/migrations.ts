@@ -395,6 +395,101 @@ CREATE TABLE audit_log (
 CREATE INDEX audit_log_created ON audit_log(created_at);
 `,
   },
+  {
+    id: 8,
+    // Settings Part 2 (credit customers and credit notes). documents is rebuilt so its type can be 'credit_note';
+    // payments become receipts (one each, same id) with one allocation each (id + '-a'). Each is numbered from its
+    // own id (series = id, number RCT-<first 10 of the id>), never from a counter, so a PC and the cloud give the same
+    // payment the same receipt whatever payments each had, and the main series (RCT-00001…) is left for new ones.
+    // Old payments still waiting to sync are turned into the same receipts when they arrive (legacyPaymentReceipt).
+    foreignKeysOff: ["documents", "document_lines", "payments", "stock_movements", "po_lines", "document_prints", "receipts", "receipt_allocations"],
+    sql: `
+ALTER TABLE customers ADD COLUMN credit_allowed INTEGER NOT NULL DEFAULT 0;
+ALTER TABLE customers ADD COLUMN credit_limit_fils INTEGER NOT NULL DEFAULT 0;
+ALTER TABLE customers ADD COLUMN terms_days INTEGER;
+ALTER TABLE customers ADD COLUMN discount_bp INTEGER NOT NULL DEFAULT 0;
+ALTER TABLE customers ADD COLUMN lpo_required INTEGER NOT NULL DEFAULT 0;
+ALTER TABLE customers ADD COLUMN opening_balance_fils INTEGER NOT NULL DEFAULT 0;
+ALTER TABLE customers ADD COLUMN opening_balance_date TEXT;
+
+ALTER TABLE document_lines ADD COLUMN source_line_id TEXT;
+
+CREATE TABLE documents_new (
+  id TEXT PRIMARY KEY,
+  type TEXT NOT NULL CHECK (type IN ('estimate','jobcard','invoice','credit_note')),
+  series TEXT NOT NULL DEFAULT '',
+  seq INTEGER NOT NULL,
+  number TEXT NOT NULL,
+  status TEXT NOT NULL,
+  customer_id TEXT NOT NULL REFERENCES customers(id),
+  vehicle_id TEXT REFERENCES vehicles(id),
+  odometer INTEGER,
+  notes TEXT,
+  source_id TEXT REFERENCES documents(id),
+  issued_at TEXT,
+  net_fils INTEGER NOT NULL DEFAULT 0,
+  vat_fils INTEGER NOT NULL DEFAULT 0,
+  gross_fils INTEGER NOT NULL DEFAULT 0,
+  paid_fils INTEGER NOT NULL DEFAULT 0,
+  created_by TEXT REFERENCES users(id),
+  created_at TEXT NOT NULL,
+  updated_at TEXT NOT NULL,
+  prices_include_vat INTEGER NOT NULL DEFAULT 0,
+  due_date TEXT,
+  lpo_number TEXT,
+  reason TEXT,
+  credited_fils INTEGER NOT NULL DEFAULT 0,
+  UNIQUE (type, series, seq)
+);
+INSERT INTO documents_new (id, type, series, seq, number, status, customer_id, vehicle_id, odometer, notes, source_id, issued_at,
+  net_fils, vat_fils, gross_fils, paid_fils, created_by, created_at, updated_at, prices_include_vat, due_date)
+SELECT id, type, series, seq, number, status, customer_id, vehicle_id, odometer, notes, source_id, issued_at,
+  net_fils, vat_fils, gross_fils, paid_fils, created_by, created_at, updated_at, prices_include_vat,
+  CASE WHEN type = 'invoice' AND issued_at IS NOT NULL THEN date(issued_at, '+4 hours') END
+FROM documents;
+DROP TABLE documents;
+ALTER TABLE documents_new RENAME TO documents;
+CREATE INDEX documents_type_status ON documents(type, status);
+CREATE INDEX documents_customer ON documents(customer_id);
+CREATE INDEX documents_source ON documents(source_id);
+-- One conversion per document (estimate → job card → invoice); credit notes against an invoice don't count.
+CREATE UNIQUE INDEX documents_one_conversion ON documents(source_id) WHERE source_id IS NOT NULL AND type <> 'credit_note';
+
+CREATE TABLE receipts (
+  id TEXT PRIMARY KEY,
+  series TEXT NOT NULL DEFAULT '',
+  seq INTEGER NOT NULL,
+  number TEXT NOT NULL,
+  customer_id TEXT NOT NULL REFERENCES customers(id),
+  amount_fils INTEGER NOT NULL CHECK (amount_fils <> 0),
+  method TEXT NOT NULL,
+  reference TEXT,
+  cheque_date TEXT,
+  received_at TEXT NOT NULL,
+  created_by TEXT REFERENCES users(id),
+  created_at TEXT NOT NULL,
+  UNIQUE (series, seq)
+);
+CREATE INDEX receipts_customer ON receipts(customer_id);
+CREATE TABLE receipt_allocations (
+  id TEXT PRIMARY KEY,
+  receipt_id TEXT NOT NULL REFERENCES receipts(id),
+  document_id TEXT NOT NULL REFERENCES documents(id),
+  amount_fils INTEGER NOT NULL CHECK (amount_fils <> 0),
+  created_by TEXT REFERENCES users(id),
+  created_at TEXT NOT NULL
+);
+CREATE INDEX receipt_allocations_receipt ON receipt_allocations(receipt_id);
+CREATE INDEX receipt_allocations_document ON receipt_allocations(document_id);
+
+INSERT INTO receipts (id, series, seq, number, customer_id, amount_fils, method, reference, cheque_date, received_at, created_by, created_at)
+SELECT p.id, p.id, 1, 'RCT-' || upper(substr(replace(p.id, '-', ''), 1, 10)), d.customer_id, p.amount_fils, p.method, p.reference, NULL, p.paid_at,
+  p.created_by, p.created_at
+FROM payments p JOIN documents d ON d.id = p.document_id;
+INSERT INTO receipt_allocations (id, receipt_id, document_id, amount_fils, created_by, created_at)
+SELECT id || '-a', id, document_id, amount_fils, created_by, created_at FROM payments;
+`,
+  },
 ];
 
 /** The newest migration this code knows: the garage database's schema version. */

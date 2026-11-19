@@ -5,7 +5,7 @@ import type { NumberKind } from "./rules";
  * Garage-wide settings, stored one row per field in the `settings` table as `section.field` → JSON value, so two
  * people changing different settings on two PCs never overwrite each other. Every field has a default.
  */
-export const SETTINGS_SECTIONS = ["garage", "documents", "numbering", "tax", "pricing", "inventory", "security"] as const;
+export const SETTINGS_SECTIONS = ["garage", "documents", "numbering", "tax", "pricing", "inventory", "security", "credit"] as const;
 export type SettingsSection = (typeof SETTINGS_SECTIONS)[number];
 
 /** Settings that belong to one PC and never sync (network sharing, backup folder). */
@@ -65,13 +65,17 @@ export const settingsSchemas = {
       jobcardPrefix: prefix("JC"),
       invoicePrefix: prefix("INV"),
       purchaseOrderPrefix: prefix("PO"),
+      creditNotePrefix: prefix("CN"),
+      receiptPrefix: prefix("RCT"),
       estimateStart: start,
       jobcardStart: start,
       invoiceStart: start,
       purchaseOrderStart: start,
+      creditNoteStart: start,
+      receiptStart: start,
     })
     .refine(
-      (n) => new Set([n.estimatePrefix, n.jobcardPrefix, n.invoicePrefix, n.purchaseOrderPrefix]).size === 4,
+      (n) => new Set([n.estimatePrefix, n.jobcardPrefix, n.invoicePrefix, n.purchaseOrderPrefix, n.creditNotePrefix, n.receiptPrefix]).size === 6,
       { message: "Each document type needs its own prefix", path: ["invoicePrefix"] },
     ),
   tax: z.object({
@@ -91,6 +95,10 @@ export const settingsSchemas = {
   }),
   security: z.object({
     idleLockMinutes: z.number().int().min(0).max(240).default(15),
+  }),
+  credit: z.object({
+    defaultTermsDays: z.number().int().min(0).max(365).default(30),
+    overLimit: z.enum(["warn", "block", "approve"]).default("warn"),
   }),
 } as const;
 
@@ -132,8 +140,8 @@ export function sectionRows(section: SettingsSection, value: unknown): { key: st
   return fieldsOf(section).map((f) => ({ key: `${section}.${f}`, value: JSON.stringify(parsed[f] ?? null) }));
 }
 
-const NUMBERING_FIELD: Record<NumberKind, "estimate" | "jobcard" | "invoice" | "purchaseOrder"> = {
-  estimate: "estimate", jobcard: "jobcard", invoice: "invoice", purchase_order: "purchaseOrder",
+const NUMBERING_FIELD: Record<NumberKind, "estimate" | "jobcard" | "invoice" | "purchaseOrder" | "creditNote" | "receipt"> = {
+  estimate: "estimate", jobcard: "jobcard", invoice: "invoice", purchase_order: "purchaseOrder", credit_note: "creditNote", receipt: "receipt",
 };
 
 /** The prefix the garage uses for this kind of number (EST, JC, INV, PO by default). */

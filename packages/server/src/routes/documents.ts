@@ -1,14 +1,16 @@
 import type { FastifyInstance } from "fastify";
 import {
   can, CONVERTS_TO, DOC_STATUSES, DOC_TYPES, documentCreateSchema, documentUpdateSchema, formatDocNumber, lineSchema, lineTotals,
-  approvalSchema, paymentSchema, prefixOf, type ApprovalInput, type DocType, type LineInput,
+  approvalSchema, creditNoteSchema, docTotals, dueDate, formatAED, formatNumberOf, issueSchema, paymentSchema, prefixOf, type ApprovalInput, type DocType, type LineInput,
 } from "@ffgp/shared";
 import { z } from "zod";
 import { audit } from "../audit";
 import { LoginThrottle, requireAction, sessionUser, verifyPassword, type SessionUser } from "../auth";
 import { newId, now, type Db } from "../db";
 import { badRequest, conflict, HttpError, notFound, tooManyRequests } from "../errors";
-import { checkStockAvailable, documentCost, reconcileDocumentStock } from "../stock";
+import { recomputeInvoiceMoney, releaseOverpayment } from "../invoice-money";
+import { customerBalance } from "../ledger";
+import { checkStockAvailable, costTakenFor, documentCost, postMovement, reconcileDocumentStock } from "../stock";
 import { reserveNumber, takeNumber, type NumberSource, type Reserved } from "../numbering";
 import { getSettings } from "../settings";
 import { garage } from "./setup";
@@ -17,7 +19,7 @@ interface DocRow {
   id: string; type: DocType; seq: number; number: string; status: string; customer_id: string; vehicle_id: string | null;
   odometer: number | null; notes: string | null; source_id: string | null; issued_at: string | null; net_fils: number;
   vat_fils: number; gross_fils: number; paid_fils: number; created_by: string | null; created_at: string; updated_at: string;
-  prices_include_vat: number;
+  prices_include_vat: number; credited_fils: number; due_date: string | null; lpo_number: string | null; reason: string | null;
 }
 interface LineRow {
   id: string; position: number; kind: string; description: string; qty: number; unit_price_fils: number;
@@ -31,9 +33,11 @@ const MANUAL_STATUSES: Record<DocType, readonly string[]> = {
   estimate: ["draft", "sent", "approved"],
   jobcard: ["open", "in_progress", "completed"],
   invoice: [],
+  credit_note: [],
 };
 
 function linesEditable(doc: DocRow): boolean {
+  if (doc.type === "credit_note") return false;
   if (doc.type === "invoice") return doc.status === "draft";
   return doc.status !== "converted";
 }
@@ -72,7 +76,15 @@ export function documentRoutes(
     };
     const over = lines.filter((l, i) => l.discountPct > limit && !approvedBefore(l, i));
     if (!over.length) return null;
-    const refuse = () => new HttpError(403, `A discount over ${limit}% needs the Owner's approval`, "discount_approval");
+    const approvedBy = ownerApproval(approval, () => new HttpError(403, `A discount over ${limit}% needs the Owner's approval`, "discount_approval"));
+    return { approvedBy, lines: over.map((l) => ({ description: l.description, discountPct: l.discountPct })) };
+  }
+
+  /**
+   * The Owner's username and password typed on the spot (same lockout as signing in). Returns the Owner's name, or
+   * throws `refuse()` when missing or wrong.
+   */
+  function ownerApproval(approval: ApprovalInput | undefined, refuse: () => HttpError): string {
     if (!approval) throw refuse();
     const locked = auth.throttle.lockedMinutes(approval.username, auth.clock());
     if (locked) throw tooManyRequests(`Too many wrong passwords. This login is locked — try again in ${locked} minute${locked === 1 ? "" : "s"}.`);
@@ -85,7 +97,29 @@ export function documentRoutes(
       throw refuse();
     }
     auth.throttle.succeeded(approval.username);
-    return { approvedBy: owner.name, lines: over.map((l) => ({ description: l.description, discountPct: l.discountPct })) };
+    return owner.name;
+  }
+
+  interface CreditCustomer { credit_allowed: number; credit_limit_fils: number; terms_days: number | null; lpo_required: number }
+  const creditCustomer = (id: string) =>
+    db.get<CreditCustomer>("SELECT credit_allowed, credit_limit_fils, terms_days, lpo_required FROM customers WHERE id = ?", [id]);
+
+  /**
+   * Settings → Customers & credit: adding `addFils` to the customer's balance over their credit limit (0 = none)
+   * warns, is refused, or needs the Owner's approval. Owners pass themselves. Returns the warning to show and who
+   * approved, if anyone.
+   */
+  function checkCreditLimit(user: SessionUser, customerId: string, addFils: number, approval: ApprovalInput | undefined): { warning?: string; approvedBy?: string } {
+    const c = creditCustomer(customerId);
+    if (!c || c.credit_limit_fils <= 0) return {};
+    const over = customerBalance(db, customerId).balanceFils + addFils - c.credit_limit_fils;
+    if (over <= 0) return {};
+    const message = `Over the credit limit by ${formatAED(over)}`;
+    const rule = getSettings(db).credit.overLimit;
+    if (rule === "warn") return { warning: message };
+    if (rule === "block") throw new HttpError(409, message, "over_limit");
+    if (user.role === "owner") return { warning: message };
+    return { approvedBy: ownerApproval(approval, () => new HttpError(403, `${message}. The Owner needs to approve it.`, "credit_approval")) };
   }
 
   function logApproval(user: SessionUser, docId: string, approved: ReturnType<typeof checkDiscounts>): void {
@@ -201,24 +235,37 @@ export function documentRoutes(
       [id],
     );
     const cost = can(user.role, "costs.view") ? documentCost(db, id) : null;
-    const payments = db.all<{ id: string; amount_fils: number; method: string; reference: string | null; paid_at: string; created_by_name: string | null }>(
-      "SELECT p.*, u.name AS created_by_name FROM payments p LEFT JOIN users u ON u.id = p.created_by WHERE p.document_id = ? ORDER BY p.paid_at",
+    // Payments on this invoice: its receipt allocations (an undone allocation shows as a negative line).
+    const payments = db.all<{ id: string; amount_fils: number; method: string; reference: string | null; paid_at: string; created_by_name: string | null; receipt_number: string; receipt_id: string }>(
+      `SELECT a.id, a.amount_fils, r.method, r.reference, r.received_at AS paid_at, r.number AS receipt_number, r.id AS receipt_id, u.name AS created_by_name
+       FROM receipt_allocations a JOIN receipts r ON r.id = a.receipt_id LEFT JOIN users u ON u.id = a.created_by
+       WHERE a.document_id = ? ORDER BY r.received_at, a.created_at, a.rowid`,
       [id],
     );
     const customer = db.get<Record<string, unknown>>("SELECT id, kind, name, phone, email, trn, address FROM customers WHERE id = ?", [d.customer_id]);
     const vehicle = d.vehicle_id
       ? db.get<Record<string, unknown>>("SELECT id, plate, make, model, year, vin, colour, odometer FROM vehicles WHERE id = ?", [d.vehicle_id])
       : null;
-    const source = d.source_id ? db.get<{ id: string; number: string; type: string }>("SELECT id, number, type FROM documents WHERE id = ?", [d.source_id]) : null;
-    const derived = db.get<{ id: string; number: string; type: string }>("SELECT id, number, type FROM documents WHERE source_id = ?", [id]) ?? null;
+    const source = d.source_id
+      ? db.get<{ id: string; number: string; type: string; issuedAt: string | null }>("SELECT id, number, type, issued_at AS issuedAt FROM documents WHERE id = ?", [d.source_id])
+      : null;
+    const derived = db.get<{ id: string; number: string; type: string }>("SELECT id, number, type FROM documents WHERE source_id = ? AND type <> 'credit_note'", [id]) ?? null;
+    const creditNotes = d.type === "invoice"
+      ? db.all<{ id: string; number: string; gross_fils: number }>("SELECT id, number, gross_fils FROM documents WHERE source_id = ? AND type = 'credit_note' ORDER BY seq", [id])
+          .map((c) => ({ id: c.id, number: c.number, grossFils: c.gross_fils }))
+      : [];
     const createdBy = d.created_by ? db.get<{ name: string }>("SELECT name FROM users WHERE id = ?", [d.created_by])?.name ?? null : null;
     return {
       id: d.id, type: d.type, number: d.number, status: d.status, odometer: d.odometer, notes: d.notes,
       issuedAt: d.issued_at, createdAt: d.created_at, updatedAt: d.updated_at, createdBy,
       editable: linesEditable(d),
       pricesIncludeVat: !!d.prices_include_vat,
+      dueDate: d.due_date, lpoNumber: d.lpo_number, reason: d.reason,
+      creditedFils: d.credited_fils,
+      owedFils: d.type === "invoice" && d.status !== "draft" ? d.gross_fils - d.credited_fils - d.paid_fils : 0,
+      customerBalanceFils: customerBalance(db, d.customer_id).balanceFils,
       printCount: db.get<{ n: number }>("SELECT COUNT(*) AS n FROM document_prints WHERE document_id = ?", [id])!.n,
-      customer, vehicle, source, derived,
+      customer, vehicle, source, derived, creditNotes,
       lines: lines.map((l) => ({
         id: l.id, kind: l.kind, description: l.description, qty: l.qty, unitPriceFils: l.unit_price_fils,
         discountPct: l.discount_pct, netFils: l.net_fils, vatFils: l.vat_fils, grossFils: l.gross_fils,
@@ -233,8 +280,11 @@ export function documentRoutes(
         ? { partsCostFils: cost.partsCostFils, marginFils: d.net_fils - cost.partsCostFils, costPending: cost.costPending, uncostedLines: cost.uncostedLines }
         : {}),
       paidFils: d.paid_fils,
-      balanceFils: d.type === "invoice" ? d.gross_fils - d.paid_fils : 0,
-      payments: payments.map((p) => ({ id: p.id, amountFils: p.amount_fils, method: p.method, reference: p.reference, paidAt: p.paid_at, createdBy: p.created_by_name })),
+      balanceFils: d.type === "invoice" ? d.gross_fils - d.credited_fils - d.paid_fils : 0,
+      payments: payments.map((p) => ({
+        id: p.id, amountFils: p.amount_fils, method: p.method, reference: p.reference, paidAt: p.paid_at, createdBy: p.created_by_name, receiptNumber: p.receipt_number,
+        receiptId: p.receipt_id,
+      })),
     };
   }
 
@@ -255,8 +305,8 @@ export function documentRoutes(
     return {
       documents: rows.map((d) => ({
         id: d.id, type: d.type, number: d.number, status: d.status, customerName: d.customer_name, plate: d.plate,
-        grossFils: d.gross_fils, paidFils: d.paid_fils, balanceFils: d.type === "invoice" ? d.gross_fils - d.paid_fils : 0,
-        createdAt: d.created_at, issuedAt: d.issued_at,
+        grossFils: d.gross_fils, paidFils: d.paid_fils, balanceFils: d.type === "invoice" ? d.gross_fils - d.credited_fils - d.paid_fils : 0,
+        createdAt: d.created_at, issuedAt: d.issued_at, dueDate: d.due_date, creditedFils: d.credited_fils,
       })),
     };
   });
@@ -274,6 +324,9 @@ export function documentRoutes(
     checkVehicle(input.customerId, input.vehicleId);
     const approved = checkDiscounts(user, null, input.lines, input.approval);
     if (input.type === "jobcard" && blockStock()) checkStockAvailable(db, input.lines, []);
+    const limit = input.type === "jobcard"
+      ? checkCreditLimit(user, input.customerId, docTotals(input.lines, vatRate(), getSettings(db).tax.pricesIncludeVat).grossFils, input.approval)
+      : {};
     const reserved = await reserveNumber(numbers, input.type);
     const id = db.tx(() => {
       checkVehicle(input.customerId, input.vehicleId);
@@ -282,9 +335,13 @@ export function documentRoutes(
         sourceId: null, pricesIncludeVat: getSettings(db).tax.pricesIncludeVat,
       }, input.lines, reserved);
       logApproval(user, docId, approved);
+      if (limit.approvedBy) {
+        const number = getDoc(docId)?.number ?? null;
+        audit(db, { action: "credit.override", entity: "document", entityId: docId, after: { document: number, approvedBy: limit.approvedBy }, userId: user.id });
+      }
       return docId;
     });
-    return { document: full(id, user) };
+    return { document: full(id, user), ...(limit.warning ? { warning: limit.warning } : {}) };
   });
 
   app.patch<{ Params: { id: string } }>("/api/documents/:id", async (req) => {
@@ -294,7 +351,8 @@ export function documentRoutes(
     db.tx(() => {
       const d = getDoc(req.params.id);
       if (!d) throw notFound("Document not found");
-      const changesContent = input.lines !== undefined || input.vehicleId !== undefined || input.odometer !== undefined || input.notes !== undefined;
+      const changesContent = input.lines !== undefined || input.vehicleId !== undefined || input.odometer !== undefined || input.notes !== undefined
+        || input.lpoNumber !== undefined;
       if (changesContent && !linesEditable(d)) throw conflict(`${d.number} can no longer be edited`);
       if (input.status !== undefined && input.status !== d.status) {
         if (!MANUAL_STATUSES[d.type].includes(input.status)) throw badRequest("That status can't be set directly");
@@ -302,11 +360,12 @@ export function documentRoutes(
       }
       if (input.vehicleId !== undefined) checkVehicle(d.customer_id, input.vehicleId);
       db.run(
-        `UPDATE documents SET vehicle_id = ?, odometer = ?, notes = ?, status = ?, updated_at = ? WHERE id = ?`,
+        `UPDATE documents SET vehicle_id = ?, odometer = ?, notes = ?, lpo_number = ?, status = ?, updated_at = ? WHERE id = ?`,
         [
           input.vehicleId !== undefined ? input.vehicleId : d.vehicle_id,
           input.odometer !== undefined ? input.odometer : d.odometer,
           input.notes !== undefined ? input.notes : d.notes,
+          input.lpoNumber !== undefined ? input.lpoNumber : d.lpo_number,
           input.status ?? d.status,
           now(),
           d.id,
@@ -347,6 +406,9 @@ export function documentRoutes(
       ).map((l) => ({ kind: l.kind, partId: l.part_id, qty: l.qty, suppliedBy: l.supplied_by }));
       checkStockAvailable(db, lines, [before.id]);
     }
+    // An estimate becoming a job card is where most jobs start: the credit limit applies here too, before a number.
+    const { approval } = z.object({ approval: approvalSchema.optional() }).parse(req.body ?? {});
+    const limit = before && convertsTo === "jobcard" ? checkCreditLimit(user, before.customer_id, before.gross_fils, approval) : {};
     const reserved = convertsTo ? await reserveNumber(numbers, convertsTo) : null;
     const id = db.tx(() => {
       const d = getDoc(req.params.id);
@@ -362,25 +424,129 @@ export function documentRoutes(
       }));
       const newDocId = insertDoc(user, { type: target, customerId: d.customer_id, vehicleId: d.vehicle_id, odometer: d.odometer, notes: d.notes, sourceId: d.id, pricesIncludeVat: !!d.prices_include_vat }, lines, target === convertsTo ? reserved : null);
       db.run("UPDATE documents SET status = 'converted', updated_at = ? WHERE id = ?", [now(), d.id]);
+      if (limit.approvedBy) {
+        audit(db, { action: "credit.override", entity: "document", entityId: newDocId, after: { document: getDoc(newDocId)?.number ?? null, approvedBy: limit.approvedBy }, userId: user.id });
+      }
       return newDocId;
     });
-    return { document: full(id, user) };
+    return { document: full(id, user), ...(limit.warning ? { warning: limit.warning } : {}) };
   });
 
   app.post<{ Params: { id: string } }>("/api/documents/:id/issue", async (req) => {
     const user = sessionUser(db, req);
     requireAction(user, "invoices.issue");
-    db.tx(() => {
+    const input = issueSchema.parse(req.body ?? {});
+    const result = db.tx(() => {
       const d = getDoc(req.params.id);
       if (!d) throw notFound("Document not found");
       if (d.type !== "invoice") throw badRequest("Only invoices are issued");
       if (d.status !== "draft") throw conflict(`${d.number} is already issued`);
       if (d.gross_fils <= 0) throw badRequest("Add at least one charged line before issuing");
+      const c = creditCustomer(d.customer_id)!;
+      const lpo = input.lpoNumber ?? d.lpo_number;
+      if (c.lpo_required && !lpo) throw badRequest("This customer needs an LPO number on the invoice");
+      const limit = checkCreditLimit(user, d.customer_id, d.gross_fils, input.approval);
       reconcileDocumentStock(db, d.id, user.id, { block: blockStock() });
       const t = now();
-      db.run("UPDATE documents SET status = 'issued', issued_at = ?, updated_at = ? WHERE id = ?", [t, t, d.id]);
+      const due = dueDate(t, c.terms_days ?? getSettings(db).credit.defaultTermsDays, !!c.credit_allowed);
+      db.run("UPDATE documents SET status = 'issued', issued_at = ?, due_date = ?, lpo_number = ?, updated_at = ? WHERE id = ?", [t, due, lpo, t, d.id]);
+      if (limit.approvedBy) {
+        audit(db, { action: "credit.override", entity: "document", entityId: d.id, after: { document: d.number, approvedBy: limit.approvedBy }, userId: user.id });
+      }
+      return limit;
     });
-    return { document: full(req.params.id, user) };
+    return { document: full(req.params.id, user), ...(result.warning ? { warning: result.warning } : {}) };
+  });
+
+  type SourceLine = { id: string; position: number; kind: string; description: string; qty: number; unit_price_fils: number; discount_pct: number; part_id: string | null; supplied_by: string; part_stocked: number | null };
+
+  /**
+   * The lines a credit note would take: chosen invoice lines and quantities (or everything still uncredited), each
+   * no more than what's left after earlier credit notes. Throws a plain 400 otherwise.
+   */
+  function creditLines(inv: DocRow, chosen: { lineId: string; qty: number }[] | undefined): { line: SourceLine; qty: number }[] {
+    const lines = db.all<SourceLine>(
+      "SELECT dl.*, p.stocked AS part_stocked FROM document_lines dl LEFT JOIN parts p ON p.id = dl.part_id WHERE dl.document_id = ? ORDER BY dl.position",
+      [inv.id],
+    );
+    const left = (l: SourceLine) => {
+      const credited = db.get<{ q: number }>(
+        `SELECT COALESCE(SUM(cl.qty), 0) AS q FROM document_lines cl JOIN documents c ON c.id = cl.document_id
+         WHERE cl.source_line_id = ? AND c.type = 'credit_note' AND c.status = 'issued'`,
+        [l.id],
+      )!.q;
+      return Math.round((l.qty - credited) * 1000) / 1000;
+    };
+    if (!chosen) {
+      const all = lines.map((line) => ({ line, qty: left(line) })).filter((x) => x.qty > 0);
+      if (!all.length) throw badRequest(`Everything on ${inv.number} has already been credited`);
+      return all;
+    }
+    return chosen.map((c) => {
+      const line = lines.find((l) => l.id === c.lineId);
+      if (!line) throw badRequest("That line isn't on the invoice");
+      const remaining = left(line);
+      if (c.qty > remaining) throw badRequest(`Only ${remaining} left to credit on line ${line.position + 1}`);
+      return { line, qty: c.qty };
+    });
+  }
+
+  /**
+   * A tax credit note against an issued invoice, created and issued in one step. Paid beyond what's now owed, the
+   * excess is taken back off the invoice (negative allocations) and becomes the customer's credit; stocked parts
+   * go back on the shelf unless the garage says not.
+   */
+  app.post<{ Params: { id: string } }>("/api/documents/:id/credit-notes", async (req) => {
+    const user = sessionUser(db, req);
+    requireAction(user, "credit_notes.issue");
+    const input = creditNoteSchema.parse(req.body ?? {});
+    const check = () => {
+      const inv = getDoc(req.params.id);
+      if (!inv) throw notFound("Document not found");
+      if (inv.type !== "invoice" || inv.status === "draft") throw badRequest("Only issued invoices can have a credit note");
+      return { inv, lines: creditLines(inv, input.lines) };
+    };
+    check();
+    const reserved = await reserveNumber(numbers, "credit_note");
+    const id = db.tx(() => {
+      const { inv, lines } = check();
+      const { series, seq, number } = nextNumber("credit_note", reserved);
+      const cnId = newId();
+      const t = now();
+      db.run(
+        `INSERT INTO documents (id, type, series, seq, number, status, customer_id, vehicle_id, odometer, source_id, issued_at, prices_include_vat, reason,
+           created_by, created_at, updated_at)
+         VALUES (?, 'credit_note', ?, ?, ?, 'issued', ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+        [cnId, series, seq, number, inv.customer_id, inv.vehicle_id, inv.odometer, inv.id, t, inv.prices_include_vat, input.reason, user.id, t, t],
+      );
+      const rate = vatRate();
+      let net = 0, vat = 0, gross = 0;
+      lines.forEach(({ line, qty }, i) => {
+        const tt = lineTotals({ qty, unitPriceFils: line.unit_price_fils, discountPct: line.discount_pct }, rate, !!inv.prices_include_vat);
+        net += tt.netFils; vat += tt.vatFils; gross += tt.grossFils;
+        db.run(
+          `INSERT INTO document_lines (id, document_id, position, kind, description, qty, unit_price_fils, discount_pct, net_fils, vat_fils, gross_fils,
+             part_id, supplied_by, source_line_id)
+           VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+          [newId(), cnId, i, line.kind, line.description, qty, line.unit_price_fils, line.discount_pct, tt.netFils, tt.vatFils, tt.grossFils,
+            line.part_id, line.supplied_by, line.id],
+        );
+        if (input.returnToStock && line.kind === "part" && line.part_id && line.part_stocked && line.supplied_by === "garage") {
+          const cost = costTakenFor(db, inv.id, line.part_id) ?? db.get<{ c: number }>("SELECT avg_cost_fils AS c FROM parts WHERE id = ?", [line.part_id])!.c;
+          postMovement(db, { partId: line.part_id, qty, reason: "adjust", unitCostFils: cost, documentId: cnId, note: `Returned on ${number}`, userId: user.id });
+        }
+      });
+      db.run("UPDATE documents SET net_fils = ?, vat_fils = ?, gross_fils = ? WHERE id = ?", [net, vat, gross, cnId]);
+      recomputeInvoiceMoney(db, inv.id);
+      // Paid more than is now owed: take the excess back off the invoice, newest payments first, as customer credit.
+      releaseOverpayment(db, inv.id, user.id);
+      audit(db, {
+        action: "credit_note.issue", entity: "document", entityId: cnId, userId: user.id,
+        after: { creditNote: number, invoice: inv.number, reason: input.reason, amountFils: gross },
+      });
+      return cnId;
+    });
+    return { document: full(id, user) };
   });
 
   /**
@@ -392,7 +558,7 @@ export function documentRoutes(
     return db.tx(() => {
       const d = getDoc(req.params.id);
       if (!d) throw notFound("Document not found");
-      if (d.type !== "invoice" || d.status === "draft") return { count: 0 };
+      if (!((d.type === "invoice" && d.status !== "draft") || d.type === "credit_note")) return { count: 0 };
       db.run("INSERT INTO document_prints (id, document_id, user_id, printed_at) VALUES (?, ?, ?, ?)", [newId(), d.id, user.id, now()]);
       return { count: db.get<{ n: number }>("SELECT COUNT(*) AS n FROM document_prints WHERE document_id = ?", [d.id])!.n };
     });
@@ -402,18 +568,37 @@ export function documentRoutes(
     const user = sessionUser(db, req);
     requireAction(user, "payments.record");
     const input = paymentSchema.parse(req.body);
-    db.tx(() => {
+    // The invoice screen's "Record payment": a receipt allocated wholly to this invoice.
+    const check = () => {
       const d = getDoc(req.params.id);
       if (!d) throw notFound("Document not found");
       if (d.type !== "invoice" || !["issued", "part_paid"].includes(d.status)) throw badRequest("Payments can only be taken on issued, unpaid invoices");
-      const balance = d.gross_fils - d.paid_fils;
-      if (input.amountFils > balance) throw badRequest("Payment is more than the balance due");
+      if (input.amountFils > d.gross_fils - d.credited_fils - d.paid_fils) throw badRequest("Payment is more than the balance due");
+      return d;
+    };
+    check();
+    const reserved = await reserveNumber(numbers, "receipt");
+    db.tx(() => {
+      const d = check();
+      const { series, seq } = takeNumber(db, "receipt", reserved, numbers);
       const t = now();
-      db.run("INSERT INTO payments (id, document_id, amount_fils, method, reference, paid_at, created_by, created_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?)", [
-        newId(), d.id, input.amountFils, input.method, input.reference, input.paidAt ?? t, user.id, t,
+      const receiptId = newId();
+      db.run(
+        `INSERT INTO receipts (id, series, seq, number, customer_id, amount_fils, method, reference, cheque_date, received_at, created_by, created_at)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, NULL, ?, ?, ?)`,
+        [receiptId, series, seq, formatNumberOf("receipt", seq, series, prefixOf(getSettings(db), "receipt")), d.customer_id, input.amountFils,
+          input.method, input.reference, input.paidAt ?? t, user.id, t],
+      );
+      db.run("INSERT INTO receipt_allocations (id, receipt_id, document_id, amount_fils, created_by, created_at) VALUES (?, ?, ?, ?, ?, ?)", [
+        newId(), receiptId, d.id, input.amountFils, user.id, t,
       ]);
-      const paid = d.paid_fils + input.amountFils;
-      db.run("UPDATE documents SET paid_fils = ?, status = ?, updated_at = ? WHERE id = ?", [paid, paid >= d.gross_fils ? "paid" : "part_paid", t, d.id]);
+      recomputeInvoiceMoney(db, d.id);
+      db.run("UPDATE documents SET updated_at = ? WHERE id = ?", [t, d.id]);
+      const customer = db.get<{ name: string }>("SELECT name FROM customers WHERE id = ?", [d.customer_id])!.name;
+      audit(db, {
+        action: "receipt.create", entity: "receipt", entityId: receiptId, userId: user.id,
+        after: { receipt: formatNumberOf("receipt", seq, series, prefixOf(getSettings(db), "receipt")), customer, amountFils: input.amountFils, allocations: [{ document: d.number, amountFils: input.amountFils }] },
+      });
     });
     return { document: full(req.params.id, user) };
   });

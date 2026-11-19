@@ -72,6 +72,8 @@ function backupStatus(c: TileContext): TileStatus {
   return now - Date.parse(b.last) > 3 * DAY ? alert(text) : ok(text);
 }
 
+const OVER_LIMIT = { warn: "warn", block: "block", approve: "Owner approves" } as const;
+
 export const TILES: Tile[] = [
   {
     id: "garage", group: "garage", title: "Garage details", blurb: "Name, TRN, trade licence, address, bank & IBAN", show: always,
@@ -94,8 +96,8 @@ export const TILES: Tile[] = [
     status: (c) => (c.settings.pricing.labourRateFils == null ? todo("No labour rate set") : ok(`${formatAED(c.settings.pricing.labourRateFils)} / hour`)),
   },
   {
-    id: "customers-credit", group: "money", title: "Customers & credit", blurb: "Payment terms, credit limits, statements", coming: true, show: always,
-    status: () => muted("Coming in Part 2"),
+    id: "customers-credit", group: "money", title: "Customers & credit", blurb: "Payment terms and what happens over a credit limit", show: always,
+    status: (c) => ok(`Terms ${c.settings.credit.defaultTermsDays} days · ${OVER_LIMIT[c.settings.credit.overLimit]} over limit`),
   },
   {
     id: "inventory", group: "running", title: "Inventory", blurb: "Stock below zero, default reorder level", show: always,
