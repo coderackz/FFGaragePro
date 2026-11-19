@@ -11,6 +11,7 @@ import { customerRoutes } from "./routes/customers";
 import { documentRoutes } from "./routes/documents";
 import { partRoutes } from "./routes/parts";
 import { purchaseRoutes } from "./routes/purchases";
+import { receiptRoutes } from "./routes/receipts";
 import { reportRoutes } from "./routes/reports";
 import { settingsRoutes } from "./routes/settings";
 import { setupRoutes } from "./routes/setup";
@@ -93,6 +94,7 @@ export async function buildApp(options: AppOptions): Promise<FastifyInstance & {
   purchaseRoutes(app, db, documents, options.numbers);
   syncIssueRoutes(app, db);
   reportRoutes(app, db);
+  receiptRoutes(app, db, options.numbers);
 
   app.addHook("onClose", async () => db.close());
   return Object.assign(app, { db }) as unknown as FastifyInstance & { db: Db };
