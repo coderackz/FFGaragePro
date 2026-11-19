@@ -5,7 +5,7 @@ import { useApi } from "../../../lib/useApi";
 import { SectionShell } from "../SectionShell";
 import { useSectionForm } from "../useSectionForm";
 
-const KIND: Record<NumberKind, { label: string; key: "estimate" | "jobcard" | "invoice" | "purchaseOrder" | "creditNote" | "receipt" | "journal" }> = {
+const KIND: Record<NumberKind, { label: string; key: "estimate" | "jobcard" | "invoice" | "purchaseOrder" | "creditNote" | "receipt" | "journal" | "supplierPayment" | "expense" }> = {
   estimate: { label: "Estimates", key: "estimate" },
   jobcard: { label: "Job cards", key: "jobcard" },
   invoice: { label: "Invoices", key: "invoice" },
@@ -13,6 +13,8 @@ const KIND: Record<NumberKind, { label: string; key: "estimate" | "jobcard" | "i
   credit_note: { label: "Credit notes", key: "creditNote" },
   receipt: { label: "Receipts", key: "receipt" },
   journal: { label: "Journals", key: "journal" },
+  supplier_payment: { label: "Supplier payments", key: "supplierPayment" },
+  expense: { label: "Expenses", key: "expense" },
 };
 const digits = (number: string) => Number(/(\d+)$/.exec(number)?.[1] ?? 1);
 

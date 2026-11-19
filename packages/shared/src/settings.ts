@@ -117,6 +117,8 @@ export const settingsSchemas = {
       creditNotePrefix: prefix("CN"),
       receiptPrefix: prefix("RCT"),
       journalPrefix: prefix("JV"),
+      supplierPaymentPrefix: prefix("PV"),
+      expensePrefix: prefix("EX"),
       estimateStart: start,
       jobcardStart: start,
       invoiceStart: start,
@@ -124,9 +126,11 @@ export const settingsSchemas = {
       creditNoteStart: start,
       receiptStart: start,
       journalStart: start,
+      supplierPaymentStart: start,
+      expenseStart: start,
     })
     .refine(
-      (n) => new Set([n.estimatePrefix, n.jobcardPrefix, n.invoicePrefix, n.purchaseOrderPrefix, n.creditNotePrefix, n.receiptPrefix, n.journalPrefix]).size === 7,
+      (n) => new Set([n.estimatePrefix, n.jobcardPrefix, n.invoicePrefix, n.purchaseOrderPrefix, n.creditNotePrefix, n.receiptPrefix, n.journalPrefix, n.supplierPaymentPrefix, n.expensePrefix]).size === 9,
       { message: "Each document type needs its own prefix", path: ["invoicePrefix"] },
     ),
   tax: z.object({
@@ -221,8 +225,9 @@ export function sectionRows(section: SettingsSection, value: unknown): { key: st
   return fieldsOf(section).map((f) => ({ key: `${section}.${f}`, value: JSON.stringify(parsed[f] ?? null) }));
 }
 
-const NUMBERING_FIELD: Record<NumberKind, "estimate" | "jobcard" | "invoice" | "purchaseOrder" | "creditNote" | "receipt" | "journal"> = {
+const NUMBERING_FIELD: Record<NumberKind, "estimate" | "jobcard" | "invoice" | "purchaseOrder" | "creditNote" | "receipt" | "journal" | "supplierPayment" | "expense"> = {
   estimate: "estimate", jobcard: "jobcard", invoice: "invoice", purchase_order: "purchaseOrder", credit_note: "creditNote", receipt: "receipt", journal: "journal",
+  supplier_payment: "supplierPayment", expense: "expense",
 };
 
 /** The prefix the garage uses for this kind of number (EST, JC, INV, PO by default). */

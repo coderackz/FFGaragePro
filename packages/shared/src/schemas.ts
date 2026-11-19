@@ -196,6 +196,11 @@ export type PartInput = z.infer<typeof partSchema>;
 
 export const supplierSchema = z.object({
   name: text().min(1, "Name is required"),
+  /** Payment terms in days: a goods receipt is due this long after the supplier's invoice date. */
+  termsDays: z.number().int().min(0).max(365).default(30),
+  /** Owed to the supplier before using the app (negative = they owe us / an advance). */
+  openingBalanceFils: z.number().int().min(-10_000_000_00).max(10_000_000_00).default(0),
+  openingBalanceDate: ymd.nullable().default(null),
   trn: optionalText(20),
   phone: optionalText(40),
   email: optionalText(120),

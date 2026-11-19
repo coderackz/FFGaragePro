@@ -73,7 +73,7 @@ export function checkNumbering(db: Db, next: Settings["numbering"]): void {
   // A prefix already printed on another type's documents would give two documents the same number.
   const PLURAL: Record<NumberKind, string> = {
     estimate: "estimates", jobcard: "job cards", invoice: "invoices", purchase_order: "purchase orders", credit_note: "credit notes", receipt: "receipts",
-    journal: "journals",
+    journal: "journals", supplier_payment: "supplier payments", expense: "expenses",
   };
   const usedBy = (prefix: string, kind: NumberKind): NumberKind | null => {
     for (const other of NUMBER_KINDS) {

@@ -13,7 +13,7 @@ export type DocType = (typeof DOC_TYPES)[number];
 const PREFIX: Record<DocType, string> = { estimate: "EST", jobcard: "JC", invoice: "INV", credit_note: "CN" };
 
 /** Everything that takes a number from a series. */
-export const NUMBER_KINDS = ["estimate", "jobcard", "invoice", "purchase_order", "credit_note", "receipt", "journal"] as const;
+export const NUMBER_KINDS = ["estimate", "jobcard", "invoice", "purchase_order", "credit_note", "receipt", "journal", "supplier_payment", "expense"] as const;
 export type NumberKind = (typeof NUMBER_KINDS)[number];
 
 /** `INV-00012` in the main series, `INV-P1-00003` in an offline PC's own series; `prefix` is the garage's own. */
@@ -41,6 +41,7 @@ export const ACTIONS = [
   "books.view",
   "books.post",
   "books.lock",
+  "payables.manage",
 ] as const;
 export type Action = (typeof ACTIONS)[number];
 
@@ -48,7 +49,7 @@ const PERMISSIONS: Record<Role, ReadonlySet<Action>> = {
   owner: new Set(ACTIONS),
   accountant: new Set<Action>([
     "customers.edit", "documents.edit", "invoices.issue", "payments.record", "costs.view", "reports.view", "inventory.edit", "purchases.manage",
-    "credit_notes.issue", "messages.send", "books.view", "books.post",
+    "credit_notes.issue", "messages.send", "books.view", "books.post", "payables.manage",
   ]),
   advisor: new Set<Action>(["customers.edit", "documents.edit", "invoices.issue", "messages.send"]),
 };
@@ -99,6 +100,8 @@ export function formatNumberOf(kind: NumberKind, n: number, series = "", prefix?
   if (kind === "purchase_order") return formatPoNumber(n, series, prefix);
   if (kind === "receipt") return formatReceiptNumber(n, series, prefix);
   if (kind === "journal") return formatPoNumber(n, series, prefix ?? "JV");
+  if (kind === "supplier_payment") return formatPoNumber(n, series, prefix ?? "PV");
+  if (kind === "expense") return formatPoNumber(n, series, prefix ?? "EX");
   return formatDocNumber(kind, n, series, prefix);
 }
 

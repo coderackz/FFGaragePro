@@ -22,6 +22,7 @@ const SYSTEM = {
   wip: ["1210", "Work in progress"],
   vat_input: ["1300", "Input VAT"],
   payables: ["2000", "Accounts payable"],
+  cheques_issued: ["2010", "Cheques issued"],
   vat_output: ["2100", "Output VAT"],
   vat_payable: ["2110", "VAT payable"],
   opening_clearing: ["2900", "Opening balance clearing"],
@@ -36,6 +37,10 @@ const SYSTEM = {
   purchases_other: ["5030", "Other purchases"],
 } as const;
 export type SystemKey = keyof typeof SYSTEM;
+
+/** What a money account holds (bank and cash screens, payments, reconciliation). */
+export const MONEY_KINDS = ["cash", "bank", "card_clearing", "cheques_in_hand"] as const;
+export type MoneyKind = (typeof MONEY_KINDS)[number];
 
 /** Accounts the automatic entries post to: they can be renamed, not retyped or removed. */
 export const SYSTEM_ACCOUNTS = Object.fromEntries(

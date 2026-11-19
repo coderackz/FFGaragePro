@@ -36,6 +36,8 @@ function seriesTable(kind: NumberKind): { table: string; where: string; args: st
   if (kind === "purchase_order") return { table: "purchase_orders", where: "", args: [] };
   if (kind === "receipt") return { table: "receipts", where: "", args: [] };
   if (kind === "journal") return { table: "journal_entries", where: "", args: [] };
+  if (kind === "supplier_payment") return { table: "supplier_payments", where: "", args: [] };
+  if (kind === "expense") return { table: "expenses", where: "", args: [] };
   return { table: "documents", where: "type = ? AND", args: [kind] };
 }
 
