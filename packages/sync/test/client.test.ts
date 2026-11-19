@@ -1,5 +1,7 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
-import { buildApp, SCHEMA_VERSION } from "@ffgp/server";
+import { readdirSync } from "node:fs";
+import { join } from "node:path";
+import { buildApp, Db, SCHEMA_VERSION } from "@ffgp/server";
 import { linkDownload, linkUpload, readOnlyGuard, setState, getState, SyncClient, type CloudLink } from "../src/index";
 import { api, garageReady, makeClock, SETUP, startCloud } from "../../../apps/cloud/test/helpers";
 import { call, tempDir, type App } from "./helpers";
@@ -210,4 +212,41 @@ describe("PC sync client", () => {
     setState(app.db, "licence", `${forged}.${sig}`);
     expect(client.status().readOnly).toBe(true);
   });
+
+  it("I6/I7: PDFs and the mail password reach the cloud, neither sync log keeps them, and no PC gets the password", async () => {
+    const { cloud, browser, net, app, client, pcToken } = await cloudAndPc();
+    expect((await call(app, "PUT", "/api/settings/messages/password", pcToken, { password: "pc-mail-pw" })).status).toBe(200);
+    const pdf = Buffer.from("%PDF-1.4 big").toString("base64");
+    const queued = await call(app, "POST", "/api/messages", pcToken, {
+      event: "test", channel: "email", recipient: "me@example.com", subject: "S", body: "B", attachment: { fileName: "x.pdf", base64: pdf },
+    });
+    expect(queued.status).toBe(200);
+    expect(await client.syncOnce()).toMatchObject({ ok: true });
+    const heavy = "SELECT COUNT(*) AS n FROM change_log WHERE table_name = 'message_files' OR (table_name = 'settings' AND row_id LIKE 'secret.%')";
+    expect(app.db.get(heavy)).toEqual({ n: 0 });
+
+    const [garageId] = readdirSync(join(cloud.dataDir, "garages"));
+    const cloudDb = new Db(join(cloud.dataDir, "garages", garageId!, "garage.db"));
+    try {
+      expect(cloudDb.get("SELECT value FROM settings WHERE key = 'secret.smtp.password'")).toEqual({ value: JSON.stringify("pc-mail-pw") });
+      expect(cloudDb.get("SELECT data_base64 FROM message_files")).toEqual({ data_base64: pdf });
+      expect(cloudDb.get(heavy)).toEqual({ n: 0 });
+    } finally {
+      cloudDb.close();
+    }
+
+    // Changed in the browser: the cloud has it, PCs don't get it (not by sync, not in a new PC's download).
+    await browserCall(cloud.url, browser, "PUT", "/api/settings/messages/password", { password: "browser-mail-pw" });
+    await client.syncOnce();
+    expect(app.db.get("SELECT value FROM settings WHERE key = 'secret.smtp.password'")).toEqual({ value: JSON.stringify("pc-mail-pw") });
+    const second = tempDir();
+    await linkDownload({ url: cloud.url, garageCode: "alquoz-auto", username: "rashid", password: SETUP.owner.password, deviceName: "Workshop", dataDir: second, fetch: net.fetch });
+    const copy = new Db(join(second, "garage.db"));
+    try {
+      expect(copy.get("SELECT COUNT(*) AS n FROM settings WHERE key LIKE 'secret.%'")).toEqual({ n: 0 });
+    } finally {
+      copy.close();
+    }
+  });
 });
+

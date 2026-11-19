@@ -1,12 +1,15 @@
 import { dubaiDate } from "@ffgp/shared";
-import { mailerFor as garageMailer, queueReminders, sendDue, type Db, type Mailer } from "@ffgp/server";
+import { mailerFor as garageMailer, queueReminders, recoverInterrupted, sendDue, type Db, type Mailer } from "@ffgp/server";
+import { forgetPushed } from "@ffgp/sync";
 import type { AdminDb } from "./admin-db";
 import type { GarageHost } from "./garages";
+import { garageLicence } from "./server";
 
 /**
  * Sends the email of every garage linked to the cloud (the cloud is their one sender; their PCs never send). Visits
  * the garages that have something queued (marked when a browser queues a message or a PC pushes one), and once a
- * Dubai day (and at start) every garage, also queuing its payment reminders.
+ * Dubai day (and at start) every garage, also queuing its payment reminders. A read-only garage (subscription
+ * ended) sends nothing.
  */
 export class CloudOutbox {
   private readonly marked = new Set<string>();
@@ -50,7 +53,8 @@ export class CloudOutbox {
     const daily = day !== this.lastDay;
     if (daily) for (const g of this.admin.listGarages()) this.marked.add(g.id);
     for (const id of [...this.marked]) {
-      if (!this.admin.garageById(id)) {
+      const g = this.admin.garageById(id);
+      if (!g || garageLicence(g, this.o.now()).state === "read_only") {
         this.marked.delete(id);
         continue;
       }
@@ -58,8 +62,14 @@ export class CloudOutbox {
       this.host.enter(id);
       try {
         const app = await this.host.get(id);
-        if (daily) queueReminders(app.db, day);
+        if (daily) {
+          // A cloud stopped mid-send: those emails may have gone (no live round can hold one here).
+          recoverInterrupted(app.db);
+          queueReminders(app.db, day);
+        }
         await sendDue(app.db, (this.o.mailerFor ?? garageMailer)(app.db), t, "cloud");
+        // Browser-made attachments and a password changed in the browser: never sent to PCs, so not kept in the log.
+        forgetPushed(app.db);
         const left = app.db.get("SELECT 1 FROM messages WHERE status = 'queued' AND channel = 'email' LIMIT 1");
         if (!left) this.marked.delete(id);
       } catch (error) {

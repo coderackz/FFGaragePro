@@ -86,9 +86,15 @@ export function retryMessage(db: Db, id: string): MessageOut {
   return getMessage(db, id)!;
 }
 
+/** Errors that mean the mail server itself can't be used right now: no point trying this garage's other emails. */
+const SERVER_DOWN = new Set(["ECONNECTION", "ETIMEDOUT", "ESOCKET", "EDNS", "EAUTH", "ETLS", "ECONNREFUSED", "ECONNRESET", "ENOTFOUND"]);
+export const MAY_HAVE_GONE = "Stopped while sending: it may have gone. Check with the customer before trying again.";
+
 /**
- * Sends the queued emails that are due, oldest first. A failure is tried again after 1, 5 and 30 minutes, then the
- * message is marked failed (shown on the dashboard). No mailbox set up: failed at once (retrying can't help).
+ * Sends the queued emails that are due, oldest first. Each is claimed (`sending`) before it goes, so an app stopped
+ * mid-send never sends it twice. A failure is tried again after 1, 5 and 30 minutes, then the message is marked
+ * failed (shown on the dashboard). No mailbox set up: failed at once. A mail server that can't be reached ends the
+ * round for this garage (its other emails wait, uncounted).
  */
 export async function sendDue(
   db: Db, mailer: Mailer | null, now: Date, place: string, retryMinutes: readonly number[] = RETRY_MINUTES,
@@ -111,29 +117,54 @@ export async function sendDue(
       failed++;
       continue;
     }
+    // Claimed first: if the app stops while the mail server has it, it is never re-sent blindly.
+    const claimed = db.run("UPDATE messages SET status = 'sending', attempts = ?, sender_place = ?, updated_at = ? WHERE id = ? AND status = 'queued'", [
+      attempts, place, t, m.id,
+    ]);
+    if (!claimed) continue;
+    let error: unknown = null;
     try {
       await mailer.send({
         from, to: m.recipient, subject: m.subject ?? "", text: m.body,
         attachments: m.file_name && m.data_base64 ? [{ filename: m.file_name, content: Buffer.from(m.data_base64, "base64") }] : [],
       });
-      db.run("UPDATE messages SET status = 'sent', attempts = ?, error = NULL, sent_at = ?, sender_place = ?, next_attempt_at = NULL, updated_at = ? WHERE id = ?", [
-        attempts, t, place, t, m.id,
-      ]);
-      sent++;
-    } catch (error) {
-      const text = String((error as Error)?.message ?? error).slice(0, 500);
-      if (attempts > retryMinutes.length) {
-        db.run("UPDATE messages SET status = 'failed', attempts = ?, error = ?, sender_place = ?, next_attempt_at = NULL, updated_at = ? WHERE id = ?", [
-          attempts, text, place, t, m.id,
-        ]);
-        failed++;
-      } else {
-        const next = new Date(now.getTime() + retryMinutes[attempts - 1]! * 60_000).toISOString();
-        db.run("UPDATE messages SET attempts = ?, error = ?, next_attempt_at = ?, sender_place = ?, updated_at = ? WHERE id = ?", [attempts, text, next, place, t, m.id]);
-      }
+    } catch (e) {
+      error = e ?? new Error("Unknown error");
     }
+    if (error === null) {
+      // Outside the try: a database error here must not be taken for a failed send (and resent).
+      db.run("UPDATE messages SET status = 'sent', error = NULL, sent_at = ?, next_attempt_at = NULL, updated_at = ? WHERE id = ?", [t, t, m.id]);
+      // The PDF has gone with it: don't keep (and back up) its copy; the log keeps the file name.
+      db.run("UPDATE message_files SET data_base64 = '' WHERE message_id = ?", [m.id]);
+      sent++;
+      continue;
+    }
+    const text = String((error as Error)?.message ?? error).slice(0, 500);
+    if (attempts > retryMinutes.length) {
+      db.run("UPDATE messages SET status = 'failed', error = ?, next_attempt_at = NULL, updated_at = ? WHERE id = ?", [text, t, m.id]);
+      failed++;
+    } else {
+      const next = new Date(now.getTime() + retryMinutes[attempts - 1]! * 60_000).toISOString();
+      db.run("UPDATE messages SET status = 'queued', error = ?, next_attempt_at = ?, updated_at = ? WHERE id = ?", [text, next, t, m.id]);
+    }
+    if (SERVER_DOWN.has(String((error as { code?: unknown }).code ?? ""))) break;
   }
   return { sent, failed };
+}
+
+/** After a stop in the middle of sending: those emails may have gone, so they are failed for a person to check. */
+export function recoverInterrupted(db: Db): number {
+  return db.run("UPDATE messages SET status = 'failed', error = ?, updated_at = ? WHERE status = 'sending' AND channel = 'email'", [MAY_HAVE_GONE, nowIso()]);
+}
+
+/**
+ * When this server stops being the garage's sender (unlinked from the cloud, which may still send them): its queued
+ * emails become failed, for a person to check and Try again, rather than going twice.
+ */
+export function abandonQueuedEmails(db: Db, reason: string): number {
+  return db.run("UPDATE messages SET status = 'failed', error = ?, next_attempt_at = NULL, updated_at = ? WHERE status = 'queued' AND channel = 'email'", [
+    `Not sent: ${reason}. Check, then Try again.`, nowIso(),
+  ]);
 }
 
 /**
@@ -143,18 +174,26 @@ export async function sendDue(
 export function startOutbox(
   db: Db,
   o: { mailerFor: () => Mailer | null; place: string; now?: () => number; everyMs?: number; retryMinutes?: readonly number[] },
-): { stop(): void; kick(): void } {
+): { stop(): Promise<void>; kick(): void } {
   const clock = o.now ?? Date.now;
+  recoverInterrupted(db);
+  let current: Promise<void> | null = null;
   let running = false;
   let again = false;
   let stopped = false;
   let lastDay = "";
-  const tick = async () => {
+  const tick = () => {
     if (stopped) return;
     if (running) {
       again = true;
       return;
     }
+    const p: Promise<void> = round().finally(() => {
+      if (current === p) current = null;
+    });
+    current = p;
+  };
+  const round = async () => {
     running = true;
     try {
       const t = new Date(clock());
@@ -170,18 +209,20 @@ export function startOutbox(
       running = false;
       if (again && !stopped) {
         again = false;
-        void tick();
+        queueMicrotask(tick);
       }
     }
   };
-  const timer = setInterval(() => void tick(), o.everyMs ?? 30_000);
+  const timer = setInterval(tick, o.everyMs ?? 30_000);
   timer.unref?.();
-  void tick();
+  tick();
   return {
-    stop: () => {
+    /** Stops the loop and waits for an email already with the mail server, so its result is written. */
+    stop: async () => {
       stopped = true;
       clearInterval(timer);
+      await current;
     },
-    kick: () => void tick(),
+    kick: tick,
   };
 }

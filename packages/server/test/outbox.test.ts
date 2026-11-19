@@ -2,7 +2,7 @@ import { afterEach, describe, expect, it } from "vitest";
 import { SMTPServer } from "smtp-server";
 import { dubaiDate } from "@ffgp/shared";
 import { smtpMailer, type Mailer, type MailMessage } from "../src/messages/mailer";
-import { queueReminders, sendDue } from "../src/messages/outbox";
+import { abandonQueuedEmails, queueReminders, sendDue, startOutbox } from "../src/messages/outbox";
 import { call, makeApp, setUp, type App } from "./helpers";
 
 const PDF = Buffer.from("%PDF-1.4 test").toString("base64");
@@ -51,6 +51,8 @@ describe("outbox", () => {
     expect(mailer.sent[0]!.attachments[0]!.filename).toBe("INV-00001.pdf");
     expect(mailer.sent[0]!.attachments[0]!.content.toString()).toBe("%PDF-1.4 test");
     expect(row(app, res.body.message.id)).toMatchObject({ status: "sent", sender_place: "pc" });
+    // I6: once sent, the PDF isn't kept (the log still says which file went).
+    expect(app.db.get("SELECT file_name, data_base64 FROM message_files")).toEqual({ file_name: "INV-00001.pdf", data_base64: "" });
     expect(await sendDue(app.db, mailer, new Date(), "pc")).toEqual({ sent: 0, failed: 0 });
     expect(mailer.sent).toHaveLength(1);
   });
@@ -115,7 +117,7 @@ describe("outbox", () => {
     const { queue } = await garage();
     expect((await queue({ recipient: "not-an-email" })).status).toBe(400);
     expect((await queue({ event: "party" })).status).toBe(400);
-    expect((await queue({ attachment: { fileName: "x.pdf", base64: "a".repeat(4 * 1024 * 1024 + 4) } })).status).toBe(400);
+    expect((await queue({ attachment: { fileName: "x.pdf", base64: "a".repeat(8 * 1024 * 1024 + 4) } })).status).toBe(400);
   });
 
   it("queuing calls onMessageQueued for email only", async () => {
@@ -168,6 +170,19 @@ describe("reminders", () => {
     expect(m.body).toContain("AED 105.00");
   });
 
+  it("I5: a reminder still goes if the PC was off on the exact day", async () => {
+    const { app } = await withInvoice();
+    expect(queueReminders(app.db, plus(today(), 1))).toBe(1); // due in 2 days, window is 3
+    expect(app.db.get("SELECT event FROM messages")).toEqual({ event: "payment_due" });
+  });
+
+  it("I5: overdue reminders cover a missed day but not ancient invoices", async () => {
+    const late = await withInvoice();
+    expect(queueReminders(late.app.db, plus(today(), 3 + 9))).toBe(1); // overdue 9 days, threshold 7
+    const ancient = await withInvoice();
+    expect(queueReminders(ancient.app.db, plus(today(), 3 + 7 + 31))).toBe(0);
+  });
+
   it("an invoice overdue by 7 days gets the overdue reminder", async () => {
     const { app } = await withInvoice();
     expect(queueReminders(app.db, plus(today(), 10))).toBe(1);
@@ -215,5 +230,70 @@ describe("smtp", () => {
     expect(received[0]).toContain("Subject: Invoice INV-00001");
     expect(received[0]).toMatch(/filename=.?INV-00001\.pdf/);
     expect(received[0]).toContain(Buffer.from("%PDF-1.4 test").toString("base64"));
+  });
+});
+
+describe("review fixes", () => {
+  it("I1: stopping waits for an email in flight, so it isn't sent again", async () => {
+    const { app, queue } = await garage();
+    const id = (await queue({})).body.message.id;
+    let calls = 0;
+    const slow: Mailer = { send: () => new Promise<void>((r) => { calls++; setTimeout(r, 300); }) };
+    const outbox = startOutbox(app.db, { mailerFor: () => slow, place: "pc", everyMs: 60_000 });
+    await new Promise((r) => setTimeout(r, 50));
+    expect(calls).toBe(1);
+    await outbox.stop();
+    expect(row(app, id).status).toBe("sent");
+  });
+
+  it("I1: an email cut off mid-send is marked as maybe sent, never re-sent", async () => {
+    const { app, queue } = await garage();
+    const id = (await queue({})).body.message.id;
+    app.db.run("UPDATE messages SET status = 'sending' WHERE id = ?", [id]);
+    const mailer = fakeMailer();
+    const outbox = startOutbox(app.db, { mailerFor: () => mailer, place: "pc", everyMs: 60_000 });
+    await outbox.stop();
+    expect(mailer.tries).toBe(0);
+    expect(row(app, id)).toMatchObject({ status: "failed" });
+    expect(String(row(app, id).error)).toContain("may have gone");
+  });
+
+  it("I1: a database error after a successful send doesn't schedule a resend", async () => {
+    const { app, queue } = await garage();
+    const id = (await queue({})).body.message.id;
+    const mailer: Mailer = {
+      async send() {
+        app.db.raw.exec("CREATE TRIGGER block_sent BEFORE UPDATE OF status ON messages WHEN NEW.status = 'sent' BEGIN SELECT RAISE(ABORT, 'disk full'); END");
+      },
+    };
+    await expect(sendDue(app.db, mailer, new Date(), "pc")).rejects.toThrow(/disk full/);
+    app.db.raw.exec("DROP TRIGGER block_sent");
+    expect(row(app, id).status).toBe("sending");
+    expect(row(app, id).next_attempt_at).toBeNull();
+  });
+
+  it("I4: a mail server that can't be reached stops the round for that garage", async () => {
+    const { app, queue } = await garage();
+    for (let i = 0; i < 3; i++) await queue({});
+    let tries = 0;
+    const down: Mailer = { async send() { tries++; throw Object.assign(new Error("Connection timeout"), { code: "ETIMEDOUT" }); } };
+    await sendDue(app.db, down, new Date(), "pc");
+    expect(tries).toBe(1);
+    expect(app.db.all<{ attempts: number }>("SELECT attempts FROM messages ORDER BY attempts DESC").map((r) => r.attempts)).toEqual([1, 0, 0]);
+    // A refusal of one address (not the server) doesn't stop the others.
+    let tried = 0;
+    const picky: Mailer = { async send() { tried++; throw Object.assign(new Error("Recipient rejected"), { code: "EENVELOPE" }); } };
+    await sendDue(app.db, picky, new Date(Date.now() + 2 * MIN), "pc");
+    expect(tried).toBe(3);
+  });
+
+  it("I2: unlinking hands queued emails back as failed, so the PC doesn't send what the cloud may send", async () => {
+    const { app, queue } = await garage();
+    const email = (await queue({})).body.message.id;
+    const wa = (await queue({ channel: "whatsapp", recipient: "971501234567" })).body.message.id;
+    expect(abandonQueuedEmails(app.db, "this PC was unlinked from the cloud")).toBe(1);
+    expect(row(app, email)).toMatchObject({ status: "failed" });
+    expect(String(row(app, email).error)).toContain("unlinked");
+    expect(row(app, wa).status).toBe("opened");
   });
 });

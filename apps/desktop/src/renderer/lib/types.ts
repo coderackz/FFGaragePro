@@ -112,6 +112,6 @@ export interface Statement { openingFils: number; rows: LedgerRow[]; closingFils
 export interface Message {
   id: string; customerId: string | null; contactId: string | null; documentId: string | null; receiptId: string | null;
   event: string; channel: "email" | "whatsapp"; recipient: string; subject: string | null; body: string;
-  status: "queued" | "sent" | "failed" | "opened"; attempts: number; nextAttemptAt: string | null; error: string | null;
+  status: "queued" | "sending" | "sent" | "failed" | "opened"; attempts: number; nextAttemptAt: string | null; error: string | null;
   senderPlace: string | null; createdBy: string | null; createdAt: string; sentAt: string | null; fileName: string | null;
 }

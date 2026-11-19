@@ -14,6 +14,7 @@ export function statusText(m: Message): string {
   if (m.status === "sent") return "Sent";
   if (m.status === "opened") return "Opened in WhatsApp";
   if (m.status === "failed") return `Failed: ${m.error ?? "unknown error"}`;
+  if (m.status === "sending") return "Sending…";
   return m.attempts > 0 ? `Trying again (${m.error ?? "no answer"})` : "Sending…";
 }
 
@@ -33,7 +34,7 @@ export function MessageLog({ customerId, documentId }: { customerId?: string; do
   const query = customerId ? `customerId=${customerId}` : `documentId=${documentId}`;
   const { data, reload } = useApi<{ messages: Message[] }>(`/api/messages?${query}`);
   const messages = data?.messages ?? [];
-  const pending = messages.some((m) => m.status === "queued");
+  const pending = messages.some((m) => m.status === "queued" || m.status === "sending");
   useEffect(() => onMessagesChanged(() => void reload()), [reload]);
   useEffect(() => {
     if (!pending) return;
@@ -63,7 +64,7 @@ export function MessageLog({ customerId, documentId }: { customerId?: string; do
           {
             header: "Status",
             cell: (m) => (
-              <span className={m.status === "failed" ? "text-red-700" : m.status === "queued" ? "text-amber-700" : "text-zinc-800"}>
+              <span className={m.status === "failed" ? "text-red-700" : m.status === "queued" || m.status === "sending" ? "text-amber-700" : "text-zinc-800"}>
                 {statusText(m)}
                 {m.fileName ? <span className="block text-xs text-zinc-500">{m.fileName}</span> : null}
               </span>

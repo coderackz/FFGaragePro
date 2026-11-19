@@ -1,4 +1,6 @@
-export { changesSince, columns, installCapture, localChanges, maxSeq, ownOrigin, removeCapture, syncedColumns, type ChangeEntry, type Op, type Row } from "./capture";
+export {
+  changesSince, columns, forgetPushed, installCapture, localChanges, maxSeq, ownOrigin, PUSH_PAGE_BYTES, removeCapture, syncedColumns, type ChangeEntry, type Op, type Row,
+} from "./capture";
 export { LOCAL_SETTING_PREFIXES, SYNC_TABLES, tableInfo, type SyncTable } from "./tables";
 export { applyAtCloud, applyAtPc, changesFor, issuesFor, recordIssues, type ApplyResult, type IssueKind, type SyncIssue } from "./apply";
 export { recomputeDocument, recomputePart, recomputePurchaseOrder } from "./recompute";

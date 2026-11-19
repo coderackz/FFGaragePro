@@ -186,7 +186,7 @@ function TestEmail({ disabled }: { disabled: boolean }) {
   const [to, setTo] = useState("");
   const [message, setMessage] = useState<Message | null>(null);
   useEffect(() => {
-    if (!message || message.status !== "queued") return;
+    if (!message || (message.status !== "queued" && message.status !== "sending")) return;
     const timer = setTimeout(() => void get<{ message: Message }>(`/api/messages/${message.id}`).then((r) => setMessage(r.message), () => undefined), 1500);
     return () => clearTimeout(timer);
   }, [message]);
@@ -200,7 +200,7 @@ function TestEmail({ disabled }: { disabled: boolean }) {
   const status = !message ? null
     : message.status === "sent" ? "Sent"
     : message.status === "failed" ? `Failed: ${message.error ?? "unknown error"}`
-    : message.attempts > 0 ? `Trying again: ${message.error ?? ""}`
+    : message.status === "queued" && message.attempts > 0 ? `Trying again: ${message.error ?? ""}`
     : "Sending…";
   return (
     <div className="mt-4 flex flex-wrap items-end gap-3 border-t border-zinc-100 pt-4">

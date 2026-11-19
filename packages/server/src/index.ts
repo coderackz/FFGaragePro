@@ -7,7 +7,7 @@ export { audit, type AuditAction, type AuditEntry } from "./audit";
 export { legacyPaymentReceipt, recomputeInvoiceMoney, releaseOverpayment } from "./invoice-money";
 export { customerBalance } from "./ledger";
 export { mailerFor, smtpMailer, type Mailer, type MailMessage } from "./messages/mailer";
-export { queueReminders, sendDue } from "./messages/outbox";
+export { abandonQueuedEmails, queueReminders, recoverInterrupted, sendDue } from "./messages/outbox";
 export { DISCOVERY_PORT, discoverMainComputers, type FoundComputer } from "./discovery";
 export { DEVICE_HEADER, NETWORK_PORT } from "./network";
 

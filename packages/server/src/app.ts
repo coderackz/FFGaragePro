@@ -108,12 +108,15 @@ export async function buildApp(options: AppOptions): Promise<FastifyInstance & {
   reportRoutes(app, db);
   receiptRoutes(app, db, options.numbers);
   const outbox = options.sendsMessages ? startOutbox(db, { mailerFor: () => mailerFor(db), ...options.sendsMessages }) : null;
-  if (outbox) app.addHook("onClose", async () => outbox.stop());
   messageRoutes(app, db, () => {
     options.onMessageQueued?.();
     // Sent from here: don't wait for the next round.
     outbox?.kick();
   });
-  app.addHook("onClose", async () => db.close());
+  // One hook, in this order: the email in flight is finished and written before the database closes.
+  app.addHook("onClose", async () => {
+    await outbox?.stop();
+    db.close();
+  });
   return Object.assign(app, { db }) as unknown as FastifyInstance & { db: Db };
 }

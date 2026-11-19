@@ -11,7 +11,8 @@ export type MessageEvent = (typeof MESSAGE_EVENTS)[number];
 export const MESSAGE_CHANNELS = ["email", "whatsapp"] as const;
 export type MessageChannel = (typeof MESSAGE_CHANNELS)[number];
 
-export const MESSAGE_STATUSES = ["queued", "sent", "failed", "opened"] as const;
+/** `sending`: handed to the mail server right now (if the app stops mid-send, it may have gone: never re-sent blindly). */
+export const MESSAGE_STATUSES = ["queued", "sending", "sent", "failed", "opened"] as const;
 export type MessageStatus = (typeof MESSAGE_STATUSES)[number];
 
 export const MESSAGE_LANGUAGES = ["en", "ar"] as const;
@@ -115,8 +116,8 @@ export function recipientsFor(
 }
 
 const EMAIL_RE = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
-/** Base64 of a PDF of at most 3 MB. */
-const MAX_ATTACHMENT_BASE64 = 4 * 1024 * 1024;
+/** Base64 of a PDF of at most 6 MB (a long statement made in the browser app is page images). */
+export const MAX_ATTACHMENT_BASE64 = 8 * 1024 * 1024;
 
 /** A message to queue (email) or to log (WhatsApp, opened on this PC). */
 export const messageInputSchema = z
@@ -133,7 +134,7 @@ export const messageInputSchema = z
     attachment: z
       .object({
         fileName: z.string().trim().min(1).max(150).regex(/^[^\\/:*?"<>|]+$/, "That file name can't be used"),
-        base64: z.string().max(MAX_ATTACHMENT_BASE64, "The attachment is over 3 MB").regex(/^[A-Za-z0-9+/]*={0,2}$/),
+        base64: z.string().max(MAX_ATTACHMENT_BASE64, "The attachment is over 6 MB").regex(/^[A-Za-z0-9+/]*={0,2}$/),
       })
       .nullable()
       .optional()

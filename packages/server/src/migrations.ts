@@ -536,7 +536,7 @@ CREATE TABLE messages (
   recipient TEXT NOT NULL,
   subject TEXT,
   body TEXT NOT NULL,
-  status TEXT NOT NULL CHECK (status IN ('queued', 'sent', 'failed', 'opened')),
+  status TEXT NOT NULL CHECK (status IN ('queued', 'sending', 'sent', 'failed', 'opened')),
   attempts INTEGER NOT NULL DEFAULT 0,
   next_attempt_at TEXT,
   error TEXT,

@@ -4,7 +4,7 @@ import { mkdir, rm, writeFile } from "node:fs/promises";
 import { hostname } from "node:os";
 import { basename, join } from "node:path";
 import { app, BrowserWindow, dialog, ipcMain, Menu, shell } from "electron";
-import { audit, discoverMainComputers, NETWORK_PORT, SCHEMA_VERSION, startGarageServer, type GarageServer } from "@ffgp/server";
+import { abandonQueuedEmails, audit, discoverMainComputers, NETWORK_PORT, SCHEMA_VERSION, startGarageServer, type GarageServer } from "@ffgp/server";
 import { CloudError, installCapture, linkDownload, linkUpload, readOnlyGuard, removeCapture, trustedLink, type CloudLink } from "@ffgp/sync";
 import { backupNow, backupStatus, checkRestoreFile, pruneBackups, restoreFile, scheduleBackups, undoRestore, type BackupStatus } from "./backups";
 import { CloudSync, type CloudStatus } from "./cloud";
@@ -279,6 +279,8 @@ ipcMain.handle("ffgp:cloudUnlink", async () => {
   if (!cloud || !server) return;
   cloud.stop();
   removeCapture(server.db);
+  // This PC becomes the sender: emails it holds as queued may still be sent by the cloud, so a person decides.
+  abandonQueuedEmails(server.db, "this PC was unlinked from the cloud, which may already have sent it");
   writeConfig({ mode: "local" });
   await startLocal();
   reloadSoon();

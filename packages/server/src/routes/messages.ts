@@ -34,7 +34,8 @@ export function messageRoutes(app: FastifyInstance, db: Db, onQueued: () => void
     return { message: m };
   });
 
-  app.post("/api/messages", async (req) => {
+  // Room for a 6 MB PDF as base64, above the app's usual 5 MB request limit.
+  app.post("/api/messages", { bodyLimit: 10 * 1024 * 1024 }, async (req) => {
     const user = sessionUser(db, req);
     requireAction(user, "messages.send");
     const message = queueMessage(db, messageInputSchema.parse(req.body), user.id);

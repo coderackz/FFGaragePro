@@ -13,7 +13,7 @@ export async function makePdf(html: string): Promise<string> {
 }
 
 async function browserPdf(html: string): Promise<string> {
-  const [{ toJpeg }, { PDFDocument }] = await Promise.all([import("html-to-image"), import("pdf-lib")]);
+  const [{ toPng }, { PDFDocument }] = await Promise.all([import("html-to-image"), import("pdf-lib")]);
   const frame = document.createElement("iframe");
   frame.style.cssText = `position:fixed;left:-10000px;top:0;width:${A4_WIDTH_PX}px;height:${A4_HEIGHT_PX}px;border:0;`;
   frame.srcdoc = html;
@@ -24,19 +24,21 @@ async function browserPdf(html: string): Promise<string> {
     await doc.fonts?.ready;
     const body = doc.body;
     const height = Math.max(body.scrollHeight, A4_HEIGHT_PX);
-    const jpeg = await toJpeg(body, { width: A4_WIDTH_PX, height, pixelRatio: 2, backgroundColor: "#ffffff", quality: 0.92 });
     const pdf = await PDFDocument.create();
-    // pdf-lib reads the data URL itself (the page's security policy doesn't allow fetching data: URLs).
-    const img = await pdf.embedJpg(jpeg);
-    // A4 in PDF points; the image is cut into page-tall slices by drawing it shifted up on each page.
+    // A4 in PDF points. Each page is drawn on its own (one tall canvas would be scaled down, or fail, on long
+    // statements): the page body is shifted up by the pages before it.
     const pageW = 595.28;
     const pageH = 841.89;
-    const scale = pageW / A4_WIDTH_PX;
     const pages = Math.max(1, Math.ceil(height / A4_HEIGHT_PX));
     for (let i = 0; i < pages; i++) {
-      const page = pdf.addPage([pageW, pageH]);
-      const drawnH = height * scale;
-      page.drawImage(img, { x: 0, y: pageH - drawnH + i * pageH, width: pageW, height: drawnH });
+      // PNG: printed pages are mostly white with black text, which PNG keeps sharp and small (JPEG doesn't).
+      const png = await toPng(body, {
+        width: A4_WIDTH_PX, height: A4_HEIGHT_PX, pixelRatio: 1.4, backgroundColor: "#ffffff",
+        style: { transform: `translateY(-${i * A4_HEIGHT_PX}px)`, transformOrigin: "top left" },
+      });
+      // pdf-lib reads the data URL itself (the page's security policy doesn't allow fetching data: URLs).
+      const img = await pdf.embedPng(png);
+      pdf.addPage([pageW, pageH]).drawImage(img, { x: 0, y: 0, width: pageW, height: pageH });
     }
     return await pdf.saveAsBase64();
   } finally {

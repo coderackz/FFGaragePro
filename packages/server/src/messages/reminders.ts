@@ -10,29 +10,33 @@ interface CustomerRow { id: string; kind: "individual" | "company"; name: string
 
 const customerOf = (db: Db, id: string) => db.get<CustomerRow>("SELECT id, kind, name, phone, email, message_language FROM customers WHERE id = ?", [id]);
 const asCustomer = (c: CustomerRow) => ({ ...c, messageLanguage: c.message_language as MessageLanguage });
+/** Days past the overdue threshold an invoice still gets its overdue reminder. */
+const OVERDUE_WINDOW = 30;
 const addDays = (ymd: string, days: number) => new Date(Date.parse(`${ymd}T00:00:00Z`) + days * 86_400_000).toISOString().slice(0, 10);
 
 /**
- * Payment reminders for `today` (a Dubai date): "due soon" for invoices due in `dueSoonDays`, "overdue" for invoices
- * `overdueDays` past due, each to the customer's invoices contacts that have an email. An invoice gets each reminder
- * at most once (dedupe key). Returns how many were queued.
+ * Payment reminders for `today` (a Dubai date), to the customer's invoices contacts that have an email: "due soon"
+ * for unpaid invoices due within `dueSoonDays`, "overdue" for invoices at least `overdueDays` past due (but no more
+ * than OVERDUE_WINDOW days past that, so turning reminders on doesn't email very old invoices). Windows, not exact
+ * days: a PC that was off on the day still sends it. An invoice gets each reminder at most once (dedupe key).
  */
 export function queueReminders(db: Db, today: string): number {
   const m = getSettings(db).messages;
   const g = garage(db);
   let queued = 0;
   const kinds = [
-    ["payment_due", addDays(today, m.dueSoonDays)],
-    ["payment_overdue", addDays(today, -m.overdueDays)],
+    ["payment_due", today, addDays(today, m.dueSoonDays)],
+    ["payment_overdue", addDays(today, -m.overdueDays - OVERDUE_WINDOW), addDays(today, -m.overdueDays)],
   ] as const;
-  for (const [event, dueDate] of kinds) {
+  for (const [event, from, to] of kinds) {
     const settings = m[event];
     if (!settings.on) continue;
     const invoices = db.all<{ id: string; number: string; customer_id: string; due_date: string; owed: number; plate: string | null; make: string | null; model: string | null }>(
       `SELECT d.id, d.number, d.customer_id, d.due_date, d.gross_fils - d.credited_fils - d.paid_fils AS owed, v.plate, v.make, v.model
        FROM documents d LEFT JOIN vehicles v ON v.id = d.vehicle_id
-       WHERE d.type = 'invoice' AND d.status IN ('issued', 'part_paid') AND d.due_date = ? AND d.gross_fils - d.credited_fils - d.paid_fils > 0`,
-      [dueDate],
+       WHERE d.type = 'invoice' AND d.status IN ('issued', 'part_paid') AND d.due_date BETWEEN ? AND ?
+         AND d.gross_fils - d.credited_fils - d.paid_fils > 0`,
+      [from, to],
     );
     for (const inv of invoices) {
       const c = customerOf(db, inv.customer_id);

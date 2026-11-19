@@ -1,4 +1,5 @@
 import { expect, test, type APIRequestContext, type Page } from "@playwright/test";
+import { PDFDocument, PDFName, PDFNumber, PDFRawStream } from "pdf-lib";
 import { SMTPServer } from "smtp-server";
 import { setUpGarage, shooter } from "./flow";
 
@@ -204,4 +205,27 @@ test.describe.serial("messages", () => {
     await expect.poll(() => sink.mails.length, { timeout: 30_000 }).toBe(before + 1);
     await expect(page.getByTestId("failed-messages")).toHaveCount(0, { timeout: 20_000 });
   });
+
+  test("I8: a long document (20 pages) makes a sharp PDF in the browser, under the attachment limit", async ({ page }) => {
+    await signIn(page);
+    const rows = Array.from({ length: 20 }, (_, i) => `<div style="height:1100px;border-bottom:1px solid #000"><h2>Page ${i + 1}</h2><p>${"Statement line ".repeat(200)}</p></div>`).join("");
+    const b64 = await page.evaluate(async (html) => {
+      const path = "/messages/pdf.ts"; // the dev server's module (browser app path)
+      const mod = (await import(/* @vite-ignore */ path)) as { makePdf(html: string): Promise<string> };
+      return mod.makePdf(`<!doctype html><html><body style="margin:0;font-family:sans-serif">${html}</body></html>`);
+    }, rows);
+    const bytes = Buffer.from(b64, "base64");
+    expect(bytes.subarray(0, 5).toString()).toBe("%PDF-");
+    expect(b64.length).toBeLessThan(8 * 1024 * 1024);
+    const pdf = await PDFDocument.load(bytes);
+    expect(pdf.getPageCount()).toBe(20);
+    // Sharp on every page: each page is its own image, at least 1.4× the page width (not one tall image scaled down).
+    const widths = pdf.context.enumerateIndirectObjects()
+      .map(([, o]) => o)
+      .filter((o): o is PDFRawStream => o instanceof PDFRawStream && o.dict.get(PDFName.of("Subtype")) === PDFName.of("Image"))
+      .map((o) => (o.dict.get(PDFName.of("Width")) as PDFNumber).asNumber());
+    expect(widths).toHaveLength(20);
+    for (const w of widths) expect(w).toBeGreaterThanOrEqual(1100);
+  });
 });
+

@@ -5,7 +5,7 @@ import type { FastifyRequest } from "fastify";
 import { Db, HttpError, newId, SCHEMA_VERSION, type NumberSource } from "@ffgp/server";
 import { GARAGE_HEADER } from "@ffgp/shared";
 import { recordIssues, applyAtPc, type SyncIssue } from "./apply";
-import { installCapture, localChanges, maxSeq, removeCapture, type ChangeEntry } from "./capture";
+import { installCapture, localChanges, maxSeq, removeCapture, type ChangeEntry, forgetPushed } from "./capture";
 import { licenceView, type LicenceView } from "./licence";
 import { getState, numState, setState } from "./state";
 import { trustedLink } from "./trust";
@@ -221,6 +221,8 @@ export class SyncClient {
           recordIssues(db, body.issues);
           setState(db, "licence", body.licence);
           setState(db, "last_pushed_seq", String(entries.at(-1)!.seq));
+          // Attachments and the mail password are on the cloud now: this PC's log needn't keep them.
+          forgetPushed(db, entries.at(-1)!.seq);
         });
         pushed += entries.length;
         issues += body.issues.length;

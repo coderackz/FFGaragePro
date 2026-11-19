@@ -4,7 +4,7 @@ import { join } from "node:path";
 import { describe, expect, it, vi } from "vitest";
 import { Db, SCHEMA_VERSION, startGarageServer, type Mailer, type MailMessage } from "@ffgp/server";
 import { installCapture, localChanges } from "@ffgp/sync";
-import { api, garageReady, SETUP, startCloud } from "./helpers";
+import { api, garageReady, makeClock, SETUP, startCloud } from "./helpers";
 
 vi.setConfig({ testTimeout: 30_000, hookTimeout: 30_000 });
 
@@ -105,5 +105,17 @@ describe("cloud outbox", () => {
     await api(cloud.url, "POST", "/api/messages/test", { garage: "alquoz-auto", token, body: { to: "second@example.com" } });
     await cloud.outbox.runOnce();
     expect(mail.sent.map((m) => m.to)).toEqual(["owner@example.com", "second@example.com"]);
+  });
+
+  it("I3: a read-only garage (subscription ended) sends nothing from the cloud", async () => {
+    const mail = fakeMailer();
+    const clock = makeClock();
+    const cloud = await startCloud({ mailerFor: mail.mailerFor, now: clock.now });
+    const { token } = await garageReady(cloud, "alquoz-auto", clock.now);
+    await api(cloud.url, "PUT", "/api/settings/messages", { garage: "alquoz-auto", token, body: MAIL });
+    await api(cloud.url, "POST", "/api/messages/test", { garage: "alquoz-auto", token, body: { to: "owner@example.com" } });
+    clock.advanceDays(400);
+    await cloud.outbox.runOnce();
+    expect(mail.sent).toEqual([]);
   });
 });

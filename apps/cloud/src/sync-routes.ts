@@ -5,7 +5,7 @@ import type { FastifyInstance, FastifyRequest } from "fastify";
 import { z, ZodError } from "zod";
 import { HttpError, LoginThrottle, newId, SCHEMA_VERSION, takeNumber, verifyPassword } from "@ffgp/server";
 import { NUMBER_KINDS, GARAGE_HEADER, normalizeGarageCode } from "@ffgp/shared";
-import { applyAtCloud, changesFor, issuesFor, maxSeq, SYNC_TABLES } from "@ffgp/sync";
+import { applyAtCloud, changesFor, forgetPushed, issuesFor, maxSeq, SYNC_TABLES } from "@ffgp/sync";
 import type { AdminDb, DeviceRow, GarageRow } from "./admin-db";
 import type { GarageApp, GarageHost } from "./garages";
 import { signLicence, type LicenceKey } from "./licence-token";
@@ -207,7 +207,12 @@ export function syncRoutes(
       const input = pushSchema.parse(req.body);
       checkSchema(input.schema);
       // A read-only garage's PC is read-only itself; what it sends was made before, so it's still taken.
-      const result = await withGarage(g, (a) => applyAtCloud(a.db, device.device_code, input.entries));
+      const result = await withGarage(g, (a) => {
+        const applied = applyAtCloud(a.db, device.device_code, input.entries);
+        // Attachments and secrets are never sent on to PCs: the cloud's log needn't keep them.
+        forgetPushed(a.db);
+        return applied;
+      });
       if (input.entries.some((e) => e.table === "messages")) o.outbox?.mark(g.id);
       admin.synced(device, now());
       return { lastOriginSeq: result.lastOriginSeq, receivedAt: new Date(now()).toISOString(), issues: result.issues, licence: licence(g) };
