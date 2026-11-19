@@ -7,6 +7,7 @@ import { Card } from "../../components/ui";
 import { UsersPage } from "../UsersPage";
 import { BackToSettings, SectionShell } from "./SectionShell";
 import { AboutSection } from "./sections/AboutSection";
+import { DocumentsSection } from "./sections/DocumentsSection";
 import { ActivitySection } from "./sections/ActivitySection";
 import { GarageSection } from "./sections/GarageSection";
 import { InventorySection } from "./sections/InventorySection";
@@ -36,6 +37,7 @@ const UsersSection = () => <UsersPage back={<BackToSettings />} />;
 /** Sections are added here as they are built; the rest say so. */
 export const SECTIONS: Record<string, ComponentType> = {
   garage: GarageSection,
+  documents: DocumentsSection,
   numbering: NumberingSection,
   tax: TaxSection,
   pricing: PricingSection,
