@@ -2,10 +2,11 @@ import { randomUUID } from "node:crypto";
 import { mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { rm, writeFile } from "node:fs/promises";
 import { hostname } from "node:os";
-import { join } from "node:path";
+import { basename, join } from "node:path";
 import { app, BrowserWindow, dialog, ipcMain, Menu, shell } from "electron";
-import { discoverMainComputers, NETWORK_PORT, startGarageServer, type GarageServer } from "@ffgp/server";
+import { audit, discoverMainComputers, NETWORK_PORT, SCHEMA_VERSION, startGarageServer, type GarageServer } from "@ffgp/server";
 import { CloudError, installCapture, linkDownload, linkUpload, readOnlyGuard, removeCapture, trustedLink, type CloudLink } from "@ffgp/sync";
+import { backupNow, backupStatus, checkRestoreFile, pruneBackups, restoreFile, scheduleBackups, type BackupStatus } from "./backups";
 import { CloudSync, type CloudStatus } from "./cloud";
 import { PINNED_LICENCE_KEYS } from "./trusted-keys";
 
@@ -105,6 +106,8 @@ if (!app.requestSingleInstanceLock()) {
 
 async function boot(): Promise<void> {
   await applyConfig(readConfig());
+  // Daily copy of this PC's garage (checked hourly; a PC working through a main computer has nothing to copy).
+  scheduleBackups(() => void runBackup(false));
   if (process.platform !== "darwin") Menu.setApplicationMenu(null);
   createWindow();
 }
@@ -261,6 +264,114 @@ ipcMain.handle("ffgp:cloudUnlink", async () => {
   writeConfig({ mode: "local" });
   await startLocal();
   reloadSoon();
+});
+
+// ---- Backups (this PC's garage) ----
+
+const DAY_MS = 86_400_000;
+
+/** This PC's own settings (backup folder, days kept): `local.` keys, which never sync. */
+function localSetting<T>(key: string, fallback: T): T {
+  try {
+    const row = server?.db.get<{ value: string }>("SELECT value FROM settings WHERE key = ?", [key]);
+    return row ? (JSON.parse(row.value) as T) : fallback;
+  } catch {
+    return fallback;
+  }
+}
+function setLocalSetting(key: string, value: unknown): void {
+  server?.db.run("INSERT INTO settings (key, value) VALUES (?, ?) ON CONFLICT(key) DO UPDATE SET value = excluded.value", [key, JSON.stringify(value)]);
+}
+// Tests run with their own profile (FFGP_USER_DATA) and must never write into the real Documents folder.
+const defaultBackupFolder = () =>
+  process.env.FFGP_USER_DATA ? join(app.getPath("userData"), "Fleetfix Backups") : join(app.getPath("documents"), "Fleetfix Backups");
+const backupFolder = () => localSetting("local.backup.folder", defaultBackupFolder());
+const keepDays = () => localSetting("local.backup.keepDays", 30);
+const garageName = () => server?.db.get<{ name: string }>("SELECT name FROM garage WHERE id = 1")?.name ?? null;
+
+/** Backs up when the newest copy is over a day old (or always, when `force`). Returns the file, or null. */
+function runBackup(force: boolean): string | null {
+  if (connection.mode === "client" || !server) return null;
+  const name = garageName();
+  if (!name) return null;
+  const folder = backupFolder();
+  const status = backupStatus(folder, keepDays());
+  if (!force && status.last && Date.now() - Date.parse(status.last) < DAY_MS) return null;
+  const file = backupNow(server.db, folder, name);
+  pruneBackups(folder, keepDays());
+  return file;
+}
+
+ipcMain.handle("ffgp:backupStatus", (): BackupStatus | null =>
+  connection.mode === "client" || !server ? null : backupStatus(backupFolder(), keepDays()));
+
+ipcMain.handle("ffgp:backupNow", () => {
+  try {
+    const file = runBackup(true);
+    return file ? { ok: true, file } : { error: "There's no garage on this PC to back up." };
+  } catch (error) {
+    return { error: `The backup couldn't be written to ${backupFolder()}: ${(error as Error).message}` };
+  }
+});
+
+ipcMain.handle("ffgp:backupChooseFolder", async () => {
+  const options = { title: "Folder for backups", defaultPath: backupFolder(), properties: ["openDirectory", "createDirectory"] as ("openDirectory" | "createDirectory")[] };
+  const result = mainWindow ? await dialog.showOpenDialog(mainWindow, options) : await dialog.showOpenDialog(options);
+  if (result.canceled || !result.filePaths[0]) return null;
+  setLocalSetting("local.backup.folder", result.filePaths[0]);
+  return backupStatus(backupFolder(), keepDays());
+});
+
+ipcMain.handle("ffgp:backupSetKeepDays", (_event, days: number) => {
+  const n = Math.min(365, Math.max(1, Math.round(Number(days) || 30)));
+  setLocalSetting("local.backup.keepDays", n);
+  pruneBackups(backupFolder(), n);
+  return backupStatus(backupFolder(), n);
+});
+
+/** Owner: replaces this PC's garage with a backup, after checking it and backing up today's data. */
+ipcMain.handle("ffgp:restore", async () => {
+  if (connection.mode === "client") return { error: "This PC works through a main computer. Restore on the main computer." };
+  if (cloud) return { error: "This PC is linked to Fleetfix cloud. To get the garage back, disconnect and download it again." };
+  if (!server) return { error: "The garage isn't open. Restart Fleetfix Garage Pro and try again." };
+  const options = { title: "Choose a backup", defaultPath: backupFolder(), properties: ["openFile"] as "openFile"[], filters: [{ name: "Fleetfix backups", extensions: ["db"] }] };
+  const picked = mainWindow ? await dialog.showOpenDialog(mainWindow, options) : await dialog.showOpenDialog(options);
+  const file = picked.filePaths[0];
+  if (picked.canceled || !file) return { cancelled: true };
+  let checked: { garageName: string };
+  try {
+    checked = checkRestoreFile(file, SCHEMA_VERSION);
+  } catch (error) {
+    return { error: (error as Error).message };
+  }
+  const confirm = {
+    type: "warning" as const,
+    buttons: ["Restore", "Cancel"],
+    defaultId: 1,
+    cancelId: 1,
+    title: "Restore a backup",
+    message: `Replace this PC's garage with the backup of ${checked.garageName}?`,
+    detail: `${basename(file)}\n\nToday's data is backed up first, so nothing is lost. The app restarts afterwards.`,
+  };
+  const answer = mainWindow ? await dialog.showMessageBox(mainWindow, confirm) : await dialog.showMessageBox(confirm);
+  if (answer.response !== 0) return { cancelled: true };
+  try {
+    runBackup(true);
+  } catch (error) {
+    return { error: `Today's data couldn't be backed up first, so nothing was changed: ${(error as Error).message}` };
+  }
+  await server.close();
+  server = null;
+  try {
+    restoreFile(file, dataDir(), SCHEMA_VERSION, () => undefined);
+  } catch (error) {
+    await startLocal();
+    return { error: (error as Error).message };
+  }
+  await startLocal();
+  if (server) audit((server as GarageServer).db, { action: "backup.restore", entity: "garage", after: { file: basename(file) }, userId: null });
+  reloadSoon();
+  return { ok: true };
 });
 
 /** Renders print HTML in a hidden window (Electron handles Arabic / RTL correctly). */

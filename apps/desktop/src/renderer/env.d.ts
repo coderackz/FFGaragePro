@@ -19,8 +19,12 @@ interface FfgpBridge {
   applyNetwork(): Promise<void>;
   /** This PC's own garage is linked to Fleetfix cloud. */
   cloudLinked: boolean;
-  /** Backups of this PC's garage (absent on older builds). */
-  backupStatus?(): Promise<import("./lib/types").BackupStatus | null>;
+  /** Backups of this PC's garage; null on a PC that works through a main computer. */
+  backupStatus(): Promise<import("./lib/types").BackupStatus | null>;
+  backupNow(): Promise<{ ok?: true; file?: string; error?: string }>;
+  backupChooseFolder(): Promise<import("./lib/types").BackupStatus | null>;
+  backupSetKeepDays(days: number): Promise<import("./lib/types").BackupStatus>;
+  restore(): Promise<{ ok?: true; cancelled?: true; error?: string }>;
   cloudStatus(): Promise<CloudStatus>;
   cloudLink(args: CloudLinkArgs): Promise<{ ok?: true; error?: string }>;
   cloudSyncNow(): Promise<{ ok: boolean; reason?: string; message?: string }>;

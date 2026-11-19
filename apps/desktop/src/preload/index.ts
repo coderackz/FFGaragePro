@@ -21,6 +21,11 @@ contextBridge.exposeInMainWorld("ffgp", {
   cloudLink: (args: unknown) => ipcRenderer.invoke("ffgp:cloudLink", args),
   cloudSyncNow: () => ipcRenderer.invoke("ffgp:cloudSyncNow"),
   cloudUnlink: () => ipcRenderer.invoke("ffgp:cloudUnlink"),
+  backupStatus: () => ipcRenderer.invoke("ffgp:backupStatus"),
+  backupNow: () => ipcRenderer.invoke("ffgp:backupNow"),
+  backupChooseFolder: () => ipcRenderer.invoke("ffgp:backupChooseFolder"),
+  backupSetKeepDays: (days: number) => ipcRenderer.invoke("ffgp:backupSetKeepDays", days),
+  restore: () => ipcRenderer.invoke("ffgp:restore"),
   onCloudStatus: (cb: (status: unknown) => void) => {
     const listener = (_event: unknown, status: unknown) => cb(status);
     ipcRenderer.on("ffgp:cloud-status", listener);

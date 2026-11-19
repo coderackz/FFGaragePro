@@ -9,6 +9,7 @@ import { BackToSettings, SectionShell } from "./SectionShell";
 import { AboutSection } from "./sections/AboutSection";
 import { DocumentsSection } from "./sections/DocumentsSection";
 import { ActivitySection } from "./sections/ActivitySection";
+import { BackupsSection } from "./sections/BackupsSection";
 import { GarageSection } from "./sections/GarageSection";
 import { InventorySection } from "./sections/InventorySection";
 import { NumberingSection } from "./sections/NumberingSection";
@@ -44,6 +45,7 @@ export const SECTIONS: Record<string, ComponentType> = {
   inventory: InventorySection,
   security: SecuritySection,
   activity: ActivitySection,
+  backups: BackupsSection,
   about: AboutSection,
   users: UsersSection,
   cloud: CloudSection,

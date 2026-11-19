@@ -14,7 +14,7 @@ export function useTileContext(): TileContext | null {
   const cloud = useCloudStatus();
   const [backup, setBackup] = useState<BackupStatus | null>(null);
   useEffect(() => {
-    void window.ffgp?.backupStatus?.().then(setBackup).catch(() => setBackup(null));
+    void window.ffgp?.backupStatus().then(setBackup).catch(() => setBackup(null));
   }, []);
   if (!garage || !settings) return null;
   return {
