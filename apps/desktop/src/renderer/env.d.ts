@@ -1,5 +1,8 @@
 /// <reference types="vite/client" />
 
+/** apps/desktop/package.json's version, stamped in at build time. */
+declare const __APP_VERSION__: string;
+
 interface FfgpBridge {
   apiBase: string;
   /** Set on a PC connected to a main computer; sent with every request. */
@@ -16,6 +19,8 @@ interface FfgpBridge {
   applyNetwork(): Promise<void>;
   /** This PC's own garage is linked to Fleetfix cloud. */
   cloudLinked: boolean;
+  /** Backups of this PC's garage (absent on older builds). */
+  backupStatus?(): Promise<import("./lib/types").BackupStatus | null>;
   cloudStatus(): Promise<CloudStatus>;
   cloudLink(args: CloudLinkArgs): Promise<{ ok?: true; error?: string }>;
   cloudSyncNow(): Promise<{ ok: boolean; reason?: string; message?: string }>;

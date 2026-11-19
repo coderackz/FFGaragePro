@@ -1,6 +1,9 @@
 import type { DocType, LineKind, Role } from "@ffgp/shared";
 
 export interface User { id: string; name: string; username: string; role: Role; active?: boolean; createdAt?: string }
+/** A PC's backup folder and newest backup (filled by the main process). */
+export interface BackupStatus { folder: string; folderOk: boolean; last: string | null; keepDays: number }
+
 export interface Garage { name: string; trn: string | null; address: string | null; phone: string | null; email: string | null; vatRateBp: number }
 
 export interface Customer {

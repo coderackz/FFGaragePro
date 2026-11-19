@@ -2,7 +2,7 @@ import { ArrowLeft, Ban, FileDown, PackageCheck, Plus, Printer, Save, Send, Tras
 import { useEffect, useState } from "react";
 import { Link, useNavigate, useParams } from "react-router";
 import { toast } from "sonner";
-import { FLEETFIX_SUPPLIER_ID, roundFils, type Settings } from "@ffgp/shared";
+import { DEFAULT_SETTINGS, FLEETFIX_SUPPLIER_ID, roundFils } from "@ffgp/shared";
 import { PartLink, PartPicker } from "../components/PartPicker";
 import { ReceiveDialog } from "../components/ReceiveDialog";
 import { Button, Card, Empty, Field, MoneyInput, NumberInput, PageHeader, Select, Spinner, StatusBadge, Table, Textarea } from "../components/ui";
@@ -19,7 +19,7 @@ export function PurchaseOrderPage() {
   const { id } = useParams();
   const isNew = !id;
   const navigate = useNavigate();
-  const { can, garage } = useAuth();
+  const { can, garage, settings } = useAuth();
   const poQuery = useApi<{ purchaseOrder: PurchaseOrder }>(isNew ? null : `/api/purchase-orders/${id}`);
   const po = poQuery.data?.purchaseOrder ?? null;
   const suppliers = useApi<{ suppliers: Supplier[] }>(isNew ? "/api/suppliers" : null);
@@ -82,8 +82,7 @@ export function PurchaseOrderPage() {
     if (!poId || !garage) return;
     const { purchaseOrder } = await get<{ purchaseOrder: PurchaseOrder }>(`/api/purchase-orders/${poId}`);
     poQuery.setData({ purchaseOrder });
-    const { settings } = await get<{ settings: Settings }>("/api/settings");
-    await printPurchaseOrder(purchaseOrder, garage, settings, mode);
+    await printPurchaseOrder(purchaseOrder, garage, settings ?? DEFAULT_SETTINGS, mode);
   });
 
   if (!isNew && poQuery.error) return <Empty title="Purchase order not found">{poQuery.error}</Empty>;

@@ -50,6 +50,7 @@ async function customerNames(page: Page): Promise<void> {
 
 async function syncNow(win: Page): Promise<void> {
   await win.getByRole("navigation").getByRole("link", { name: "Settings", exact: true }).click();
+  await win.getByTestId("tile-cloud").click();
   const card = win.getByTestId("cloud-card");
   await expect(card).toBeVisible();
   await win.getByRole("button", { name: "Sync now" }).click();
@@ -113,6 +114,7 @@ test("an existing PC garage uploads", async ({ page }) => {
   await addCustomer(win, "Customer on the PC");
 
   await win.getByRole("navigation").getByRole("link", { name: "Settings", exact: true }).click();
+  await win.getByTestId("tile-cloud").click();
   await win.getByRole("button", { name: "Connect to Fleetfix cloud" }).click();
   const dialog = win.getByRole("dialog");
   await expect(dialog).toContainText("The cloud garage must be new");

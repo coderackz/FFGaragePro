@@ -4,7 +4,6 @@ import { Link, useNavigate, useParams, useSearchParams } from "react-router";
 import { toast } from "sonner";
 import {
   CONVERTS_TO, DEFAULT_SETTINGS, DOC_LABELS, DOC_STATUSES, LINE_KINDS, PAYMENT_METHODS, STATUS_LABELS, docTotals, lineTotals, type DocType, type LineKind,
-  type Settings,
 } from "@ffgp/shared";
 import { CustomerPicker } from "../components/CustomerPicker";
 import { CustomerFormModal } from "../components/forms";
@@ -36,7 +35,7 @@ export function DocumentPage() {
   const params = useParams();
   const [search] = useSearchParams();
   const navigate = useNavigate();
-  const { garage, can, readOnly } = useAuth();
+  const { garage, settings, can, readOnly } = useAuth();
   const isNew = !params.id;
   const docQuery = useApi<{ document: DocumentFull }>(isNew ? null : `/api/documents/${params.id}`);
   const doc = docQuery.data?.document ?? null;
@@ -77,8 +76,6 @@ export function DocumentPage() {
   const editable = !readOnly && (isNew || (doc?.editable ?? false));
   const vatRate = garage?.vatRateBp ?? 500;
   // A saved document keeps the VAT choice it was created with; a new one follows Settings → Tax.
-  const settingsQuery = useApi<{ settings: Settings }>("/api/settings");
-  const settings = settingsQuery.data?.settings ?? null;
   const includeVat = doc ? doc.pricesIncludeVat : (settings?.tax.pricesIncludeVat ?? false);
   const totals = useMemo(() => docTotals(draft.lines, vatRate, includeVat), [draft.lines, vatRate, includeVat]);
 
