@@ -1,4 +1,5 @@
 import { z } from "zod";
+import { formatAED } from "./money";
 
 /** What a message is about. `estimate_resent` = "Extra work needs approval". */
 export const MESSAGE_EVENTS = [
@@ -111,4 +112,64 @@ export function recipientsFor(
     .filter(reachable);
   if (customer.kind === "individual") return [own, ...ticked].filter(reachable);
   return ticked.length ? ticked : [own].filter(reachable);
+}
+
+const EMAIL_RE = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+/** Base64 of a PDF of at most 3 MB. */
+const MAX_ATTACHMENT_BASE64 = 4 * 1024 * 1024;
+
+/** A message to queue (email) or to log (WhatsApp, opened on this PC). */
+export const messageInputSchema = z
+  .object({
+    event: z.enum([...MESSAGE_EVENTS, "test"]),
+    channel: z.enum(MESSAGE_CHANNELS),
+    customerId: z.string().uuid().nullable().optional().transform((v) => v ?? null),
+    contactId: z.string().nullable().optional().transform((v) => v ?? null),
+    documentId: z.string().uuid().nullable().optional().transform((v) => v ?? null),
+    receiptId: z.string().uuid().nullable().optional().transform((v) => v ?? null),
+    recipient: z.string().trim().min(1).max(120),
+    subject: z.string().trim().max(300).nullable().optional().transform((v) => v || null),
+    body: z.string().trim().min(1, "The message is empty").max(4000),
+    attachment: z
+      .object({
+        fileName: z.string().trim().min(1).max(150).regex(/^[^\\/:*?"<>|]+$/, "That file name can't be used"),
+        base64: z.string().max(MAX_ATTACHMENT_BASE64, "The attachment is over 3 MB").regex(/^[A-Za-z0-9+/]*={0,2}$/),
+      })
+      .nullable()
+      .optional()
+      .transform((v) => v ?? null),
+    dedupeKey: z.string().max(300).nullable().optional().transform((v) => v ?? null),
+  })
+  .refine((m) => m.channel !== "email" || EMAIL_RE.test(m.recipient), { message: "Enter a valid email address", path: ["recipient"] })
+  .refine((m) => m.channel !== "email" || !!m.subject, { message: "An email needs a subject", path: ["subject"] });
+export type MessageInput = z.infer<typeof messageInputSchema>;
+
+const dayFmt = new Intl.DateTimeFormat("en-GB", { day: "2-digit", month: "short", year: "numeric", timeZone: "UTC" });
+
+/** The placeholder values for a message, formatted the way documents print them. */
+export function messageValues(v: {
+  customerName: string;
+  contactName?: string | null;
+  plate?: string | null;
+  vehicle?: string | null;
+  docNumber?: string | null;
+  amountFils?: number | null;
+  balanceFils?: number | null;
+  /** YYYY-MM-DD */
+  dueDate?: string | null;
+  garageName: string;
+  garagePhone?: string | null;
+}): Partial<Record<Placeholder, string>> {
+  return {
+    customer: v.customerName,
+    contact: v.contactName || v.customerName,
+    plate: v.plate ?? "",
+    vehicle: v.vehicle ?? "",
+    doc_number: v.docNumber ?? "",
+    amount: v.amountFils == null ? "" : formatAED(v.amountFils),
+    balance: v.balanceFils == null ? "" : formatAED(v.balanceFils),
+    due_date: v.dueDate ? dayFmt.format(new Date(`${v.dueDate}T00:00:00Z`)) : "",
+    garage: v.garageName,
+    garage_phone: v.garagePhone ?? "",
+  };
 }

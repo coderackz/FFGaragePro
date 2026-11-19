@@ -1,3 +1,4 @@
+import { hostname } from "node:os";
 export { buildApp, type AppOptions } from "./app";
 export { hashPassword, LoginThrottle, verifyPassword } from "./auth";
 export { HttpError } from "./errors";
@@ -15,8 +16,10 @@ import { isSharing, NETWORK_PORT, type NetworkStatus } from "./network";
 import { garage } from "./routes/setup";
 
 /** Starts a server on a given host/port (development and tests). */
-export async function startServer(options: { dataDir: string; host?: string; port?: number; logger?: boolean }) {
-  const app = await buildApp({ dataDir: options.dataDir, logger: options.logger });
+export async function startServer(options: {
+  dataDir: string; host?: string; port?: number; logger?: boolean; sendsMessages?: AppOptions["sendsMessages"];
+}) {
+  const app = await buildApp({ dataDir: options.dataDir, logger: options.logger, sendsMessages: options.sendsMessages });
   const address = await app.listen({ host: options.host ?? "127.0.0.1", port: options.port ?? 0 });
   return { app, address };
 }
@@ -44,10 +47,17 @@ export async function startGarageServer(o: {
   logger?: boolean;
   /** A cloud-linked PC: numbers from the cloud, and its own read-only rule. */
   app?: Pick<AppOptions, "numbers" | "guard">;
+  /** Where this garage's email goes out from: this server unless the garage is linked to the cloud (the cloud sends). */
+  sendsMessages?: boolean;
 }): Promise<GarageServer> {
   const networkPort = o.networkPort ?? NETWORK_PORT;
   const status: NetworkStatus = { listening: false, error: null };
-  const build = () => buildApp({ ...o.app, dataDir: o.dataDir, logger: o.logger, networkPort, networkStatus: status });
+  const sends = o.sendsMessages ?? !o.app?.numbers;
+  const build = () =>
+    buildApp({
+      ...o.app, dataDir: o.dataDir, logger: o.logger, networkPort, networkStatus: status,
+      sendsMessages: sends ? { place: `PC ${hostname()}` } : undefined,
+    });
 
   let app = await build();
   const sharing = isSharing(app.db);
