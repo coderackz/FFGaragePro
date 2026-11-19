@@ -1,5 +1,6 @@
-import { formatAED, lineTotals, type Settings } from "@ffgp/shared";
+import { amountInWords, formatAED, lineTotals, type DocLanguage, type Settings } from "@ffgp/shared";
 import type { AgingBucket, DocumentFull, Garage, PurchaseOrder, Receipt, Statement } from "../lib/types";
+import { ARABIC_FONT_CSS, L, vatLabel } from "./arabic";
 
 const esc = (v: unknown) =>
   String(v ?? "").replace(/[&<>"']/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" })[c]!);
@@ -72,7 +73,7 @@ const PAGE_CSS = `
 `;
 
 /** Garage block for the top of a page: logo and details, or a blank space on letterhead paper. */
-function garageHeader(garage: Garage, settings: Settings, title: string): string {
+function garageHeader(garage: Garage, settings: Settings, title: string, lang: DocLanguage = "en"): string {
   const d = settings.documents;
   const g = settings.garage;
   if (d.paper === "letterhead") {
@@ -86,6 +87,7 @@ function garageHeader(garage: Garage, settings: Settings, title: string): string
         <div>${esc([garage.address, [garage.phone, garage.email].filter(Boolean).join("  ·  ")].filter(Boolean).join("\n"))}</div>
         ${garage.trn ? `<div><b>TRN:</b> ${esc(garage.trn)}</div>` : ""}
         ${g.tradeLicence ? `<div><b>Trade licence:</b> ${esc(g.tradeLicence)}</div>` : ""}
+        ${lang === "en_ar" && (g.nameAr || g.addressAr) ? `<div class="ar-block" dir="rtl" lang="ar">${g.nameAr ? `<div class="name">${esc(g.nameAr)}</div>` : ""}${g.addressAr ? `<div>${esc(g.addressAr)}</div>` : ""}</div>` : ""}
       </div>
     </div>
     ${title}
@@ -93,13 +95,25 @@ function garageHeader(garage: Garage, settings: Settings, title: string): string
 }
 
 /** "For {garage}" signature cell, with the stamp and signature images above the line when set. */
-function garageSignature(garage: Garage, settings: Settings): string {
+function garageSignature(garage: Garage, settings: Settings, lang: DocLanguage = "en"): string {
   const { stamp, signature } = settings.documents;
   const images = stamp || signature
     ? `<div class="sigimg">${signature ? `<img class="signature" src="${esc(signature)}" alt="">` : ""}${stamp ? `<img class="stamp" src="${esc(stamp)}" alt="">` : ""}</div>`
     : "";
-  return `<div>${images}<span></span>For ${esc(garage.name)}</div>`;
+  const ar = lang === "en_ar" ? ` / عن ${esc(settings.garage.nameAr || garage.name)}` : "";
+  return `<div>${images}<span></span>For ${esc(garage.name)}${ar}</div>`;
 }
+
+/** Arabic text on its own right-to-left line, or nothing when it's blank. */
+const arLine = (text: string | null | undefined, cls = "arl") => (text ? `<div class="${cls}" dir="rtl" lang="ar">${esc(text)}</div>` : "");
+
+/** The amount in words: English always, Arabic too on English + Arabic documents. */
+function wordsBlock(fils: number, lang: DocLanguage): string {
+  return `<div class="words"><b>${L("Amount in words", lang)}:</b> ${esc(amountInWords(fils, "en"))}</div>${lang === "en_ar" ? `<div class="words" dir="rtl" lang="ar">${esc(amountInWords(fils, "ar"))}</div>` : ""}`;
+}
+
+/** The page head: shared styles, plus the Arabic font on English + Arabic pages. */
+const headCss = (lang: DocLanguage, extra = "") => `<style>${PAGE_CSS}${lang === "en_ar" ? ARABIC_FONT_CSS : ""}${extra}</style>`;
 
 const KIND = { labour: "Labour", part: "Part", other: "Other" } as Record<string, string>;
 
@@ -116,6 +130,9 @@ export function renderDocumentHtml(doc: DocumentFull, garage: Garage, settings: 
   const vatPct = garage.vatRateBp / 100;
   const c = doc.customer;
   const v = doc.vehicle;
+  const lang: DocLanguage = doc.language ?? "en";
+  const t = (en: string) => L(en, lang);
+  const bi = lang === "en_ar";
 
   const partNo = (l: DocumentFull["lines"][number]) => (ds.showPartNumbers && l.partNo ? `Part no. ${esc(l.partNo)}` : "");
   const qty = (l: DocumentFull["lines"][number]) => (ds.showLabourHours && l.kind === "labour" ? `${l.qty} h` : `${l.qty}`);
@@ -123,38 +140,40 @@ export function renderDocumentHtml(doc: DocumentFull, garage: Garage, settings: 
     .map((l, i) => {
       if (isJob) {
         const notes = [partNo(l), l.suppliedBy === "fleetfix" ? "Supplied by Fleet Fix" : ""].filter(Boolean).join(" · ");
-        return `<tr><td class="n">${i + 1}</td><td>${esc(l.description)}${notes ? `<div class="k">${notes}</div>` : ""}</td><td>${KIND[l.kind] ?? ""}</td><td class="r">${qty(l)}</td><td class="c"><span class="box"></span></td></tr>`;
+        return `<tr><td class="n">${i + 1}</td><td>${esc(l.description)}${bi ? arLine(l.partNameAr) : ""}${notes ? `<div class="k">${notes}</div>` : ""}</td><td>${KIND[l.kind] ?? ""}</td><td class="r">${qty(l)}</td><td class="c"><span class="box"></span></td></tr>`;
       }
       const t = lineTotals(l, garage.vatRateBp, doc.pricesIncludeVat);
       const notes = [KIND[l.kind] ?? "", partNo(l), l.suppliedBy === "fleetfix" ? "Supplied by Fleet Fix" : ""].filter(Boolean).join(" · ");
-      return `<tr><td class="n">${i + 1}</td><td>${esc(l.description)}<div class="k">${notes}</div></td><td class="r">${qty(l)}</td><td class="r">${money(l.unitPriceFils)}</td><td class="r">${l.discountPct ? `${l.discountPct}%` : "—"}</td><td class="r">${money(t.netFils)}</td><td class="r">${money(t.vatFils)}</td><td class="r b">${money(t.grossFils)}</td></tr>`;
+      return `<tr><td class="n">${i + 1}</td><td>${esc(l.description)}${bi ? arLine(l.partNameAr) : ""}<div class="k">${notes}</div></td><td class="r">${qty(l)}</td><td class="r">${money(l.unitPriceFils)}</td><td class="r">${l.discountPct ? `${l.discountPct}%` : "—"}</td><td class="r">${money(t.netFils)}</td><td class="r">${money(t.vatFils)}</td><td class="r b">${money(t.grossFils)}</td></tr>`;
     })
     .join("");
 
   const head = isJob
-    ? `<tr><th class="n">#</th><th>Work / part</th><th>Type</th><th class="r">Qty</th><th class="c">Done</th></tr>`
-    : `<tr><th class="n">#</th><th>Description</th><th class="r">Qty</th><th class="r">${doc.pricesIncludeVat ? "Unit price (incl. VAT)" : "Unit price"}</th><th class="r">Disc.</th><th class="r">Amount</th><th class="r">VAT ${vatPct}%</th><th class="r">Total</th></tr>`;
+    ? `<tr><th class="n">#</th><th>${t("Work / part")}</th><th>${t("Type")}</th><th class="r">${t("Qty")}</th><th class="c">${t("Done")}</th></tr>`
+    : `<tr><th class="n">#</th><th>${t("Description")}</th><th class="r">${t("Qty")}</th><th class="r">${t(doc.pricesIncludeVat ? "Unit price (incl. VAT)" : "Unit price")}</th><th class="r">${t("Disc.")}</th><th class="r">${t("Amount")}</th><th class="r">${vatLabel(vatPct, lang)}</th><th class="r">${t("Total")}</th></tr>`;
 
   const totals = isJob
     ? ""
     : `<table class="totals">
-        <tr><td>Subtotal (excl. VAT)</td><td class="r">${money(doc.totals.netFils)}</td></tr>
-        <tr><td>VAT ${vatPct}%</td><td class="r">${money(doc.totals.vatFils)}</td></tr>
-        <tr class="grand"><td>${isCredit ? "Total credit (AED, incl. VAT)" : "Total (AED, incl. VAT)"}</td><td class="r">${money(doc.totals.grossFils)}</td></tr>
-        ${isInvoice && !draftInvoice && (doc.creditedFils ?? 0) > 0 ? `<tr><td>Credited</td><td class="r">${money(doc.creditedFils ?? 0)}</td></tr>` : ""}
-        ${isInvoice && !draftInvoice && doc.paidFils > 0 ? `<tr><td>Paid</td><td class="r">${money(doc.paidFils)}</td></tr>` : ""}
-        ${isInvoice && !draftInvoice && (doc.paidFils > 0 || (doc.creditedFils ?? 0) > 0) ? `<tr class="due"><td>Balance due</td><td class="r">${money(Math.max(doc.balanceFils, 0))}</td></tr>` : ""}
+        <tr><td>${t("Subtotal (excl. VAT)")}</td><td class="r">${money(doc.totals.netFils)}</td></tr>
+        <tr><td>${vatLabel(vatPct, lang)}</td><td class="r">${money(doc.totals.vatFils)}</td></tr>
+        <tr class="grand"><td>${t(isCredit ? "Total credit (AED, incl. VAT)" : "Total (AED, incl. VAT)")}</td><td class="r">${money(doc.totals.grossFils)}</td></tr>
+        ${isInvoice && !draftInvoice && (doc.creditedFils ?? 0) > 0 ? `<tr><td>${t("Credited")}</td><td class="r">${money(doc.creditedFils ?? 0)}</td></tr>` : ""}
+        ${isInvoice && !draftInvoice && doc.paidFils > 0 ? `<tr><td>${t("Paid")}</td><td class="r">${money(doc.paidFils)}</td></tr>` : ""}
+        ${isInvoice && !draftInvoice && (doc.paidFils > 0 || (doc.creditedFils ?? 0) > 0) ? `<tr class="due"><td>${t("Balance due")}</td><td class="r">${money(Math.max(doc.balanceFils, 0))}</td></tr>` : ""}
       </table>`;
 
   const signatures = isJob
-    ? `${ds.jobCardSignature ? `<div class="auth"><b>I authorise the work above</b> and agree to pay for it on collection.</div>` : ""}<div class="sigs"><div><span></span>Service advisor</div><div><span></span>Technician</div><div><span></span>Customer</div></div>`
+    ? `${ds.jobCardSignature ? `<div class="auth"><b>${t("I authorise the work above")}</b> and agree to pay for it on collection.</div>` : ""}<div class="sigs"><div><span></span>${t("Service advisor")}</div><div><span></span>${t("Technician")}</div><div><span></span>${t("Customer")}</div></div>`
     : isInvoice || isCredit
-      ? `<div class="sigs two"><div><span></span>Received by (customer)</div>${garageSignature(garage, settings)}</div>`
-      : `<div class="sigs two"><div><span></span>Customer approval</div>${garageSignature(garage, settings)}</div>`;
+      ? `<div class="sigs two"><div><span></span>${t("Received by (customer)")}</div>${garageSignature(garage, settings, lang)}</div>`
+      : `<div class="sigs two"><div><span></span>${t("Customer approval")}</div>${garageSignature(garage, settings, lang)}</div>`;
   const bank = [gs.bankName, gs.accountName, gs.iban ? `IBAN ${gs.iban}` : null].filter(Boolean).join("  ·  ");
-  const terms = isInvoice && (bank || ds.terms)
-    ? `<div class="terms">${bank ? `<div class="bank">${esc(bank)}</div>` : ""}${ds.terms ? esc(ds.terms) : ""}</div>`
+  const termsAr = bi ? ds.termsAr : null;
+  const terms = isInvoice && (bank || ds.terms || termsAr)
+    ? `<div class="terms">${bank ? `<div class="bank">${esc(bank)}</div>` : ""}${ds.terms ? esc(ds.terms) : ""}${arLine(termsAr)}</div>`
     : "";
+  const words = isInvoice || isCredit ? wordsBlock(doc.totals.grossFils, lang) : "";
   const issued = isInvoice && !draftInvoice;
   const fullyCredited = issued && (doc.creditedFils ?? 0) >= doc.totals.grossFils && doc.totals.grossFils > 0;
   const marks = [
@@ -166,32 +185,34 @@ export function renderDocumentHtml(doc: DocumentFull, garage: Garage, settings: 
       <div class="en">${title.en}</div>
       <div class="ar">${title.ar}</div>
       <div class="num">${esc(doc.number)}</div>
-      <div class="meta">Date: ${date(docDate)}</div>
+      <div class="meta">${t("Date")}: ${date(docDate)}</div>
       ${isCredit && doc.source ? `<div class="meta">Credit for ${esc(doc.source.number)}${doc.source.issuedAt ? ` of ${date(doc.source.issuedAt)}` : ""}</div>` : doc.source ? `<div class="meta">Ref: ${esc(doc.source.number)}</div>` : ""}
-      ${isInvoice && doc.dueDate ? `<div class="meta">Due: ${date(`${doc.dueDate}T00:00:00.000Z`)}</div>` : ""}
-      ${isInvoice && doc.lpoNumber ? `<div class="meta">LPO: ${esc(doc.lpoNumber)}</div>` : ""}
+      ${isInvoice && doc.dueDate ? `<div class="meta">${t("Due")}: ${date(`${doc.dueDate}T00:00:00.000Z`)}</div>` : ""}
+      ${isInvoice && doc.lpoNumber ? `<div class="meta">${t("LPO")}: ${esc(doc.lpoNumber)}</div>` : ""}
       ${draftInvoice ? `<div class="draft">DRAFT — NOT A TAX INVOICE</div>` : ""}
     </div>`;
 
-  return `<!doctype html><html lang="en"><head><meta charset="utf-8"><title>${esc(doc.number)}</title><style>${PAGE_CSS}</style></head><body><div class="page">
+  return `<!doctype html><html lang="en"><head><meta charset="utf-8"><title>${esc(doc.number)}</title>${headCss(lang)}</head><body><div class="page">
   ${watermark}
-  ${garageHeader(garage, settings, titleHtml)}
+  ${garageHeader(garage, settings, titleHtml, lang)}
   <div class="parties">
     <div class="party">
-      <h3>${isInvoice ? "Bill to" : "Customer"}</h3>
+      <h3>${t(isInvoice ? "Bill to" : "Customer")}</h3>
       <div class="main">${esc(c.name)}</div>
+      ${bi ? arLine(c.nameAr, "arl main") : ""}
       <div class="line">${esc([c.phone, c.email, c.address].filter(Boolean).join("\n"))}</div>
-      ${c.trn ? `<div class="line"><b>TRN:</b> ${esc(c.trn)}</div>` : ""}
+      ${bi ? arLine(c.addressAr) : ""}
+      ${c.trn ? `<div class="line"><b>${t("TRN")}:</b> ${esc(c.trn)}</div>` : ""}
     </div>
     <div class="party">
-      <h3>Vehicle</h3>
+      <h3>${t("Vehicle")}</h3>
       ${v ? `<div class="plate">${esc(v.plate)}</div><div class="line">${esc([[v.make, v.model, v.year].filter(Boolean).join(" "), v.colour, v.vin ? `VIN ${v.vin}` : null].filter(Boolean).join("\n"))}</div>` : `<div class="line">—</div>`}
-      ${doc.odometer != null ? `<div class="line"><b>Odometer:</b> ${doc.odometer.toLocaleString("en-US")} km</div>` : ""}
+      ${doc.odometer != null ? `<div class="line"><b>${t("Odometer")}:</b> ${doc.odometer.toLocaleString("en-US")} km</div>` : ""}
     </div>
   </div>
   <table class="items"><thead>${head}</thead><tbody>${rows || `<tr><td colspan="8" style="color:#a1a1aa">No items</td></tr>`}</tbody></table>
   <div class="bottom">
-    <div class="notes">${isCredit && doc.reason ? `<h3>Reason</h3>${esc(doc.reason)}` : ""}${doc.notes ? `<h3>Notes</h3>${esc(doc.notes)}` : ""}${doc.type === "estimate" ? `<div style="margin-top:3mm;color:#71717a">Prices in AED. Estimate valid for ${ds.estimateValidDays} days. Additional work found during repair will be quoted separately.</div>` : ""}${isInvoice && ds.warranty ? `<div class="warranty"><b>Warranty:</b> ${esc(ds.warranty)}</div>` : ""}</div>
+    <div class="notes">${isCredit && doc.reason ? `<h3>${t("Reason")}</h3>${esc(doc.reason)}` : ""}${doc.notes ? `<h3>${t("Notes")}</h3>${esc(doc.notes)}` : ""}${doc.type === "estimate" ? `<div style="margin-top:3mm;color:#71717a">Prices in AED. Estimate valid for ${ds.estimateValidDays} days. Additional work found during repair will be quoted separately.</div>` : ""}${isInvoice && ds.warranty ? `<div class="warranty"><b>${t("Warranty")}:</b> ${esc(ds.warranty)}</div>` : ""}${isInvoice && bi ? arLine(ds.warrantyAr, "warranty arl") : ""}${words}</div>
     ${totals}
   </div>
   ${terms}
@@ -255,8 +276,8 @@ const METHOD: Record<string, string> = { cash: "Cash", card: "Card", bank_transf
 const ymdDate = (ymd: string) => date(`${ymd}T00:00:00.000Z`);
 const bankLine = (s: Settings) => [s.garage.bankName, s.garage.accountName, s.garage.iban ? `IBAN ${s.garage.iban}` : null].filter(Boolean).join("  ·  ");
 
-function shell(title: string, body: string): string {
-  return `<!doctype html><html lang="en"><head><meta charset="utf-8"><title>${esc(title)}</title><style>${PAGE_CSS}
+function shell(title: string, body: string, lang: DocLanguage = "en"): string {
+  return `<!doctype html><html lang="en"><head><meta charset="utf-8"><title>${esc(title)}</title><style>${PAGE_CSS}${lang === "en_ar" ? ARABIC_FONT_CSS : ""}
     table.ledger td.d { white-space: nowrap; color: #52525b; } .aging { display: grid; grid-template-columns: repeat(6, 1fr); gap: 2mm; margin-top: 6mm; }
     .aging div { border: 1px solid #e4e4e7; border-radius: 2mm; padding: 2.5mm; font-size: 8.5pt; color: #52525b; } .aging b { display: block; font-size: 10.5pt; color: #18181b; margin-top: 1mm; }
     .aging { grid-template-columns: repeat(auto-fit, minmax(24mm, 1fr)); }
@@ -265,20 +286,23 @@ function shell(title: string, body: string): string {
 
 /** A printed receipt (RCT-…): the amount, how it was paid, which invoices it went against, and any credit kept. */
 export function renderReceiptHtml(r: Receipt, garage: Garage, settings: Settings): string {
+  const lang: DocLanguage = r.customerLanguage ?? "en";
+  const t = (en: string) => L(en, lang);
   const refund = r.amountFils < 0;
   const title = `<div class="title"><div class="en">${refund ? "REFUND" : "RECEIPT"}</div><div class="ar">${refund ? "استرداد" : "إيصال استلام"}</div>
-    <div class="num">${esc(r.number)}</div><div class="meta">Date: ${date(r.receivedAt)}</div></div>`;
+    <div class="num">${esc(r.number)}</div><div class="meta">${t("Date")}: ${date(r.receivedAt)}</div></div>`;
   const rows = r.allocations.map((a, i) => `<tr><td class="n">${i + 1}</td><td>${esc(a.number)}</td><td class="r b">${money(a.amountFils)}</td></tr>`).join("");
   const how = [METHOD[r.method] ?? r.method, r.reference, r.chequeDate ? `cheque dated ${ymdDate(r.chequeDate)}` : null].filter(Boolean).join(" · ");
   return shell(r.number, `
-  ${garageHeader(garage, settings, title)}
-  <div class="parties"><div class="party"><h3>${refund ? "Paid to" : "Received from"}</h3><div class="main">${esc(r.customerName)}</div></div>
-    <div class="party"><h3>Amount</h3><div class="amount">AED ${money(Math.abs(r.amountFils))}</div><div class="line">${esc(how)}</div></div></div>
-  ${r.allocations.length ? `<h3 style="font-size:8pt;letter-spacing:.1em;color:#71717a;text-transform:uppercase;margin:4mm 0 2mm">Allocated to</h3>
-  <table class="items"><thead><tr><th class="n">#</th><th>Invoice</th><th class="r">Amount</th></tr></thead><tbody>${rows}</tbody></table>` : ""}
+  ${garageHeader(garage, settings, title, lang)}
+  <div class="parties"><div class="party"><h3>${t(refund ? "Paid to" : "Received from")}</h3><div class="main">${esc(r.customerName)}</div>${lang === "en_ar" ? arLine(r.customerNameAr, "arl main") : ""}</div>
+    <div class="party"><h3>${t("Amount")}</h3><div class="amount">AED ${money(Math.abs(r.amountFils))}</div><div class="line">${esc(how)}</div></div></div>
+  ${wordsBlock(r.amountFils, lang)}
+  ${r.allocations.length ? `<h3 style="font-size:8pt;letter-spacing:.1em;color:#71717a;text-transform:uppercase;margin:4mm 0 2mm">${t("Allocated to")}</h3>
+  <table class="items"><thead><tr><th class="n">#</th><th>${t("Invoice")}</th><th class="r">${t("Amount")}</th></tr></thead><tbody>${rows}</tbody></table>` : ""}
   ${r.unallocatedFils > 0 ? `<div class="warranty"><b>On account: ${formatAED(r.unallocatedFils)}</b> — not against an invoice; it pays any earlier balance first, then is kept as credit.</div>` : ""}
-  <div class="sigs two"><div><span></span>${refund ? "Received by (customer)" : "Paid by (customer)"}</div>${garageSignature(garage, settings)}</div>
-  <footer><span>${esc(r.number)} · printed ${date(new Date().toISOString())}</span><span>Powered by Fleetfix Garage Pro</span></footer>`);
+  <div class="sigs two"><div><span></span>${t(refund ? "Received by (customer)" : "Paid by (customer)")}</div>${garageSignature(garage, settings, lang)}</div>
+  <footer><span>${esc(r.number)} · printed ${date(new Date().toISOString())}</span><span>Powered by Fleetfix Garage Pro</span></footer>`, lang);
 }
 
 const AGING_LABELS: Record<AgingBucket, string> = { current: "Current", "1-30": "1–30 days", "31-60": "31–60 days", "61-90": "61–90 days", "90+": "Over 90 days" };
@@ -286,25 +310,31 @@ const AGING_LABELS: Record<AgingBucket, string> = { current: "Current", "1-30": 
 /** Statement of account for a date range: brought forward, each entry with a running balance, carried forward, aging. */
 export function renderStatementHtml(
   s: Statement,
-  customer: { name: string; trn: string | null; address: string | null; phone: string | null; email: string | null },
+  customer: {
+    name: string; trn: string | null; address: string | null; phone: string | null; email: string | null;
+    nameAr?: string | null; addressAr?: string | null; docLanguage?: DocLanguage;
+  },
   garage: Garage,
   settings: Settings,
   range: { from: string; to: string },
 ): string {
+  const lang: DocLanguage = customer.docLanguage ?? "en";
+  const t = (en: string) => L(en, lang);
+  const bi = lang === "en_ar";
   const title = `<div class="title"><div class="en">STATEMENT OF ACCOUNT</div><div class="ar">كشف حساب</div>
     <div class="meta">${ymdDate(range.from)} – ${ymdDate(range.to)}</div></div>`;
   const rows = s.rows.map((r) => `<tr><td class="d">${ymdDate(r.date)}</td><td>${esc(r.number)}</td><td>${esc(r.description)}</td>
     <td class="r">${r.debitFils ? money(r.debitFils) : ""}</td><td class="r">${r.creditFils ? money(r.creditFils) : ""}</td><td class="r b">${money(r.balanceFils)}</td></tr>`).join("");
   const bank = bankLine(settings);
   return shell(`Statement - ${customer.name}`, `
-  ${garageHeader(garage, settings, title)}
-  <div class="parties"><div class="party"><h3>Customer</h3><div class="main">${esc(customer.name)}</div>
-    <div class="line">${esc([customer.phone, customer.email, customer.address].filter(Boolean).join("\n"))}</div>${customer.trn ? `<div class="line"><b>TRN:</b> ${esc(customer.trn)}</div>` : ""}</div>
-    <div class="party"><h3>Balance due</h3><div class="amount">AED ${money(s.closingFils)}</div><div class="line">as of ${ymdDate(range.to)}</div></div></div>
-  <table class="items ledger"><thead><tr><th>Date</th><th>Number</th><th>Details</th><th class="r">Debit</th><th class="r">Credit</th><th class="r">Balance</th></tr></thead>
-    <tbody><tr><td class="d">${ymdDate(range.from)}</td><td></td><td>Balance brought forward</td><td></td><td></td><td class="r b">${money(s.openingFils)}</td></tr>${rows}
-    <tr><td class="d">${ymdDate(range.to)}</td><td></td><td><b>Balance carried forward</b></td><td></td><td></td><td class="r b">${money(s.closingFils)}</td></tr></tbody></table>
-  <div class="aging">${(Object.keys(AGING_LABELS) as AgingBucket[]).map((b) => `<div>${AGING_LABELS[b]}<b>${money(s.aging[b])}</b></div>`).join("")}${s.creditFils ? `<div>Less credit<b>−${money(s.creditFils)}</b></div>` : ""}<div>Total due<b>${money(s.closingFils)}</b></div></div>
+  ${garageHeader(garage, settings, title, lang)}
+  <div class="parties"><div class="party"><h3>${t("Customer")}</h3><div class="main">${esc(customer.name)}</div>${bi ? arLine(customer.nameAr, "arl main") : ""}
+    <div class="line">${esc([customer.phone, customer.email, customer.address].filter(Boolean).join("\n"))}</div>${bi ? arLine(customer.addressAr) : ""}${customer.trn ? `<div class="line"><b>${t("TRN")}:</b> ${esc(customer.trn)}</div>` : ""}</div>
+    <div class="party"><h3>${t("Balance due")}</h3><div class="amount">AED ${money(s.closingFils)}</div><div class="line">as of ${ymdDate(range.to)}</div></div></div>
+  <table class="items ledger"><thead><tr><th>${t("Date")}</th><th>${t("Number")}</th><th>${t("Details")}</th><th class="r">${t("Debit")}</th><th class="r">${t("Credit")}</th><th class="r">${t("Balance")}</th></tr></thead>
+    <tbody><tr><td class="d">${ymdDate(range.from)}</td><td></td><td>${t("Balance brought forward")}</td><td></td><td></td><td class="r b">${money(s.openingFils)}</td></tr>${rows}
+    <tr><td class="d">${ymdDate(range.to)}</td><td></td><td><b>${t("Balance carried forward")}</b></td><td></td><td></td><td class="r b">${money(s.closingFils)}</td></tr></tbody></table>
+  <div class="aging">${(Object.keys(AGING_LABELS) as AgingBucket[]).map((b) => `<div>${t(AGING_LABELS[b])}<b>${money(s.aging[b])}</b></div>`).join("")}${s.creditFils ? `<div>${t("Less credit")}<b>−${money(s.creditFils)}</b></div>` : ""}<div>${t("Total due")}<b>${money(s.closingFils)}</b></div></div>
   ${bank ? `<div class="terms"><div class="bank">${esc(bank)}</div></div>` : ""}
-  <footer><span>Statement · printed ${date(new Date().toISOString())}</span><span>Powered by Fleetfix Garage Pro</span></footer>`);
+  <footer><span>Statement · printed ${date(new Date().toISOString())}</span><span>Powered by Fleetfix Garage Pro</span></footer>`, lang);
 }
