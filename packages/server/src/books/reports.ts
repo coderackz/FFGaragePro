@@ -5,6 +5,7 @@ import { customerBalance } from "../ledger";
 import { getSettings } from "../settings";
 import { ENTRY_SELECT, NOT_HERE, entryOut, getEntry, type EntryOut } from "./journals";
 import { addDays, postEntry } from "./post";
+import { stockValue } from "./rules";
 
 const today = () => dubaiDate(new Date().toISOString());
 const YMD = /^\d{4}-\d{2}-\d{2}$/;
@@ -135,9 +136,6 @@ const accountBalance = (db: Db, id: string, sources?: string[]) =>
     [id],
   )!.b ?? 0;
 
-/** Stock on the shelf at average cost (what the books' inventory should hold). */
-const stockValue = (db: Db) =>
-  db.get<{ v: number | null }>("SELECT SUM(ROUND(on_hand * avg_cost_fils)) AS v FROM parts WHERE stocked = 1")!.v ?? 0;
 
 /**
  * Checks that the books agree with the workshop: they balance; receivables = what customers owe; inventory = stock
@@ -171,7 +169,9 @@ export function health(db: Db) {
      WHERE l.account_id = ? GROUP BY l.document_id HAVING wip <> 0 ORDER BY d.number`,
     [A.wip.id],
   ).map((r) => ({ jobId: r.job, number: r.number, wipFils: r.wip }));
-  return { checks, late, openWip };
+  const failures = db.all<{ post_key: string; error: string; at: string }>("SELECT * FROM book_failures ORDER BY at DESC")
+    .map((f) => ({ postKey: f.post_key, error: f.error, at: f.at }));
+  return { checks, late, openWip, failures };
 }
 
 /** Brings the books' inventory to the stock's value at average cost (after a cost was recalculated). */

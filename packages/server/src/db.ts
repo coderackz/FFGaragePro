@@ -46,7 +46,23 @@ export class Db {
 
   /** Runs `fn` atomically. Nested calls join the outer transaction. */
   tx<T>(fn: () => T): T {
-    if (this.depth > 0) return fn();
+    if (this.depth > 0) {
+      // Nested: a savepoint, so a caller can catch an inner failure and carry on with what's left intact.
+      const name = `sp${this.depth}`;
+      this.raw.exec(`SAVEPOINT ${name}`);
+      this.depth++;
+      try {
+        const result = fn();
+        this.raw.exec(`RELEASE ${name}`);
+        return result;
+      } catch (error) {
+        this.raw.exec(`ROLLBACK TO ${name}`);
+        this.raw.exec(`RELEASE ${name}`);
+        throw error;
+      } finally {
+        this.depth--;
+      }
+    }
     this.raw.exec("BEGIN IMMEDIATE");
     this.depth++;
     try {

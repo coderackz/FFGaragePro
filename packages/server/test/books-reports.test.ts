@@ -90,13 +90,10 @@ describe("reports", () => {
     const health = await get("/api/books/health");
     expect(health.checks.filter((c: { ok: boolean }) => !c.ok)).toEqual([]);
     expect(health.checks.map((c: { key: string }) => c.key)).toEqual(["trial_balance", "receivables", "inventory", "output_vat", "opening_clearing"]);
+    // A recalculated cost: the books correct inventory by themselves (to stock revaluation, a cost of sales).
     app.db.run("UPDATE parts SET avg_cost_fils = 4500 WHERE id = ?", [part.id]);
-    const off = (await get("/api/books/health")).checks.find((c: { key: string }) => c.key === "inventory");
-    expect(off).toMatchObject({ ok: false, appFils: 4500, booksFils: 4000, differenceFils: 500 });
-    const revalued = await call(app, "POST", "/api/books/revalue-stock", owner);
-    expect(revalued.status).toBe(200);
-    expect(revalued.body.entry.sourceType).toBe("revaluation");
-    expect((await get("/api/books/health")).checks.find((c: { key: string }) => c.key === "inventory").ok).toBe(true);
+    expect((await get("/api/books/health")).checks.find((c: { key: string }) => c.key === "inventory")).toMatchObject({ ok: true, appFils: 4500, booksFils: 4500 });
+    expect(app.db.get("SELECT COUNT(*) AS n FROM journal_entries WHERE source_type = 'revaluation'")).toEqual({ n: 1 });
     expect((await call(app, "POST", "/api/books/revalue-stock", owner)).status).toBe(409);
   });
 

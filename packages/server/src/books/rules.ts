@@ -1,6 +1,6 @@
 import { SYSTEM_ACCOUNTS as A, type Settings } from "@ffgp/shared";
 import type { Db } from "../db";
-import { postEntry, type PostLine } from "./post";
+import type { PostInput, PostLine } from "./post";
 
 /**
  * The automatic entries, one function per kind of event (spec "How the automatic entries post"). Each finds the
@@ -12,6 +12,13 @@ export interface PostCtx {
   /** Books start date (YYYY-MM-DD). */
   start: string;
   methodAccounts: Settings["books"]["methodAccounts"];
+  /**
+   * Posts one event; an event that can't post is recorded (Books health lists it) and the rest carry on. Returns
+   * whether it posted.
+   */
+  post: (e: PostInput) => boolean;
+  /** The batch is full: stop, the next run carries on. */
+  full: () => boolean;
 }
 
 const DUBAI = "'+4 hours'";
@@ -39,8 +46,9 @@ export function postSalesDocuments(c: PostCtx): number {
     [c.start],
   );
   for (const d of docs) {
+    if (c.full()) break;
     const invoice = d.type === "invoice";
-    const id = postEntry(c.db, {
+    const id = c.post({
       date: d.day, narration: `${invoice ? "Invoice" : "Credit note"} ${d.number}`, sourceType: invoice ? "invoice" : "credit_note", sourceId: d.id,
       postKey: `${d.type}:${d.id}`, userId: null,
       lines: [debit(A.receivables.id, (invoice ? 1 : -1) * d.gross_fils, { customerId: d.customer_id }), ...salesLines(c.db, d.id, d.gross_fils, invoice ? 1 : -1)],
@@ -59,8 +67,9 @@ export function postReceipts(c: PostCtx): number {
     [c.start],
   );
   for (const r of rows) {
+    if (c.full()) break;
     const money = (c.methodAccounts as Record<string, string>)[r.method] ?? c.methodAccounts.cash;
-    const id = postEntry(c.db, {
+    const id = c.post({
       date: r.day, narration: `${r.amount_fils < 0 ? "Refund" : "Receipt"} ${r.number}`, sourceType: "receipt", sourceId: r.id, postKey: `receipt:${r.id}`,
       userId: null, lines: [debit(money, r.amount_fils), credit(A.receivables.id, r.amount_fils, { customerId: r.customer_id })],
     });
@@ -88,6 +97,7 @@ export function postGoodsReceipts(c: PostCtx): number {
     [c.start],
   );
   for (const g of rows) {
+    if (c.full()) break;
     const lines = c.db.all<{ qty: number; cost: number; part_id: string | null; job: string | null; stocked: number | null }>(
       `SELECT gl.qty, gl.unit_cost_fils AS cost, pl.part_id, pl.job_document_id AS job, pt.stocked
        FROM goods_receipt_lines gl JOIN po_lines pl ON pl.id = gl.po_line_id LEFT JOIN parts pt ON pt.id = pl.part_id WHERE gl.receipt_id = ?`,
@@ -103,7 +113,7 @@ export function postGoodsReceipts(c: PostCtx): number {
     const linesNet = posted.reduce((s, l) => s + l.debitFils, 0);
     if (posted.length) posted[posted.length - 1]!.debitFils += g.net_fils - linesNet;
     const date = g.invoice_date && /^\d{4}-\d{2}-\d{2}$/.test(g.invoice_date) && g.invoice_date >= c.start ? g.invoice_date : g.day;
-    const id = postEntry(c.db, {
+    const id = c.post({
       date, narration: `Parts from ${g.supplier_name}${g.invoice_no ? `, invoice ${g.invoice_no}` : ""}`, sourceType: "goods_receipt", sourceId: g.id,
       postKey: `goods_receipt:${g.id}`, userId: null,
       lines: [...posted, debit(A.vat_input.id, g.gross_fils - g.net_fils), credit(A.payables.id, g.gross_fils, { supplierId: g.supplier_id })],
@@ -124,10 +134,12 @@ export function postStock(c: PostCtx): number {
     `SELECT m.id, m.qty, m.unit_cost_fils AS cost, m.reason, m.document_id, d.type AS doc_type, d.number AS doc_number, p.name AS part,
             date(m.created_at, ${DUBAI}) AS day
      FROM stock_movements m JOIN parts p ON p.id = m.part_id LEFT JOIN documents d ON d.id = m.document_id
-     WHERE m.reason <> 'receive' AND date(m.created_at, ${DUBAI}) >= ? AND ${unposted("'stock:' || m.id")} ORDER BY m.created_at, m.rowid`,
+     WHERE m.reason <> 'receive' AND (m.reason = 'opening' OR date(m.created_at, ${DUBAI}) >= ?) AND ROUND(ABS(m.qty) * m.unit_cost_fils) <> 0
+       AND ${unposted("'stock:' || m.id")} ORDER BY m.created_at, m.rowid`,
     [c.start],
   );
   for (const m of rows) {
+    if (c.full()) break;
     const value = Math.round(Math.abs(m.qty) * m.cost);
     const out = m.qty < 0;
     let other: PostLine;
@@ -149,8 +161,7 @@ export function postStock(c: PostCtx): number {
     const lines = out
       ? [{ ...other, debitFils: value }, credit(A.inventory.id, value)]
       : [debit(A.inventory.id, value), { ...other, debitFils: 0, creditFils: value }];
-    if (value === 0) continue;
-    const id = postEntry(c.db, { date: m.day, narration, sourceType: "stock", sourceId: m.id, postKey: `stock:${m.id}`, userId: null, lines });
+    const id = c.post({ date: m.day < c.start ? c.start : m.day, narration, sourceType: "stock", sourceId: m.id, postKey: `stock:${m.id}`, userId: null, lines });
     if (id) n++;
   }
   return n;
@@ -170,9 +181,10 @@ export function postCogs(c: PostCtx): number {
     [A.wip.id, c.start],
   );
   for (const r of rows) {
+    if (c.full()) break;
     if (r.wip === 0) continue;
     const k = c.db.get<{ n: number }>("SELECT COUNT(*) AS n FROM journal_entries WHERE source_type = 'cogs' AND source_id = ?", [r.invoice])!.n + 1;
-    const id = postEntry(c.db, {
+    const id = c.post({
       date: r.day, narration: `Parts cost of ${r.number}`, sourceType: "cogs", sourceId: r.invoice, postKey: `cogs:${r.invoice}:${k}`, userId: null,
       lines: [debit(A.cogs_parts.id, r.wip), credit(A.wip.id, r.wip, { documentId: r.job })],
     });
@@ -182,27 +194,52 @@ export function postCogs(c: PostCtx): number {
 }
 
 /**
- * Customer opening balances dated on or after the start (earlier ones are in the opening balances): Dr receivables
- * (customer) / Cr opening balance clearing. A change posts the difference.
+ * Customer opening balances, whatever their date (dated the start date at the earliest): Dr receivables (customer) /
+ * Cr opening balance clearing. A change posts the difference. The opening balances entry clears the clearing account.
  */
 export function postCustomerOpenings(c: PostCtx): number {
   let n = 0;
-  const rows = c.db.all<{ id: string; name: string; fils: number; day: string; posted: number; k: number }>(
+  const rows = c.db.all<{ id: string; name: string; fils: number; day: string | null; posted: number; k: number }>(
     `SELECT cu.id, cu.name, cu.opening_balance_fils AS fils, cu.opening_balance_date AS day,
             (SELECT COALESCE(SUM(l.debit_fils - l.credit_fils), 0) FROM journal_lines l JOIN journal_entries e ON e.id = l.entry_id
              WHERE e.source_type = 'customer_opening' AND e.source_id = cu.id AND l.account_id = ?) AS posted,
             (SELECT COUNT(*) FROM journal_entries e WHERE e.source_type = 'customer_opening' AND e.source_id = cu.id) AS k
-     FROM customers cu WHERE cu.opening_balance_date IS NOT NULL AND cu.opening_balance_date >= ?`,
-    [A.receivables.id, c.start],
+     FROM customers cu WHERE cu.opening_balance_fils <> 0 OR EXISTS (SELECT 1 FROM journal_entries e WHERE e.source_type = 'customer_opening' AND e.source_id = cu.id)`,
+    [A.receivables.id],
   );
   for (const r of rows) {
+    if (c.full()) break;
     const diff = r.fils - r.posted;
     if (diff === 0) continue;
-    const id = postEntry(c.db, {
-      date: r.day, narration: `Opening balance: ${r.name}`, sourceType: "customer_opening", sourceId: r.id, postKey: `customer_opening:${r.id}:${r.k + 1}`,
+    const id = c.post({
+      date: r.day && r.day > c.start ? r.day : c.start, narration: `Opening balance: ${r.name}`, sourceType: "customer_opening", sourceId: r.id, postKey: `customer_opening:${r.id}:${r.k + 1}`,
       userId: null, lines: [debit(A.receivables.id, diff, { customerId: r.id }), credit(A.opening_clearing.id, diff)],
     });
     if (id) n++;
   }
   return n;
 }
+
+/** Stock on the shelf at average cost: what the books' inventory should hold. */
+export const stockValue = (db: Db) => db.get<{ v: number | null }>("SELECT SUM(ROUND(on_hand * avg_cost_fils)) AS v FROM parts WHERE stocked = 1")!.v ?? 0;
+export const inventoryBalance = (db: Db) =>
+  db.get<{ b: number | null }>("SELECT SUM(debit_fils - credit_fils) AS b FROM journal_lines WHERE account_id = ?", [A.inventory.id])!.b ?? 0;
+
+/**
+ * Keeps inventory equal to the stock's value at average cost. Differences come from average-cost rounding and from
+ * parts fitted before they were received (taken at the old cost); they are a cost of sales (stock revaluation).
+ * Only once the books hold the stock that was there before the start (the opening balances), or there was none.
+ */
+export function postStockCorrection(c: PostCtx): number {
+  if (c.full()) return 0;
+  const before = c.db.get("SELECT 1 FROM stock_movements WHERE reason <> 'opening' AND date(created_at, '+4 hours') < ? LIMIT 1", [c.start]);
+  if (before && !c.db.get("SELECT 1 FROM journal_entries WHERE source_type = 'opening' LIMIT 1")) return 0;
+  const diff = stockValue(c.db) - inventoryBalance(c.db);
+  if (diff === 0) return 0;
+  const today = new Date(Date.now() + 4 * 3_600_000).toISOString().slice(0, 10);
+  return c.post({
+    date: today < c.start ? c.start : today, narration: "Stock value correction (average cost)", sourceType: "revaluation", postKey: `revaluation:${crypto.randomUUID()}`,
+    userId: null, lines: [debit(A.inventory.id, diff), credit(A.stock_revaluation.id, diff)],
+  }) ? 1 : 0;
+}
+

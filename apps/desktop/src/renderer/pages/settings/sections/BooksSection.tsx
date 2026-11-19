@@ -27,8 +27,8 @@ export function BooksSection() {
     if (!window.confirm(`Close the year ending ${formatDate(`${yearEnd}T00:00:00.000Z`)}? Its profit moves to retained earnings and the books lock up to that day.`)) return;
     setClosing(true);
     try {
-      const { entry } = await post<{ entry: { number: string } }>("/api/books/year-end", { yearEnd });
-      toast.success(`Year closed (${entry.number})`);
+      const { entry } = await post<{ entry: { number: string } | null }>("/api/books/year-end", { yearEnd });
+      toast.success(entry ? `Year closed (${entry.number})` : "Year closed: nothing to move, the books are locked");
       await refreshGarage();
     } catch (err) {
       toast.error((err as Error).message);

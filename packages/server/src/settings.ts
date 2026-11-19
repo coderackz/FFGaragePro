@@ -106,6 +106,10 @@ const dayLabel = (ymd: string) =>
 registerSectionCheck("books", (db, next) => {
   const current = getSettings(db).books;
   if (next.lockDate && next.lockDate >= dubaiDate(new Date().toISOString())) throw badRequest("Lock the books up to a date before today");
+  for (const [method, id] of Object.entries(next.methodAccounts)) {
+    const a = db.get<{ type: string; active: number }>("SELECT type, active FROM accounts WHERE id = ?", [id]);
+    if (!a || a.type !== "asset" || !a.active) throw badRequest(`Payments by ${method.replace("_", " ")} must go to an asset account in use (cash, bank, card or cheques)`);
+  }
   if (next.startDate !== current.startDate && current.startDate && db.get("SELECT 1 FROM journal_entries LIMIT 1")) {
     throw badRequest(`The books have started on ${dayLabel(current.startDate)}: the start date can't change`);
   }

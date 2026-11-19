@@ -102,12 +102,25 @@ const lockedError = (lockDate: string) => badRequest(`The books are locked up to
 
 /** Refuses a date a person chose inside the locked period (automatic events move to the first open day instead). */
 export function checkNotLocked(db: Db, date: string): void {
-  const { lockDate } = getSettings(db).books;
+  const { lockDate, startDate } = getSettings(db).books;
   if (lockDate && date <= lockDate) throw lockedError(lockDate);
+  // Once the books have started, nothing a person dates before the start can reach them (it belongs to the opening
+  // balances, already entered). Books that start later: today's work is part of their opening position.
+  const today = new Date(Date.now() + 4 * 3_600_000).toISOString().slice(0, 10);
+  if (startDate && startDate <= today && date < startDate) throw badRequest(`The books start on ${formatDay(startDate)}: use a date on or after it`);
 }
 
-function checkAccounts(db: Db, lines: JournalLineInput[]): void {
+/** Accounts the app keeps in step with documents: a manual journal there would leave them disagreeing. */
+const CONTROL: Record<string, string> = {
+  [SYSTEM_ACCOUNTS.receivables.id]: "Accounts receivable follows customers' documents: use a credit note or a refund",
+  [SYSTEM_ACCOUNTS.inventory.id]: "Inventory follows the stock: use a stock count or Revalue stock",
+  [SYSTEM_ACCOUNTS.wip.id]: "Work in progress follows job cards: change the job card",
+  [SYSTEM_ACCOUNTS.vat_output.id]: "Output VAT follows invoices and credit notes: use a credit note",
+};
+
+function checkAccounts(db: Db, lines: JournalLineInput[], opening: boolean): void {
   for (const l of lines) {
+    if (!opening && CONTROL[l.accountId]) throw badRequest(CONTROL[l.accountId]!);
     const a = db.get<{ active: number }>("SELECT active FROM accounts WHERE id = ?", [l.accountId]);
     if (!a) throw badRequest("A line's account doesn't exist");
     if (!a.active) throw badRequest("A line's account is switched off");
@@ -143,7 +156,7 @@ export function postDraft(db: Db, id: string, userId: string, posts: boolean): E
     }
   }
   const j = journalDraftSchema.parse({ date, narration: d.narration || (opening ? "Opening balances" : ""), lines });
-  checkAccounts(db, j.lines);
+  checkAccounts(db, j.lines, opening);
   if (!opening) checkNotLocked(db, j.date);
   return db.tx(() => {
     const entryId = postEntry(db, {

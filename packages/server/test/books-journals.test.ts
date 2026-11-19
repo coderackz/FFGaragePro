@@ -68,10 +68,9 @@ describe("opening balances", () => {
     await createPart(app, owner, {}, { qty: 2, unitCostFils: 4000 });
     const proposal = (await call(app, "GET", "/api/books/opening/proposal", owner)).body;
     expect(proposal.date).toBe(addDays(start, 29));
-    expect(proposal.lines).toEqual(expect.arrayContaining([
-      expect.objectContaining({ accountId: A.receivables.id, customerId: c.id, debitFils: 30000, creditFils: 0 }),
-      expect.objectContaining({ accountId: A.inventory.id, debitFils: 8000, creditFils: 0 }),
-    ]));
+    // The customer's opening balance and the opening stock post themselves (through clearing); the proposal clears them.
+    expect(app.db.get("SELECT SUM(debit_fils) AS d FROM journal_lines WHERE account_id = ? AND customer_id = ?", [A.receivables.id, c.id])).toEqual({ d: 30000 });
+    expect(proposal.lines).toEqual([expect.objectContaining({ accountId: A.opening_clearing.id, debitFils: 38000, creditFils: 0 })]);
     // The accountant adds the bank balance; the rest goes to opening balance equity.
     const draft = (await call(app, "POST", "/api/books/drafts", owner, { kind: "opening", date: proposal.date, narration: "Opening balances", lines: [...proposal.lines, line(A.bank.id, 50000, 0)] })).body.draft;
     const posted = await call(app, "POST", `/api/books/drafts/${draft.id}/post`, owner);

@@ -9,7 +9,7 @@ import type { NumberSource } from "./numbering";
 import { deviceGuard, NETWORK_PORT, networkRoutes, type NetworkStatus } from "./network";
 import { mailerFor } from "./messages/mailer";
 import { startOutbox } from "./messages/outbox";
-import { postPending } from "./books/pending";
+import { postAllPending } from "./books/pending";
 import { bookRoutes } from "./routes/books";
 import { contactRoutes } from "./routes/contacts";
 import { messageRoutes } from "./routes/messages";
@@ -121,7 +121,7 @@ export async function buildApp(options: AppOptions): Promise<FastifyInstance & {
     app.addHook("onResponse", async (req, reply) => {
       if (req.method === "GET" || reply.statusCode >= 300) return;
       try {
-        postPending(db);
+        await postAllPending(db);
       } catch (error) {
         console.error("Books:", error);
       }

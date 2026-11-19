@@ -1,10 +1,12 @@
 import type { FastifyInstance } from "fastify";
 import {
+  dubaiDate,
   can, CONVERTS_TO, DOC_STATUSES, DOC_TYPES, documentCreateSchema, documentUpdateSchema, formatDocNumber, lineSchema, lineTotals,
   approvalSchema, creditNoteSchema, docTotals, dueDate, formatAED, formatNumberOf, issueSchema, paymentSchema, prefixOf, type ApprovalInput, type DocType, type LineInput,
 } from "@ffgp/shared";
 import { z } from "zod";
 import { audit } from "../audit";
+import { checkNotLocked } from "../books/journals";
 import { LoginThrottle, requireAction, sessionUser, verifyPassword, type SessionUser } from "../auth";
 import { newId, now, type Db } from "../db";
 import { badRequest, conflict, HttpError, notFound, tooManyRequests } from "../errors";
@@ -582,6 +584,8 @@ export function documentRoutes(
     const user = sessionUser(db, req);
     requireAction(user, "payments.record");
     const input = paymentSchema.parse(req.body);
+    // A payment dated back into a locked period of the books (or before they start) is refused.
+    if (input.paidAt) checkNotLocked(db, dubaiDate(input.paidAt));
     // The invoice screen's "Record payment": a receipt allocated wholly to this invoice.
     const check = () => {
       const d = getDoc(req.params.id);

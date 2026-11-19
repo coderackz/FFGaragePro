@@ -9,8 +9,8 @@ import { createDraft, deleteDraft, listDrafts, postDraft, reverseEntry, updateDr
 import { openingProposal } from "../books/opening";
 import { postPending } from "../books/pending";
 import { balanceSheet, health, journals, ledger, profitAndLoss, revalueStock, trialBalance } from "../books/reports";
-import { getEntry } from "../books/journals";
-import { notFound } from "../errors";
+import { getEntry, NOT_HERE } from "../books/journals";
+import { conflict, notFound } from "../errors";
 
 export interface BooksRouteOptions {
   /** This server posts the books (the cloud, or a PC/main computer that isn't linked). */
@@ -24,7 +24,13 @@ const yearEndInput = z.object({ yearEnd: z.string() });
 export function bookRoutes(app: FastifyInstance, db: Db, o: BooksRouteOptions): void {
   /** Reports and lists read the books after catching up (where this server posts them). */
   const fresh = () => {
-    if (o.posts) postPending(db);
+    if (!o.posts) return;
+    try {
+      postPending(db);
+    } catch (error) {
+      // The books still show what's posted; Books health lists what couldn't post.
+      console.error("Books:", error);
+    }
   };
 
   app.get("/api/books/accounts", async (req) => {
@@ -35,12 +41,15 @@ export function bookRoutes(app: FastifyInstance, db: Db, o: BooksRouteOptions): 
   app.post("/api/books/accounts", async (req) => {
     const user = sessionUser(db, req);
     requireAction(user, "books.post");
+    // Accounts are made where the books are posted, so two PCs can't give two accounts the same code.
+    if (!o.posts) throw conflict(NOT_HERE);
     return { account: db.tx(() => createAccount(db, req.body, user.id)) };
   });
 
   app.patch<{ Params: { id: string } }>("/api/books/accounts/:id", async (req) => {
     const user = sessionUser(db, req);
     requireAction(user, "books.post");
+    if (!o.posts) throw conflict(NOT_HERE);
     return { account: db.tx(() => updateAccount(db, req.params.id, req.body, user.id)) };
   });
 
@@ -82,6 +91,7 @@ export function bookRoutes(app: FastifyInstance, db: Db, o: BooksRouteOptions): 
 
   app.get("/api/books/opening/proposal", async (req) => {
     requireAction(sessionUser(db, req), "books.view");
+    fresh();
     return openingProposal(db);
   });
 

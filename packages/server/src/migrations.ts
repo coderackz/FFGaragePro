@@ -620,6 +620,12 @@ CREATE INDEX journal_lines_entry ON journal_lines(entry_id, position);
 CREATE INDEX journal_lines_account ON journal_lines(account_id);
 CREATE INDEX journal_lines_customer ON journal_lines(customer_id);
 CREATE INDEX journal_lines_document ON journal_lines(document_id);
+-- This server's own posting bookkeeping (not synced): events that couldn't post, and why.
+CREATE TABLE book_failures (
+  post_key TEXT PRIMARY KEY,
+  error TEXT NOT NULL,
+  at TEXT NOT NULL
+);
 CREATE TABLE journal_drafts (
   id TEXT PRIMARY KEY,
   kind TEXT NOT NULL CHECK (kind IN ('manual', 'opening')),

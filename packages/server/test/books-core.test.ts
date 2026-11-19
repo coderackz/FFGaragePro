@@ -9,7 +9,7 @@ const A = SYSTEM_ACCOUNTS;
 const line = (accountId: string, debitFils: number, creditFils: number) => ({ accountId, debitFils, creditFils });
 
 async function garage() {
-  const app = await makeApp();
+  const app = await makeApp(undefined, { postsBooks: true });
   const owner = await setUp(app);
   return { app, owner };
 }

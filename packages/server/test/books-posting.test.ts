@@ -130,11 +130,12 @@ describe("automatic posting", () => {
 
   it("dates: before start never, locked → first open day", async () => {
     const { app, owner, customer } = await books();
-    const pay = async (receivedAt: string) =>
-      (await call(app, "POST", "/api/receipts", owner, { customerId: customer.id, amountFils: 1000, method: "cash", receivedAt })).body.receipt;
-    const before = await pay(new Date(Date.now() - 3 * 86_400_000).toISOString());
+    // Typed by a person: refused. Arriving from elsewhere (an offline PC): never posted.
+    expect((await call(app, "POST", "/api/receipts", owner, { customerId: customer.id, amountFils: 1000, method: "cash", receivedAt: new Date(Date.now() - 3 * 86_400_000).toISOString() })).status).toBe(400);
+    app.db.run(`INSERT INTO receipts (id, series, seq, number, customer_id, amount_fils, method, received_at, created_at)
+                VALUES ('r-old', 'P2', 1, 'RCT-P2-00001', ?, 1000, 'cash', ?, ?)`, [customer.id, new Date(Date.now() - 3 * 86_400_000).toISOString(), new Date().toISOString()]);
     postPending(app.db);
-    expect(entry(app, `receipt:${before.id}`)).toEqual([]);
+    expect(entry(app, "receipt:r-old")).toEqual([]);
 
     // A receipt from an offline PC arrives after the owner locked yesterday: it posts today, keeping its date.
     const { app: b, customer: c2 } = await books(addDays(today(), -5));
