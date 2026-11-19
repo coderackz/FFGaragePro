@@ -10,6 +10,7 @@ import { AboutSection } from "./sections/AboutSection";
 import { DocumentsSection } from "./sections/DocumentsSection";
 import { ActivitySection } from "./sections/ActivitySection";
 import { BackupsSection } from "./sections/BackupsSection";
+import { CreditSection } from "./sections/CreditSection";
 import { GarageSection } from "./sections/GarageSection";
 import { InventorySection } from "./sections/InventorySection";
 import { NumberingSection } from "./sections/NumberingSection";
@@ -41,6 +42,7 @@ export const SECTIONS: Record<string, ComponentType> = {
   documents: DocumentsSection,
   numbering: NumberingSection,
   tax: TaxSection,
+  "customers-credit": CreditSection,
   pricing: PricingSection,
   inventory: InventorySection,
   security: SecuritySection,

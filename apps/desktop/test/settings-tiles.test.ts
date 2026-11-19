@@ -41,7 +41,9 @@ describe("settings tiles", () => {
     expect(status("security", c)).toEqual({ tone: "ok", text: "Locks after 15 min" });
     expect(status("activity", c)).toEqual({ tone: "ok", text: "12 changes this week" });
     expect(status("about", c)).toEqual({ tone: "ok", text: "Version 0.1.0" });
-    expect(status("customers-credit", c)).toEqual({ tone: "muted", text: "Coming in Part 2" });
+    expect(status("customers-credit", c)).toEqual({ tone: "ok", text: "Terms 30 days · warn over limit" });
+    expect(tile("customers-credit").coming).toBeUndefined();
+    expect(status("customers-credit", ctx({}, { credit: { defaultTermsDays: 45, overLimit: "approve" } }))).toEqual({ tone: "ok", text: "Terms 45 days · Owner approves over limit" });
     expect(tile("messages").coming).toBe(true);
   });
 

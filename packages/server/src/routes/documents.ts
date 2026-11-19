@@ -305,7 +305,7 @@ export function documentRoutes(
       documents: rows.map((d) => ({
         id: d.id, type: d.type, number: d.number, status: d.status, customerName: d.customer_name, plate: d.plate,
         grossFils: d.gross_fils, paidFils: d.paid_fils, balanceFils: d.type === "invoice" ? d.gross_fils - d.credited_fils - d.paid_fils : 0,
-        createdAt: d.created_at, issuedAt: d.issued_at,
+        createdAt: d.created_at, issuedAt: d.issued_at, dueDate: d.due_date, creditedFils: d.credited_fils,
       })),
     };
   });

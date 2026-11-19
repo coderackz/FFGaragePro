@@ -20,6 +20,8 @@ import { PartsPage } from "./pages/PartsPage";
 import { PurchaseOrderPage } from "./pages/PurchaseOrderPage";
 import { PurchaseOrdersPage } from "./pages/PurchaseOrdersPage";
 import { SuppliersPage } from "./pages/SuppliersPage";
+import { AgingPage } from "./pages/AgingPage";
+import { ReceiptsPage } from "./pages/ReceiptsPage";
 
 export function App() {
   const { state, canSee, retry, startConnect } = useAuth();
@@ -68,6 +70,9 @@ export function App() {
         <Route path="/estimates" element={<DocumentsPage type="estimate" />} />
         <Route path="/jobcards" element={<DocumentsPage type="jobcard" />} />
         <Route path="/invoices" element={<DocumentsPage type="invoice" />} />
+        <Route path="/credit-notes" element={<DocumentsPage type="credit_note" />} />
+        <Route path="/receipts" element={<ReceiptsPage />} />
+        {canSee("reports.view") && <Route path="/reports/aging" element={<AgingPage />} />}
         <Route path="/documents/new/:type" element={<DocumentPage />} />
         <Route path="/documents/:id" element={<DocumentPage />} />
         <Route path="/customers" element={<CustomersPage />} />

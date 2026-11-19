@@ -9,6 +9,10 @@ export interface Garage { name: string; trn: string | null; address: string | nu
 export interface Customer {
   id: string; kind: "individual" | "company"; name: string; phone: string | null; email: string | null; trn: string | null;
   address: string | null; notes: string | null; createdAt: string; plates?: string[];
+  creditAllowed?: boolean; creditLimitFils?: number; termsDays?: number | null; discountPct?: number; lpoRequired?: boolean;
+  openingBalanceFils?: number; openingBalanceDate?: string | null;
+  /** Where the account stands: owed (negative = in credit), past due, unallocated payments, over the credit limit. */
+  balanceFils?: number; overdueFils?: number; creditFils?: number; overLimit?: boolean;
 }
 export interface Vehicle {
   id: string; customerId: string; plate: string; make: string | null; model: string | null; year: number | null; vin: string | null;
@@ -46,7 +50,7 @@ export interface DocumentFull {
 }
 export interface DocumentSummary {
   id: string; type: DocType; number: string; status: string; customerName: string; plate: string | null; grossFils: number;
-  paidFils: number; balanceFils: number; createdAt: string; issuedAt: string | null;
+  paidFils: number; balanceFils: number; createdAt: string; issuedAt: string | null; dueDate?: string | null; creditedFils?: number;
 }
 
 // ---- Inventory ----
