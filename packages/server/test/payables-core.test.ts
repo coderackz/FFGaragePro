@@ -3,7 +3,7 @@ import { describe, expect, it } from "vitest";
 import { dubaiDate, SYSTEM_ACCOUNTS } from "@ffgp/shared";
 import { addDays } from "../src/books/post";
 import { Db } from "../src/db";
-import { addUser, call, createPart, makeApp, setUp, tempDir, type App } from "./helpers";
+import { addUser, call, makeApp, receiveFrom, setUp, tempDir } from "./helpers";
 
 const A = SYSTEM_ACCOUNTS;
 const today = () => dubaiDate(new Date().toISOString());
@@ -13,17 +13,6 @@ async function garage() {
   const owner = await setUp(app);
   const supplier = (await call(app, "POST", "/api/suppliers", owner, { name: "Al Futtaim Parts", termsDays: 30 })).body.supplier;
   return { app, owner, supplier };
-}
-
-export async function receiveFrom(app: App, token: string, supplierId: string, net: number, vat: number, supplierInvoiceDate: string) {
-  const part = await createPart(app, token, { partNo: `P-${Math.random().toString(36).slice(2, 8)}` });
-  const po = (await call(app, "POST", "/api/purchase-orders", token, { supplierId, lines: [{ partId: part.id, description: "Part", qty: 1, unitCostFils: net }] })).body.purchaseOrder;
-  await call(app, "PATCH", `/api/purchase-orders/${po.id}`, token, { status: "sent" });
-  const r = await call(app, "POST", `/api/purchase-orders/${po.id}/receive`, token, {
-    supplierInvoiceNo: `INV-${Math.random().toString(36).slice(2, 6)}`, supplierInvoiceDate, vatFils: vat, lines: [{ poLineId: po.lines[0].id, qty: 1, unitCostFils: net }],
-  });
-  if (r.status !== 200) throw new Error(JSON.stringify(r.body));
-  return r.body.purchaseOrder.receipts.at(-1) as { id: string };
 }
 
 describe("payables core", () => {

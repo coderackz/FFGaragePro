@@ -89,7 +89,7 @@ describe("reports", () => {
     const { app, owner, part, get } = await day();
     const health = await get("/api/books/health");
     expect(health.checks.filter((c: { ok: boolean }) => !c.ok)).toEqual([]);
-    expect(health.checks.map((c: { key: string }) => c.key)).toEqual(["trial_balance", "receivables", "inventory", "output_vat", "opening_clearing"]);
+    expect(health.checks.map((c: { key: string }) => c.key)).toEqual(["trial_balance", "receivables", "payables", "inventory", "output_vat", "opening_clearing"]);
     // A recalculated cost: the books correct inventory by themselves (to stock revaluation, a cost of sales).
     app.db.run("UPDATE parts SET avg_cost_fils = 4500 WHERE id = ?", [part.id]);
     expect((await get("/api/books/health")).checks.find((c: { key: string }) => c.key === "inventory")).toMatchObject({ ok: true, appFils: 4500, booksFils: 4500 });

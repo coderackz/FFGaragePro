@@ -117,7 +117,7 @@ export async function buildApp(options: AppOptions): Promise<FastifyInstance & {
   receiptRoutes(app, db, options.numbers);
   const outbox = options.sendsMessages ? startOutbox(db, { mailerFor: () => mailerFor(db), ...options.sendsMessages }) : null;
   bookRoutes(app, db, { posts: !!options.postsBooks });
-  payablesRoutes(app, db, { posts: !!options.postsBooks });
+  payablesRoutes(app, db, { posts: !!options.postsBooks, numbers: options.numbers });
   if (options.postsBooks) {
     // The books catch up after every change made here (idempotent: each event posts once).
     app.addHook("onResponse", async (req, reply) => {

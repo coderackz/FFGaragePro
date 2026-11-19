@@ -270,3 +270,53 @@ export function postSupplierOpenings(c: PostCtx): number {
   return n;
 }
 
+/** Supplier bills: Dr each line's account (net), input VAT / Cr payables (supplier) gross. A cancelled bill: the mirror. */
+export function postSupplierBills(c: PostCtx): number {
+  let n = 0;
+  const bills = c.db.all<{ id: string; supplier_id: string; supplier_name: string; invoice_no: string; bill_date: string; vat_fils: number; gross_fils: number; status: string; cancelled_at: string | null; posted: number; cancel_posted: number }>(
+    `SELECT b.id, b.supplier_id, s.name AS supplier_name, b.supplier_invoice_no AS invoice_no, b.bill_date, b.vat_fils, b.gross_fils, b.status, b.cancelled_at,
+       EXISTS (SELECT 1 FROM journal_entries e WHERE e.post_key = 'supplier_bill:' || b.id) AS posted,
+       EXISTS (SELECT 1 FROM journal_entries e WHERE e.post_key = 'bill_cancel:' || b.id) AS cancel_posted
+     FROM supplier_bills b JOIN suppliers s ON s.id = b.supplier_id
+     WHERE b.bill_date >= ?
+       AND (NOT EXISTS (SELECT 1 FROM journal_entries e WHERE e.post_key = 'supplier_bill:' || b.id)
+            OR (b.status = 'cancelled' AND NOT EXISTS (SELECT 1 FROM journal_entries e WHERE e.post_key = 'bill_cancel:' || b.id)))
+     ORDER BY b.created_at`,
+    [c.start],
+  );
+  for (const b of bills) {
+    if (c.full()) break;
+    const lines = c.db.all<{ account_id: string; net_fils: number }>("SELECT account_id, net_fils FROM supplier_bill_lines WHERE bill_id = ? ORDER BY position", [b.id]);
+    const entry: PostLine[] = [
+      ...lines.map((l) => debit(l.account_id, l.net_fils)), debit(A.vat_input.id, b.vat_fils), credit(A.payables.id, b.gross_fils, { supplierId: b.supplier_id }),
+    ];
+    const narration = `Bill ${b.invoice_no} from ${b.supplier_name}`;
+    if (!b.posted && c.post({ date: b.bill_date, narration, sourceType: "supplier_bill", sourceId: b.id, postKey: `supplier_bill:${b.id}`, userId: null, lines: entry })) n++;
+    if (b.status === "cancelled" && !b.cancel_posted && b.cancelled_at) {
+      const mirror = entry.map((l) => ({ ...l, debitFils: l.creditFils, creditFils: l.debitFils }));
+      if (c.post({ date: b.cancelled_at, narration: `Cancelled: ${narration}`, sourceType: "bill_cancel", sourceId: b.id, postKey: `bill_cancel:${b.id}`, userId: null, lines: mirror })) n++;
+    }
+  }
+  return n;
+}
+
+/** Supplier payments: Dr payables (supplier) / Cr the account paid from; a cheque sits in cheques issued until it clears. */
+export function postSupplierPayments(c: PostCtx): number {
+  let n = 0;
+  const rows = c.db.all<{ id: string; number: string; supplier_id: string; supplier_name: string; amount_fils: number; method: string; paid_from: string; paid_at: string }>(
+    `SELECT p.id, p.number, p.supplier_id, s.name AS supplier_name, p.amount_fils, p.method, p.paid_from_account_id AS paid_from, p.paid_at
+     FROM supplier_payments p JOIN suppliers s ON s.id = p.supplier_id
+     WHERE p.paid_at >= ? AND ${unposted("'supplier_payment:' || p.id")} ORDER BY p.created_at`,
+    [c.start],
+  );
+  for (const p of rows) {
+    if (c.full()) break;
+    const from = p.method === "cheque" ? A.cheques_issued.id : p.paid_from;
+    if (c.post({
+      date: p.paid_at, narration: `Payment ${p.number} to ${p.supplier_name}`, sourceType: "supplier_payment", sourceId: p.id, postKey: `supplier_payment:${p.id}`,
+      userId: null, lines: [debit(A.payables.id, p.amount_fils, { supplierId: p.supplier_id }), credit(from, p.amount_fils)],
+    })) n++;
+  }
+  return n;
+}
+

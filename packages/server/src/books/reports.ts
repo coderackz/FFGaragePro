@@ -6,6 +6,7 @@ import { getSettings } from "../settings";
 import { ENTRY_SELECT, NOT_HERE, entryOut, getEntry, type EntryOut } from "./journals";
 import { addDays, postEntry } from "./post";
 import { stockValue } from "./rules";
+import { supplierBalance } from "../payables/ledger";
 
 const today = () => dubaiDate(new Date().toISOString());
 const YMD = /^\d{4}-\d{2}-\d{2}$/;
@@ -146,6 +147,7 @@ export function health(db: Db) {
   const check = (key: string, appFils: number, booksFils: number, note: string) => ({ key, ok: appFils === booksFils, appFils, booksFils, differenceFils: appFils - booksFils, note });
   const totals = db.get<{ d: number | null; c: number | null }>("SELECT SUM(debit_fils) AS d, SUM(credit_fils) AS c FROM journal_lines")!;
   const owed = db.all<{ id: string }>("SELECT id FROM customers").reduce((s, c) => s + customerBalance(db, c.id).balanceFils, 0);
+  const owedToSuppliers = db.all<{ id: string }>("SELECT id FROM suppliers").reduce((s, x) => s + supplierBalance(db, x.id).balanceFils, 0);
   const start = getSettings(db).books.startDate;
   const vat = start
     ? db.get<{ v: number | null }>(
@@ -157,6 +159,7 @@ export function health(db: Db) {
   const checks = [
     check("trial_balance", totals.d ?? 0, totals.c ?? 0, "Debits equal credits"),
     check("receivables", owed, accountBalance(db, A.receivables.id), "What customers owe = Accounts receivable"),
+    check("payables", owedToSuppliers, -accountBalance(db, A.payables.id), "What we owe suppliers = Accounts payable"),
     check("inventory", stockValue(db), accountBalance(db, A.inventory.id), "Stock at average cost = Inventory"),
     check("output_vat", vat, -accountBalance(db, A.vat_output.id, ["invoice", "credit_note"]), "VAT on invoices less credit notes = Output VAT"),
     check("opening_clearing", 0, -accountBalance(db, A.opening_clearing.id), "Opening balance clearing is zero once the opening balances are in"),

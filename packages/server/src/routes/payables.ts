@@ -3,16 +3,19 @@ import { can, dubaiDate } from "@ffgp/shared";
 import { requireAction, sessionUser } from "../auth";
 import type { Db } from "../db";
 import { badRequest, notFound } from "../errors";
+import { cancelBill, createBill, getBill, listBills } from "../payables/bills";
 import { payablesAging, supplierBalance, supplierOpenItems, supplierStatement } from "../payables/ledger";
+import { allocatePayment, createPayment, listPayments } from "../payables/payments";
+import type { NumberSource } from "../numbering";
 import { supplierOut } from "./parts";
 
 const YMD = /^\d{4}-\d{2}-\d{2}$/;
 const today = () => dubaiDate(new Date().toISOString());
 
-export interface PayablesRouteOptions { posts: boolean }
+export interface PayablesRouteOptions { posts: boolean; numbers?: NumberSource }
 
 /** Suppliers' money: balances, open items, statements, aging (later tasks add bills, payments, expenses, bank). */
-export function payablesRoutes(app: FastifyInstance, db: Db, _o: PayablesRouteOptions): void {
+export function payablesRoutes(app: FastifyInstance, db: Db, o: PayablesRouteOptions): void {
   const supplier = (id: string) => {
     const s = db.get<Parameters<typeof supplierOut>[0]>("SELECT * FROM suppliers WHERE id = ?", [id]);
     if (!s) throw notFound("Supplier not found");
@@ -44,5 +47,43 @@ export function payablesRoutes(app: FastifyInstance, db: Db, _o: PayablesRouteOp
   app.get<{ Querystring: { asOf?: string } }>("/api/reports/payables-aging", async (req) => {
     requireAction(sessionUser(db, req), "payables.manage");
     return payablesAging(db, req.query.asOf && YMD.test(req.query.asOf) ? req.query.asOf : today());
+  });
+
+  // ── Bills ──
+  app.get<{ Querystring: { supplierId?: string; status?: string } }>("/api/bills", async (req) => {
+    requireAction(sessionUser(db, req), "payables.manage");
+    return { bills: listBills(db, req.query) };
+  });
+  app.get<{ Params: { id: string } }>("/api/bills/:id", async (req) => {
+    requireAction(sessionUser(db, req), "payables.manage");
+    const bill = getBill(db, req.params.id);
+    if (!bill) throw notFound("Bill not found");
+    return { bill };
+  });
+  app.post("/api/bills", async (req) => {
+    const user = sessionUser(db, req);
+    requireAction(user, "payables.manage");
+    return { bill: createBill(db, req.body, user.id) };
+  });
+  app.post<{ Params: { id: string }; Body: { reason?: string } }>("/api/bills/:id/cancel", async (req) => {
+    const user = sessionUser(db, req);
+    requireAction(user, "payables.manage");
+    return { bill: cancelBill(db, req.params.id, req.body?.reason ?? "", user.id) };
+  });
+
+  // ── Paying suppliers ──
+  app.get<{ Querystring: { supplierId?: string } }>("/api/supplier-payments", async (req) => {
+    requireAction(sessionUser(db, req), "payables.manage");
+    return { payments: listPayments(db, req.query.supplierId) };
+  });
+  app.post("/api/supplier-payments", async (req) => {
+    const user = sessionUser(db, req);
+    requireAction(user, "payables.manage");
+    return { payment: await createPayment(db, req.body, user.id, o.numbers) };
+  });
+  app.post<{ Params: { id: string } }>("/api/supplier-payments/:id/allocations", async (req) => {
+    const user = sessionUser(db, req);
+    requireAction(user, "payables.manage");
+    return { payment: allocatePayment(db, req.params.id, req.body, user.id) };
   });
 }

@@ -68,3 +68,15 @@ export async function createPart(
 export async function onHand(app: App, token: string, partId: string): Promise<number> {
   return (await call(app, "GET", `/api/parts/${partId}`, token)).body.part.onHand;
 }
+
+/** Receives one part from a supplier on a goods receipt (the supplier's bill for parts). */
+export async function receiveFrom(app: App, token: string, supplierId: string, net: number, vat: number, supplierInvoiceDate: string) {
+  const part = await createPart(app, token, { partNo: `P-${Math.random().toString(36).slice(2, 8)}` });
+  const po = (await call(app, "POST", "/api/purchase-orders", token, { supplierId, lines: [{ partId: part.id, description: "Part", qty: 1, unitCostFils: net }] })).body.purchaseOrder;
+  await call(app, "PATCH", `/api/purchase-orders/${po.id}`, token, { status: "sent" });
+  const r = await call(app, "POST", `/api/purchase-orders/${po.id}/receive`, token, {
+    supplierInvoiceNo: `INV-${Math.random().toString(36).slice(2, 6)}`, supplierInvoiceDate, vatFils: vat, lines: [{ poLineId: po.lines[0].id, qty: 1, unitCostFils: net }],
+  });
+  if (r.status !== 200) throw new Error(JSON.stringify(r.body));
+  return r.body.purchaseOrder.receipts.at(-1) as { id: string };
+}
