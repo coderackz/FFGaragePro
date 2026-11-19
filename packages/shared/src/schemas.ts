@@ -59,6 +59,8 @@ export const customerSchema = z.object({
   nameAr: optionalText(200),
   addressAr: optionalText(500),
   docLanguage: z.enum(DOC_LANGUAGES).default("en"),
+  /** The language of messages to the customer's own phone/email (contacts have their own). */
+  messageLanguage: z.enum(["en", "ar"]).default("en"),
   // Credit (Part 2): cash customers by default.
   creditAllowed: z.boolean().default(false),
   creditLimitFils: z.number().int().min(0).max(10_000_000_00).default(0),
@@ -127,6 +129,9 @@ export const documentUpdateSchema = z.object({
   approval: approvalSchema.optional(),
   lpoNumber: patchText(60),
   language: z.enum(DOC_LANGUAGES).optional(),
+  /** Job cards: the driver who gets "vehicle received/ready" messages. */
+  driverName: patchText(120),
+  driverPhone: patchText(40),
 });
 
 /** Issuing an invoice: the customer's LPO number, and the Owner's approval when over the credit limit. */

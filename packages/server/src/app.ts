@@ -7,6 +7,7 @@ import { Db } from "./db";
 import { HttpError } from "./errors";
 import type { NumberSource } from "./numbering";
 import { deviceGuard, NETWORK_PORT, networkRoutes, type NetworkStatus } from "./network";
+import { contactRoutes } from "./routes/contacts";
 import { customerRoutes } from "./routes/customers";
 import { documentRoutes } from "./routes/documents";
 import { partRoutes } from "./routes/parts";
@@ -89,6 +90,7 @@ export async function buildApp(options: AppOptions): Promise<FastifyInstance & {
   settingsRoutes(app, db);
   userRoutes(app, db);
   customerRoutes(app, db);
+  contactRoutes(app, db);
   const documents = documentRoutes(app, db, options.numbers, { throttle, clock: now });
   partRoutes(app, db);
   purchaseRoutes(app, db, documents, options.numbers);

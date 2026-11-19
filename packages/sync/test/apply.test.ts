@@ -354,4 +354,20 @@ describe("English + Arabic (Part 3a)", () => {
     expect(C.db.get("SELECT name_ar FROM parts WHERE id = ?", [part.id])).toEqual({ name_ar: "فلتر زيت" });
     expect(C.db.get("SELECT language FROM documents WHERE id = ?", [doc.id])).toEqual({ language: "en_ar" });
   });
+  it("sync carries contacts and messages", async () => {
+    const { A, C, token, sync } = await pair();
+    const c = (await call(A, "POST", "/api/customers", token, { name: "Gulf Fleet", kind: "company" })).body.customer;
+    const contact = (await call(A, "POST", `/api/customers/${c.id}/contacts`, token, { name: "Accounts", email: "a@gulf.ae", getsInvoices: true })).body.contact;
+    const t = new Date().toISOString();
+    A.db.run(
+      `INSERT INTO messages (id, customer_id, contact_id, event, channel, recipient, subject, body, status, created_at, updated_at)
+       VALUES ('m1', ?, ?, 'invoice_issued', 'email', 'a@gulf.ae', 'Invoice', 'Hello', 'queued', ?, ?)`,
+      [c.id, contact.id, t, t],
+    );
+    A.db.run("INSERT INTO message_files (id, message_id, file_name, data_base64, created_at) VALUES ('f1', 'm1', 'INV.pdf', 'JVBERi0=', ?)", [t]);
+    sync();
+    expect(C.db.get("SELECT name, gets_invoices FROM customer_contacts WHERE id = ?", [contact.id])).toEqual({ name: "Accounts", gets_invoices: 1 });
+    expect(C.db.get("SELECT status, recipient FROM messages WHERE id = 'm1'")).toEqual({ status: "queued", recipient: "a@gulf.ae" });
+    expect(C.db.get("SELECT file_name, data_base64 FROM message_files WHERE id = 'f1'")).toEqual({ file_name: "INV.pdf", data_base64: "JVBERi0=" });
+  });
 });

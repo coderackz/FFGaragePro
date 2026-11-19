@@ -333,3 +333,19 @@ starts and travel with it; the cloud only sends (it can't draw PDFs).
 - English-only invoices, credit notes and receipts also print the total in words (English).
 - Amount in words, Arabic: "فقط … لا غير", with the counted-noun rules (درهم واحد، درهمان، ثلاثة دراهم، أحد عشر
   درهماً، مائتا درهم) and the same for fils.
+
+## Part 3b decisions (2026-11-19)
+My calls, for checking (plan `docs/superpowers/plans/2026-11-19-settings-part3b-messages.md`):
+- Triggers run where the action happens (the PC or browser), because that is where the PDF can be made. An automatic email is queued silently; "ask" opens the Send dialog.
+- Monthly statements are always "ask": from the 1st, the dashboard shows "Statements to send (N)".
+- Payment due and overdue reminders are email only, automatic and off by default. They are queued daily by the sender place, at most once per invoice.
+- Recipients:
+  - Approvals, invoices and statements go to the contacts ticked for them.
+  - "Vehicle received/ready" go to the job card's driver, else to the contacts ticked "vehicle ready".
+  - An individual's own phone/email count as a contact that gets everything.
+  - A company's own phone/email are used only when no contact has the tick.
+- `customers.message_language` sets the language of messages to the customer's own phone/email.
+- PDFs made in the browser app are images of A4 pages (`html-to-image` + `pdf-lib`).
+- "Send test email" queues a real message, so it tests the real sender, the cloud included.
+- "Estimate ready" fires from the Send menu; a second estimate message becomes "Extra work needs approval". "Vehicle received" fires when a job card is created; "vehicle ready" when it is completed.
+- Automatic messages have a unique dedupe key (`event:document:recipient`), so they never go twice.
