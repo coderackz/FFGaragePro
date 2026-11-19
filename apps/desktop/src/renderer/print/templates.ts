@@ -100,9 +100,12 @@ function garageSignature(garage: Garage, settings: Settings, lang: DocLanguage =
   const images = stamp || signature
     ? `<div class="sigimg">${signature ? `<img class="signature" src="${esc(signature)}" alt="">` : ""}${stamp ? `<img class="stamp" src="${esc(stamp)}" alt="">` : ""}</div>`
     : "";
-  const ar = lang === "en_ar" ? ` / <bdi lang="ar">عن ${esc(settings.garage.nameAr || garage.name)}</bdi>` : "";
+  const ar = lang === "en_ar" && settings.garage.nameAr ? ` / <bdi lang="ar">عن ${esc(settings.garage.nameAr)}</bdi>` : "";
   return `<div>${images}<span></span>For ${esc(garage.name)}${ar}</div>`;
 }
+
+/** "يوم", "يومان", "أيام" (3–10) or "يوماً" (11+) after a number of days. */
+const arDays = (n: number) => (n === 1 ? "يوم" : n === 2 ? "يومان" : n % 100 >= 3 && n % 100 <= 10 ? "أيام" : "يوماً");
 
 /** Arabic text on its own right-to-left line, or nothing when it's blank. */
 const arLine = (text: string | null | undefined, cls = "arl") => (text ? `<div class="${cls}" dir="rtl" lang="ar">${esc(text)}</div>` : "");
@@ -165,7 +168,7 @@ export function renderDocumentHtml(doc: DocumentFull, garage: Garage, settings: 
       </table>`;
 
   const signatures = isJob
-    ? `${ds.jobCardSignature ? `<div class="auth"><b>${t("I authorise the work above")}</b> and agree to pay for it on collection.</div>` : ""}<div class="sigs"><div><span></span>${t("Service advisor")}</div><div><span></span>${t("Technician")}</div><div><span></span>${t("Customer")}</div></div>`
+    ? `${ds.jobCardSignature ? `<div class="auth"><b>I authorise the work above</b> and agree to pay for it on collection.${bi ? arLine("أوافق على الأعمال المذكورة أعلاه وأتعهد بدفع قيمتها عند الاستلام") : ""}</div>` : ""}<div class="sigs"><div><span></span>${t("Service advisor")}</div><div><span></span>${t("Technician")}</div><div><span></span>${t("Customer")}</div></div>`
     : isInvoice || isCredit
       ? `<div class="sigs two"><div><span></span>${t("Received by (customer)")}</div>${garageSignature(garage, settings, lang)}</div>`
       : `<div class="sigs two"><div><span></span>${t("Customer approval")}</div>${garageSignature(garage, settings, lang)}</div>`;
@@ -213,7 +216,7 @@ export function renderDocumentHtml(doc: DocumentFull, garage: Garage, settings: 
   </div>
   <table class="items"><thead>${head}</thead><tbody>${rows || `<tr><td colspan="8" style="color:#a1a1aa">No items</td></tr>`}</tbody></table>
   <div class="bottom">
-    <div class="notes">${isCredit && doc.reason ? `<h3>${t("Reason")}</h3>${esc(doc.reason)}` : ""}${doc.notes ? `<h3>${t("Notes")}</h3>${esc(doc.notes)}` : ""}${doc.type === "estimate" ? `<div style="margin-top:3mm;color:#71717a">Prices in AED. Estimate valid for ${ds.estimateValidDays} days. Additional work found during repair will be quoted separately.</div>` : ""}${isInvoice && ds.warranty ? `<div class="warranty"><b>${t("Warranty")}:</b> ${esc(ds.warranty)}</div>` : ""}${isInvoice && bi ? arLine(ds.warrantyAr, "warranty arl") : ""}${words}</div>
+    <div class="notes">${isCredit && doc.reason ? `<h3>${t("Reason")}</h3>${esc(doc.reason)}` : ""}${doc.notes ? `<h3>${t("Notes")}</h3>${esc(doc.notes)}` : ""}${doc.type === "estimate" ? `<div style="margin-top:3mm;color:#71717a">Prices in AED. Estimate valid for ${ds.estimateValidDays} days. Additional work found during repair will be quoted separately.</div>${bi ? arLine(`الأسعار بالدرهم. عرض السعر صالح لمدة ${ds.estimateValidDays} ${arDays(ds.estimateValidDays)}. أي أعمال إضافية تظهر أثناء الإصلاح يتم تسعيرها بشكل منفصل.`) : ""}` : ""}${isInvoice && ds.warranty ? `<div class="warranty"><b>${t("Warranty")}:</b> ${esc(ds.warranty)}</div>` : ""}${isInvoice && bi ? arLine(ds.warrantyAr, "warranty arl") : ""}${words}</div>
     ${totals}
   </div>
   ${terms}

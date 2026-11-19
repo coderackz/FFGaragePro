@@ -182,7 +182,8 @@ describe("English + Arabic documents", () => {
 
   it("job cards and estimates are bilingual too", () => {
     const job = renderDocumentHtml({ ...SAMPLE_DOCUMENTS.jobcard, language: "en_ar" }, SAMPLE_GARAGE, settings());
-    expect(job).toContain("I authorise the work above / أوافق على الأعمال المذكورة أعلاه");
+    expect(job).toContain("<b>I authorise the work above</b> and agree to pay for it on collection.");
+    expect(job).toContain("أوافق على الأعمال المذكورة أعلاه وأتعهد بدفع قيمتها عند الاستلام");
     expect(job).toContain("Technician / الفني");
     expect(renderDocumentHtml({ ...SAMPLE_DOCUMENTS.estimate, language: "en_ar" }, SAMPLE_GARAGE, settings())).toContain("Customer approval / موافقة العميل");
   });
@@ -225,4 +226,25 @@ describe("English + Arabic documents", () => {
 it("a date after an Arabic label stays in English order", () => {
   const html = renderDoc({ ...SAMPLE_DOCUMENTS.invoice, language: "en_ar" }, SAMPLE_GARAGE, settings());
   expect(html).toContain('Date / <bdi lang="ar">التاريخ</bdi>: ');
+});
+
+describe("review fixes (Part 3a)", () => {
+  const plain = (html: string) => html.replace(/<\/?bdi[^>]*>/g, "");
+  it("estimate validity is in Arabic too on bilingual estimates", () => {
+    const est = (days: number) => plain(renderDoc({ ...SAMPLE_DOCUMENTS.estimate, language: "en_ar" }, SAMPLE_GARAGE, settings({ documents: { estimateValidDays: days } })));
+    expect(est(14)).toContain("صالح لمدة 14 يوماً");
+    expect(est(7)).toContain("صالح لمدة 7 أيام");
+    expect(plain(renderDoc({ ...SAMPLE_DOCUMENTS.estimate, language: "en" }, SAMPLE_GARAGE, settings()))).not.toContain("صالح لمدة");
+  });
+  it("signature has no Arabic half without an Arabic garage name", () => {
+    const html = plain(renderDoc({ ...SAMPLE_DOCUMENTS.invoice, language: "en_ar" }, SAMPLE_GARAGE, settings()));
+    expect(html).not.toContain(`عن ${SAMPLE_GARAGE.name}`);
+    expect(plain(renderDoc({ ...SAMPLE_DOCUMENTS.invoice, language: "en_ar" }, SAMPLE_GARAGE, settings({ garage: { nameAr: "العناية بالسيارات" } }))))
+      .toContain("عن العناية بالسيارات");
+  });
+  it("TRN and VAT use the FTA wording", () => {
+    const html = plain(renderDoc({ ...SAMPLE_DOCUMENTS.invoice, language: "en_ar", customer: { ...SAMPLE_DOCUMENTS.invoice.customer, trn: "100000000000003" } }, SAMPLE_GARAGE, settings()));
+    expect(html).toContain("TRN / رقم التسجيل الضريبي");
+    expect(html).toContain("VAT 5% / ضريبة القيمة المضافة 5%");
+  });
 });

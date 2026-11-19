@@ -73,7 +73,8 @@ function arScale(c: number, noun: Noun, last: boolean): string {
   if (c === 2) return noun.two;
   const k = c % 100;
   const word = k >= 3 && k <= 10 ? noun.few : k >= 11 ? (last ? noun.one : noun.many) : noun.one;
-  return `${arUnder1000(c)} ${word}`;
+  // "مائتا ألف", "مائتا مليون": two hundred right before the scale word loses its final nun.
+  return `${arUnder1000(c).replace(/مائتان$/, "مائتا")} ${word}`;
 }
 
 /** n of a currency noun: "درهم واحد", "درهمان", "ثلاثة دراهم", "أحد عشر درهماً", "مائتا درهم", "صفر درهم". */

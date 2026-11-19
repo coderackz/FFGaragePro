@@ -44,7 +44,7 @@ const AR: Record<string, string> = {
   Due: "تاريخ الاستحقاق",
   LPO: "أمر الشراء",
   Odometer: "عداد المسافات",
-  TRN: "الرقم الضريبي",
+  TRN: "رقم التسجيل الضريبي",
   Notes: "ملاحظات",
   Reason: "السبب",
   Warranty: "الضمان",
@@ -95,5 +95,5 @@ export function H(en: string, lang: DocLanguage): string {
 
 /** "VAT 5%" or "VAT 5% / الضريبة 5%". */
 export function vatLabel(pct: number, lang: DocLanguage): string {
-  return lang === "en_ar" ? `VAT ${pct}% / <bdi lang="ar">الضريبة ${pct}%</bdi>` : `VAT ${pct}%`;
+  return lang === "en_ar" ? `VAT ${pct}% / <bdi lang="ar">ضريبة القيمة المضافة ${pct}%</bdi>` : `VAT ${pct}%`;
 }

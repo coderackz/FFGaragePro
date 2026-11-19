@@ -22,5 +22,11 @@ describe("amountInWords", () => {
     expect(amountInWords(fils, "en")).toBe(en);
     expect(amountInWords(fils, "ar")).toBe(ar);
   });
+  it("two hundred thousand / million use the construct form (review fix)", () => {
+    expect(amountInWords(20000000, "ar")).toBe("فقط مائتا ألف درهم لا غير");
+    expect(amountInWords(20050000, "ar")).toBe("فقط مائتا ألف وخمسمائة درهم لا غير");
+    expect(amountInWords(120000000, "ar")).toBe("فقط مليون ومائتا ألف درهم لا غير");
+    expect(amountInWords(20000000000, "ar")).toBe("فقط مائتا مليون درهم لا غير");
+  });
   it("negative amounts use the absolute value", () => expect(amountInWords(-100, "en")).toBe("One dirham only"));
 });
