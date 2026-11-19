@@ -10,6 +10,7 @@ const TITLES = {
   estimate: { en: "ESTIMATE", ar: "عرض سعر" },
   jobcard: { en: "JOB CARD", ar: "بطاقة عمل" },
   invoice: { en: "TAX INVOICE", ar: "فاتورة ضريبية" },
+  credit_note: { en: "TAX CREDIT NOTE", ar: "إشعار دائن ضريبي" },
 } as const;
 
 /** A4 page styles shared by every printed document. */

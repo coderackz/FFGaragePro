@@ -42,6 +42,8 @@ export const userUpdateSchema = z.object({
   password: passwordSchema.optional(),
 });
 
+const ymd = z.string().regex(/^\d{4}-\d{2}-\d{2}$/, "Use a date like 2026-01-31");
+
 export const customerSchema = z.object({
   kind: z.enum(["individual", "company"]).default("individual"),
   name: text().min(1, "Name is required"),
@@ -50,6 +52,16 @@ export const customerSchema = z.object({
   trn: optionalText(20),
   address: optionalText(500),
   notes: optionalText(2000),
+  // Credit (Part 2): cash customers by default.
+  creditAllowed: z.boolean().default(false),
+  creditLimitFils: z.number().int().min(0).max(10_000_000_00).default(0),
+  /** Payment terms in days; null = the garage's default (Settings → Customers & credit). */
+  termsDays: z.number().int().min(0).max(365).nullable().default(null),
+  discountPct: z.number().min(0).max(100).default(0),
+  lpoRequired: z.boolean().default(false),
+  /** Owed before using the app (negative = the customer is in credit). */
+  openingBalanceFils: z.number().int().min(-10_000_000_00).max(10_000_000_00).default(0),
+  openingBalanceDate: ymd.nullable().default(null),
 });
 export type CustomerInput = z.infer<typeof customerSchema>;
 
@@ -103,7 +115,11 @@ export const documentUpdateSchema = z.object({
   status: z.string().optional(),
   lines: z.array(lineSchema).max(500).optional(),
   approval: approvalSchema.optional(),
+  lpoNumber: patchText(60),
 });
+
+/** Issuing an invoice: the customer's LPO number, and the Owner's approval when over the credit limit. */
+export const issueSchema = z.object({ lpoNumber: optionalText(60), approval: approvalSchema.optional() });
 
 export const PAYMENT_METHODS = ["cash", "card", "bank_transfer", "cheque"] as const;
 export const paymentSchema = z.object({
@@ -113,6 +129,32 @@ export const paymentSchema = z.object({
   paidAt: z.string().datetime().optional(),
 });
 export type PaymentInput = z.infer<typeof paymentSchema>;
+
+/** A payment from a customer, split across invoices (oldest first when not given). Negative = a refund of credit. */
+export const receiptSchema = z.object({
+  customerId: z.string().uuid(),
+  amountFils: z.number().int().min(-10_000_000_00).max(10_000_000_00).refine((n) => n !== 0, "Amount can't be zero"),
+  method: z.enum(PAYMENT_METHODS),
+  reference: optionalText(120),
+  chequeDate: ymd.nullable().optional(),
+  receivedAt: z.string().datetime().optional(),
+  allocations: z.array(z.object({ documentId: z.string().uuid(), amountFils: z.number().int().positive("Allocate more than zero") })).max(500).optional(),
+});
+export type ReceiptInput = z.infer<typeof receiptSchema>;
+
+/** More allocations for a receipt: positive from what's left of it, negative to undo one. */
+export const allocationSchema = z.object({
+  allocations: z.array(z.object({ documentId: z.string().uuid(), amountFils: z.number().int().refine((n) => n !== 0, "Amount can't be zero") }))
+    .min(1, "Choose at least one invoice").max(500),
+});
+
+/** A tax credit note against an issued invoice: chosen lines (or everything still uncredited) and why. */
+export const creditNoteSchema = z.object({
+  reason: z.string().trim().min(3, "Give a reason").max(500),
+  lines: z.array(z.object({ lineId: z.string(), qty: z.number().positive().max(100000) })).max(500).optional(),
+  returnToStock: z.boolean().default(true),
+  approval: approvalSchema.optional(),
+});
 
 // ---- Inventory ----
 

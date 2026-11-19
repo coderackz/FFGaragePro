@@ -18,9 +18,9 @@ import { useApi } from "../lib/useApi";
 import { useOwnerApproval } from "../components/OwnerApproval";
 import { printDocument } from "../print/print";
 
-const LIST_PATH: Record<DocType, string> = { estimate: "/estimates", jobcard: "/jobcards", invoice: "/invoices" };
+const LIST_PATH: Record<DocType, string> = { estimate: "/estimates", jobcard: "/jobcards", invoice: "/invoices", credit_note: "/credit-notes" };
 const KIND_LABELS: Record<LineKind, string> = { labour: "Labour", part: "Part", other: "Other" };
-const MANUAL: Record<DocType, readonly string[]> = { estimate: ["draft", "sent", "approved"], jobcard: ["open", "in_progress", "completed"], invoice: [] };
+const MANUAL: Record<DocType, readonly string[]> = { estimate: ["draft", "sent", "approved"], jobcard: ["open", "in_progress", "completed"], invoice: [], credit_note: [] };
 
 interface Draft {
   customer: { id: string; name: string } | null;

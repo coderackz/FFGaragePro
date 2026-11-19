@@ -12,6 +12,7 @@ const SUBTITLES: Record<DocType, string> = {
   estimate: "Quotes for the customer to approve",
   jobcard: "Work in the workshop",
   invoice: "Tax invoices and payments",
+  credit_note: "Tax credit notes correcting issued invoices",
 };
 
 export function DocumentsPage({ type }: { type: DocType }) {

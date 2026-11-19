@@ -39,4 +39,5 @@ export const SAMPLE_DOCUMENTS: Record<DocumentFull["type"], DocumentFull> = {
   estimate: sample("estimate", "EST-00088", "sent"),
   jobcard: sample("jobcard", "JC-00102", "open"),
   invoice: sample("invoice", "INV-00143", "issued"),
+  credit_note: sample("credit_note", "CN-00007", "issued"),
 };

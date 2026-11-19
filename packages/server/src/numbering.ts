@@ -31,6 +31,19 @@ export function previewNumber(db: Db, kind: NumberKind): number {
   return nextInSeries(db, kind, "");
 }
 
+/** Where each kind of number is kept: documents (by type), purchase orders, receipts. */
+function seriesTable(kind: NumberKind): { table: string; where: string; args: string[] } {
+  if (kind === "purchase_order") return { table: "purchase_orders", where: "", args: [] };
+  if (kind === "receipt") return { table: "receipts", where: "", args: [] };
+  return { table: "documents", where: "type = ? AND", args: [kind] };
+}
+
+/** Whether any number of this kind already starts with `prefix-`. */
+export function numberInUse(db: Db, kind: NumberKind, prefix: string): boolean {
+  const { table, where, args } = seriesTable(kind);
+  return !!db.get(`SELECT 1 FROM ${table} WHERE ${where} number LIKE ? LIMIT 1`, [...args, `${prefix}-%`]);
+}
+
 /** The start the garage chose for its main series ("next invoice number"), 1 by default. */
 function startFor(db: Db, kind: NumberKind): number {
   return startOf(readSettings(db.all<{ key: string; value: string }>("SELECT key, value FROM settings WHERE key LIKE 'numbering.%'")), kind);
@@ -40,10 +53,8 @@ function nextInSeries(db: Db, kind: NumberKind, series: string): number {
   const key = series ? `${kind}@${series}` : kind;
   const counter = db.get<{ next: number }>("SELECT next FROM counters WHERE type = ?", [key])?.next ?? 1;
   // Never below what's already in the series: numbers can arrive from elsewhere (the cloud) while this counter stands still.
-  const used =
-    kind === "purchase_order"
-      ? db.get<{ m: number | null }>("SELECT MAX(seq) AS m FROM purchase_orders WHERE series = ?", [series])?.m
-      : db.get<{ m: number | null }>("SELECT MAX(seq) AS m FROM documents WHERE type = ? AND series = ?", [kind, series])?.m;
+  const { table, where, args } = seriesTable(kind);
+  const used = db.get<{ m: number | null }>(`SELECT MAX(seq) AS m FROM ${table} WHERE ${where} series = ?`, [...args, series])?.m;
   // The chosen start only lifts the main series; an offline PC's own series (P1, P2…) runs on its own.
   return Math.max(counter, (used ?? 0) + 1, series ? 1 : startFor(db, kind));
 }

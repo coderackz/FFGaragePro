@@ -1,15 +1,17 @@
-import { formatDocNumber, formatPoNumber, NUMBER_KINDS, type NumberKind, type Settings } from "@ffgp/shared";
+import { formatNumberOf, NUMBER_KINDS, type NumberKind, type Settings } from "@ffgp/shared";
 import { useEffect } from "react";
 import { Card, Field, Input, NumberInput } from "../../../components/ui";
 import { useApi } from "../../../lib/useApi";
 import { SectionShell } from "../SectionShell";
 import { useSectionForm } from "../useSectionForm";
 
-const KIND: Record<NumberKind, { label: string; key: "estimate" | "jobcard" | "invoice" | "purchaseOrder" }> = {
+const KIND: Record<NumberKind, { label: string; key: "estimate" | "jobcard" | "invoice" | "purchaseOrder" | "creditNote" | "receipt" }> = {
   estimate: { label: "Estimates", key: "estimate" },
   jobcard: { label: "Job cards", key: "jobcard" },
   invoice: { label: "Invoices", key: "invoice" },
   purchase_order: { label: "Purchase orders", key: "purchaseOrder" },
+  credit_note: { label: "Credit notes", key: "creditNote" },
+  receipt: { label: "Receipts", key: "receipt" },
 };
 const digits = (number: string) => Number(/(\d+)$/.exec(number)?.[1] ?? 1);
 
@@ -44,7 +46,7 @@ export function NumberingSection() {
           {NUMBER_KINDS.map((k) => {
             const p = `${KIND[k].key}Prefix` as const;
             const s = `${KIND[k].key}Start` as const;
-            const example = k === "purchase_order" ? formatPoNumber(form.value[s], "", form.value[p]) : formatDocNumber(k, form.value[s], "", form.value[p]);
+            const example = formatNumberOf(k, form.value[s], "", form.value[p]);
             return (
               <div key={k} className="grid items-end gap-4 sm:grid-cols-[1fr_140px_160px]">
                 <div>

@@ -11,7 +11,7 @@ function ctx(patch: Partial<TileContext> = {}, settings: Partial<{ [S in keyof S
   return {
     garage: { name: "Al Quoz Auto Care", trn: null, address: null, phone: null, email: null, vatRateBp: 500 },
     settings: s,
-    overview: { nextNumbers: { estimate: "EST-00001", jobcard: "JC-00001", invoice: "INV-00143", purchase_order: "PO-00001" }, users: 4, changesThisWeek: 12 },
+    overview: { nextNumbers: { estimate: "EST-00001", jobcard: "JC-00001", invoice: "INV-00143", purchase_order: "PO-00001", credit_note: "CN-00001", receipt: "RCT-00001" }, users: 4, changesThisWeek: 12 },
     isCloud: false,
     pcMode: "local",
     backup: null,

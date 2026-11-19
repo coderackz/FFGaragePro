@@ -31,6 +31,7 @@ const MANUAL_STATUSES: Record<DocType, readonly string[]> = {
   estimate: ["draft", "sent", "approved"],
   jobcard: ["open", "in_progress", "completed"],
   invoice: [],
+  credit_note: [],
 };
 
 function linesEditable(doc: DocRow): boolean {
