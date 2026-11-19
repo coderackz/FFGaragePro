@@ -31,10 +31,11 @@ export function previewNumber(db: Db, kind: NumberKind): number {
   return nextInSeries(db, kind, "");
 }
 
-/** Where each kind of number is kept: documents (by type), purchase orders, receipts. */
+/** Where each kind of number is kept: documents (by type), purchase orders, receipts, journal entries. */
 function seriesTable(kind: NumberKind): { table: string; where: string; args: string[] } {
   if (kind === "purchase_order") return { table: "purchase_orders", where: "", args: [] };
   if (kind === "receipt") return { table: "receipts", where: "", args: [] };
+  if (kind === "journal") return { table: "journal_entries", where: "", args: [] };
   return { table: "documents", where: "type = ? AND", args: [kind] };
 }
 

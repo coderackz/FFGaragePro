@@ -1,4 +1,5 @@
 import { z } from "zod";
+import { SYSTEM_ACCOUNTS } from "./books";
 import { DEFAULT_MESSAGE_TEXTS } from "./message-texts";
 import { MESSAGE_EVENTS, PLACEHOLDERS, unknownPlaceholders, type MessageEvent } from "./messages";
 import type { NumberKind } from "./rules";
@@ -8,7 +9,7 @@ import type { NumberKind } from "./rules";
  * people changing different settings on two PCs never overwrite each other. Every field has a default.
  */
 export const SETTINGS_SECTIONS = [
-  "garage", "documents", "numbering", "tax", "pricing", "inventory", "security", "credit", "messages",
+  "garage", "documents", "numbering", "tax", "pricing", "inventory", "security", "credit", "messages", "books",
 ] as const;
 export type SettingsSection = (typeof SETTINGS_SECTIONS)[number];
 
@@ -115,15 +116,17 @@ export const settingsSchemas = {
       purchaseOrderPrefix: prefix("PO"),
       creditNotePrefix: prefix("CN"),
       receiptPrefix: prefix("RCT"),
+      journalPrefix: prefix("JV"),
       estimateStart: start,
       jobcardStart: start,
       invoiceStart: start,
       purchaseOrderStart: start,
       creditNoteStart: start,
       receiptStart: start,
+      journalStart: start,
     })
     .refine(
-      (n) => new Set([n.estimatePrefix, n.jobcardPrefix, n.invoicePrefix, n.purchaseOrderPrefix, n.creditNotePrefix, n.receiptPrefix]).size === 6,
+      (n) => new Set([n.estimatePrefix, n.jobcardPrefix, n.invoicePrefix, n.purchaseOrderPrefix, n.creditNotePrefix, n.receiptPrefix, n.journalPrefix]).size === 7,
       { message: "Each document type needs its own prefix", path: ["invoicePrefix"] },
     ),
   tax: z.object({
@@ -159,6 +162,22 @@ export const settingsSchemas = {
     dueSoonDays: z.number().int().min(1).max(60).default(3),
     overdueDays: z.number().int().min(1).max(120).default(7),
     ...(Object.fromEntries(MESSAGE_EVENTS.map((e) => [e, eventSchema(e)])) as { [E in MessageEvent]: ReturnType<typeof eventSchema> }),
+  }),
+  /** The books (Accounting): when they start, the fiscal year, the lock date, and where each payment method is banked. */
+  books: z.object({
+    startDate: z.preprocess(blankToNull, z.string().regex(/^\d{4}-\d{2}-\d{2}$/, "Use a date like 2026-01-01").nullable()).default(null),
+    fiscalYearStartMonth: z.number().int().min(1).max(12).default(1),
+    lockDate: z.preprocess(blankToNull, z.string().regex(/^\d{4}-\d{2}-\d{2}$/, "Use a date like 2026-01-31").nullable()).default(null),
+    methodAccounts: z
+      .object({
+        cash: z.string().min(1).default(SYSTEM_ACCOUNTS.cash.id),
+        card: z.string().min(1).default(SYSTEM_ACCOUNTS.card_clearing.id),
+        bank_transfer: z.string().min(1).default(SYSTEM_ACCOUNTS.bank.id),
+        cheque: z.string().min(1).default(SYSTEM_ACCOUNTS.cheques_in_hand.id),
+      })
+      .default({
+        cash: SYSTEM_ACCOUNTS.cash.id, card: SYSTEM_ACCOUNTS.card_clearing.id, bank_transfer: SYSTEM_ACCOUNTS.bank.id, cheque: SYSTEM_ACCOUNTS.cheques_in_hand.id,
+      }),
   }),
 } as const;
 
@@ -202,8 +221,8 @@ export function sectionRows(section: SettingsSection, value: unknown): { key: st
   return fieldsOf(section).map((f) => ({ key: `${section}.${f}`, value: JSON.stringify(parsed[f] ?? null) }));
 }
 
-const NUMBERING_FIELD: Record<NumberKind, "estimate" | "jobcard" | "invoice" | "purchaseOrder" | "creditNote" | "receipt"> = {
-  estimate: "estimate", jobcard: "jobcard", invoice: "invoice", purchase_order: "purchaseOrder", credit_note: "creditNote", receipt: "receipt",
+const NUMBERING_FIELD: Record<NumberKind, "estimate" | "jobcard" | "invoice" | "purchaseOrder" | "creditNote" | "receipt" | "journal"> = {
+  estimate: "estimate", jobcard: "jobcard", invoice: "invoice", purchase_order: "purchaseOrder", credit_note: "creditNote", receipt: "receipt", journal: "journal",
 };
 
 /** The prefix the garage uses for this kind of number (EST, JC, INV, PO by default). */
