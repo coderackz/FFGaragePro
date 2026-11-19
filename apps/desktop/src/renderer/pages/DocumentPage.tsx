@@ -15,6 +15,7 @@ import { useAuth } from "../lib/auth";
 import { PAYMENT_LABELS, formatAED, formatDate, formatDateTime, formatKm } from "../lib/format";
 import type { Customer, DocLine, DocumentFull, Vehicle } from "../lib/types";
 import { useApi } from "../lib/useApi";
+import { useOwnerApproval } from "../components/OwnerApproval";
 import { printDocument } from "../print/print";
 
 const LIST_PATH: Record<DocType, string> = { estimate: "/estimates", jobcard: "/jobcards", invoice: "/invoices" };
@@ -29,7 +30,10 @@ interface Draft {
   lines: DocLine[];
 }
 
-const blankLine = (kind: LineKind): DocLine => ({ kind, description: "", qty: 1, unitPriceFils: 0, discountPct: 0 });
+/** A new empty line; labour starts at the garage's labour rate (Settings → Pricing). */
+const blankLine = (kind: LineKind, labourRateFils?: number | null): DocLine => ({
+  kind, description: "", qty: 1, unitPriceFils: kind === "labour" ? labourRateFils ?? 0 : 0, discountPct: 0,
+});
 
 export function DocumentPage() {
   const params = useParams();
@@ -42,7 +46,8 @@ export function DocumentPage() {
   const type = (doc?.type ?? params.type) as DocType;
   const label = DOC_LABELS[type] ?? "Document";
 
-  const [draft, setDraft] = useState<Draft>({ customer: null, vehicleId: null, odometer: null, notes: "", lines: [blankLine("labour")] });
+  const [draft, setDraft] = useState<Draft>({ customer: null, vehicleId: null, odometer: null, notes: "", lines: [blankLine("labour", settings?.pricing.labourRateFils)] });
+  const approval = useOwnerApproval();
   const [dirty, setDirty] = useState(false);
   const [busy, setBusy] = useState<string | null>(null);
   const [newCustomer, setNewCustomer] = useState<string | null>(null);
@@ -57,7 +62,7 @@ export function DocumentPage() {
         vehicleId: doc.vehicle?.id ?? null,
         odometer: doc.odometer,
         notes: doc.notes ?? "",
-        lines: doc.lines.length ? doc.lines : doc.editable ? [blankLine("labour")] : [],
+        lines: doc.lines.length ? doc.lines : doc.editable ? [blankLine("labour", settings?.pricing.labourRateFils)] : [],
       });
       setDirty(false);
     }
@@ -107,13 +112,13 @@ export function DocumentPage() {
     }));
     const body = { vehicleId: draft.vehicleId, odometer: draft.odometer, notes: draft.notes, lines };
     if (isNew) {
-      const res = await post<{ document: DocumentFull }>("/api/documents", { type, customerId: draft.customer!.id, ...body });
+      const res = await approval.withApproval((a) => post<{ document: DocumentFull }>("/api/documents", { type, customerId: draft.customer!.id, ...body, approval: a }));
       setDirty(false);
       navigate(`/documents/${res.document.id}`, { replace: true });
       return res.document.id;
     }
     if (dirty && editable) {
-      const res = await patch<{ document: DocumentFull }>(`/api/documents/${doc!.id}`, body);
+      const res = await approval.withApproval((a) => patch<{ document: DocumentFull }>(`/api/documents/${doc!.id}`, { ...body, approval: a }));
       docQuery.setData(res);
     }
     setDirty(false);
@@ -185,6 +190,7 @@ export function DocumentPage() {
 
   return (
     <>
+      {approval.dialog}
       <PageHeader
         back={<Link to={LIST_PATH[type]} className="mb-1 inline-flex items-center gap-1 text-sm text-zinc-500 hover:text-zinc-800"><ArrowLeft className="size-3.5" /> {label}s</Link>}
         title={
@@ -275,7 +281,7 @@ export function DocumentPage() {
             title={type === "jobcard" ? "Work & parts" : "Items"}
             padded={false}
             actions={editable && LINE_KINDS.map((k) => (
-              <Button key={k} size="sm" variant="ghost" icon={<Plus className="size-3.5" />} onClick={() => update({ lines: [...draft.lines, blankLine(k)] })}>{KIND_LABELS[k]}</Button>
+              <Button key={k} size="sm" variant="ghost" icon={<Plus className="size-3.5" />} onClick={() => update({ lines: [...draft.lines, blankLine(k, settings?.pricing.labourRateFils)] })}>{KIND_LABELS[k]}</Button>
             ))}
           >
             <LinesTable
