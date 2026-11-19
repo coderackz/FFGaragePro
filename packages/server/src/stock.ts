@@ -73,7 +73,8 @@ function takenByPart(db: Db, ids: string[]): Map<string, { qty: number; costFils
  */
 export function reconcileDocumentStock(db: Db, docId: string, userId: string, opts: { block?: boolean } = {}): void {
   const doc = db.get<ChainDoc>("SELECT id, type, source_id FROM documents WHERE id = ?", [docId]);
-  if (!doc || doc.type === "estimate") return;
+  // Estimates take nothing; a credit note's returns are its own movements, posted once when it is issued.
+  if (!doc || doc.type === "estimate" || doc.type === "credit_note") return;
   const wanted = new Map(
     db.all<{ part_id: string; qty: number }>(
       `SELECT dl.part_id, SUM(dl.qty) AS qty FROM document_lines dl JOIN parts p ON p.id = dl.part_id
@@ -121,6 +122,14 @@ export function checkStockAvailable(
       throw new HttpError(409, `Only ${Math.max(0, p.on_hand)} ${p.unit} of ${p.part_no} in stock`, "out_of_stock");
     }
   }
+}
+
+/** What one unit of a part cost when it left the shelf for a document's chain (its job card and invoice); null if it didn't. */
+export function costTakenFor(db: Db, docId: string, partId: string): number | null {
+  const doc = db.get<ChainDoc>("SELECT id, type, source_id FROM documents WHERE id = ?", [docId]);
+  if (!doc) return null;
+  const t = takenByPart(db, chainIds(db, doc)).get(partId);
+  return t && t.qty > 0 ? Math.round(t.costFils / t.qty) : null;
 }
 
 export interface DocumentCost {

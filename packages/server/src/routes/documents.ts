@@ -1,7 +1,7 @@
 import type { FastifyInstance } from "fastify";
 import {
   can, CONVERTS_TO, DOC_STATUSES, DOC_TYPES, documentCreateSchema, documentUpdateSchema, formatDocNumber, lineSchema, lineTotals,
-  approvalSchema, docTotals, dueDate, formatAED, formatNumberOf, issueSchema, paymentSchema, prefixOf, type ApprovalInput, type DocType, type LineInput,
+  approvalSchema, creditNoteSchema, docTotals, dueDate, formatAED, formatNumberOf, issueSchema, paymentSchema, prefixOf, type ApprovalInput, type DocType, type LineInput,
 } from "@ffgp/shared";
 import { z } from "zod";
 import { audit } from "../audit";
@@ -10,7 +10,7 @@ import { newId, now, type Db } from "../db";
 import { badRequest, conflict, HttpError, notFound, tooManyRequests } from "../errors";
 import { recomputeInvoiceMoney } from "../invoice-money";
 import { customerBalance } from "../ledger";
-import { checkStockAvailable, documentCost, reconcileDocumentStock } from "../stock";
+import { checkStockAvailable, costTakenFor, documentCost, postMovement, reconcileDocumentStock } from "../stock";
 import { reserveNumber, takeNumber, type NumberSource, type Reserved } from "../numbering";
 import { getSettings } from "../settings";
 import { garage } from "./setup";
@@ -37,6 +37,7 @@ const MANUAL_STATUSES: Record<DocType, readonly string[]> = {
 };
 
 function linesEditable(doc: DocRow): boolean {
+  if (doc.type === "credit_note") return false;
   if (doc.type === "invoice") return doc.status === "draft";
   return doc.status !== "converted";
 }
@@ -238,7 +239,7 @@ export function documentRoutes(
     const payments = db.all<{ id: string; amount_fils: number; method: string; reference: string | null; paid_at: string; created_by_name: string | null; receipt_number: string }>(
       `SELECT a.id, a.amount_fils, r.method, r.reference, r.received_at AS paid_at, r.number AS receipt_number, u.name AS created_by_name
        FROM receipt_allocations a JOIN receipts r ON r.id = a.receipt_id LEFT JOIN users u ON u.id = a.created_by
-       WHERE a.document_id = ? ORDER BY r.received_at, a.created_at`,
+       WHERE a.document_id = ? ORDER BY r.received_at, a.created_at, a.rowid`,
       [id],
     );
     const customer = db.get<Record<string, unknown>>("SELECT id, kind, name, phone, email, trn, address FROM customers WHERE id = ?", [d.customer_id]);
@@ -246,7 +247,11 @@ export function documentRoutes(
       ? db.get<Record<string, unknown>>("SELECT id, plate, make, model, year, vin, colour, odometer FROM vehicles WHERE id = ?", [d.vehicle_id])
       : null;
     const source = d.source_id ? db.get<{ id: string; number: string; type: string }>("SELECT id, number, type FROM documents WHERE id = ?", [d.source_id]) : null;
-    const derived = db.get<{ id: string; number: string; type: string }>("SELECT id, number, type FROM documents WHERE source_id = ?", [id]) ?? null;
+    const derived = db.get<{ id: string; number: string; type: string }>("SELECT id, number, type FROM documents WHERE source_id = ? AND type <> 'credit_note'", [id]) ?? null;
+    const creditNotes = d.type === "invoice"
+      ? db.all<{ id: string; number: string; gross_fils: number }>("SELECT id, number, gross_fils FROM documents WHERE source_id = ? AND type = 'credit_note' ORDER BY seq", [id])
+          .map((c) => ({ id: c.id, number: c.number, grossFils: c.gross_fils }))
+      : [];
     const createdBy = d.created_by ? db.get<{ name: string }>("SELECT name FROM users WHERE id = ?", [d.created_by])?.name ?? null : null;
     return {
       id: d.id, type: d.type, number: d.number, status: d.status, odometer: d.odometer, notes: d.notes,
@@ -258,7 +263,7 @@ export function documentRoutes(
       owedFils: d.type === "invoice" && d.status !== "draft" ? d.gross_fils - d.credited_fils - d.paid_fils : 0,
       customerBalanceFils: customerBalance(db, d.customer_id).balanceFils,
       printCount: db.get<{ n: number }>("SELECT COUNT(*) AS n FROM document_prints WHERE document_id = ?", [id])!.n,
-      customer, vehicle, source, derived,
+      customer, vehicle, source, derived, creditNotes,
       lines: lines.map((l) => ({
         id: l.id, kind: l.kind, description: l.description, qty: l.qty, unitPriceFils: l.unit_price_fils,
         discountPct: l.discount_pct, netFils: l.net_fils, vatFils: l.vat_fils, grossFils: l.gross_fils,
@@ -442,6 +447,113 @@ export function documentRoutes(
       return limit;
     });
     return { document: full(req.params.id, user), ...(result.warning ? { warning: result.warning } : {}) };
+  });
+
+  type SourceLine = { id: string; position: number; kind: string; description: string; qty: number; unit_price_fils: number; discount_pct: number; part_id: string | null; supplied_by: string; part_stocked: number | null };
+
+  /**
+   * The lines a credit note would take: chosen invoice lines and quantities (or everything still uncredited), each
+   * no more than what's left after earlier credit notes. Throws a plain 400 otherwise.
+   */
+  function creditLines(inv: DocRow, chosen: { lineId: string; qty: number }[] | undefined): { line: SourceLine; qty: number }[] {
+    const lines = db.all<SourceLine>(
+      "SELECT dl.*, p.stocked AS part_stocked FROM document_lines dl LEFT JOIN parts p ON p.id = dl.part_id WHERE dl.document_id = ? ORDER BY dl.position",
+      [inv.id],
+    );
+    const left = (l: SourceLine) => {
+      const credited = db.get<{ q: number }>(
+        `SELECT COALESCE(SUM(cl.qty), 0) AS q FROM document_lines cl JOIN documents c ON c.id = cl.document_id
+         WHERE cl.source_line_id = ? AND c.type = 'credit_note' AND c.status = 'issued'`,
+        [l.id],
+      )!.q;
+      return Math.round((l.qty - credited) * 1000) / 1000;
+    };
+    if (!chosen) {
+      const all = lines.map((line) => ({ line, qty: left(line) })).filter((x) => x.qty > 0);
+      if (!all.length) throw badRequest(`Everything on ${inv.number} has already been credited`);
+      return all;
+    }
+    return chosen.map((c) => {
+      const line = lines.find((l) => l.id === c.lineId);
+      if (!line) throw badRequest("That line isn't on the invoice");
+      const remaining = left(line);
+      if (c.qty > remaining) throw badRequest(`Only ${remaining} left to credit on line ${line.position + 1}`);
+      return { line, qty: c.qty };
+    });
+  }
+
+  /**
+   * A tax credit note against an issued invoice, created and issued in one step. Paid beyond what's now owed, the
+   * excess is taken back off the invoice (negative allocations) and becomes the customer's credit; stocked parts
+   * go back on the shelf unless the garage says not.
+   */
+  app.post<{ Params: { id: string } }>("/api/documents/:id/credit-notes", async (req) => {
+    const user = sessionUser(db, req);
+    requireAction(user, "credit_notes.issue");
+    const input = creditNoteSchema.parse(req.body ?? {});
+    const check = () => {
+      const inv = getDoc(req.params.id);
+      if (!inv) throw notFound("Document not found");
+      if (inv.type !== "invoice" || inv.status === "draft") throw badRequest("Only issued invoices can have a credit note");
+      return { inv, lines: creditLines(inv, input.lines) };
+    };
+    check();
+    const reserved = await reserveNumber(numbers, "credit_note");
+    const id = db.tx(() => {
+      const { inv, lines } = check();
+      const { series, seq, number } = nextNumber("credit_note", reserved);
+      const cnId = newId();
+      const t = now();
+      db.run(
+        `INSERT INTO documents (id, type, series, seq, number, status, customer_id, vehicle_id, odometer, source_id, issued_at, prices_include_vat, reason,
+           created_by, created_at, updated_at)
+         VALUES (?, 'credit_note', ?, ?, ?, 'issued', ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+        [cnId, series, seq, number, inv.customer_id, inv.vehicle_id, inv.odometer, inv.id, t, inv.prices_include_vat, input.reason, user.id, t, t],
+      );
+      const rate = vatRate();
+      let net = 0, vat = 0, gross = 0;
+      lines.forEach(({ line, qty }, i) => {
+        const tt = lineTotals({ qty, unitPriceFils: line.unit_price_fils, discountPct: line.discount_pct }, rate, !!inv.prices_include_vat);
+        net += tt.netFils; vat += tt.vatFils; gross += tt.grossFils;
+        db.run(
+          `INSERT INTO document_lines (id, document_id, position, kind, description, qty, unit_price_fils, discount_pct, net_fils, vat_fils, gross_fils,
+             part_id, supplied_by, source_line_id)
+           VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+          [newId(), cnId, i, line.kind, line.description, qty, line.unit_price_fils, line.discount_pct, tt.netFils, tt.vatFils, tt.grossFils,
+            line.part_id, line.supplied_by, line.id],
+        );
+        if (input.returnToStock && line.kind === "part" && line.part_id && line.part_stocked && line.supplied_by === "garage") {
+          const cost = costTakenFor(db, inv.id, line.part_id) ?? db.get<{ c: number }>("SELECT avg_cost_fils AS c FROM parts WHERE id = ?", [line.part_id])!.c;
+          postMovement(db, { partId: line.part_id, qty, reason: "adjust", unitCostFils: cost, documentId: cnId, note: `Returned on ${number}`, userId: user.id });
+        }
+      });
+      db.run("UPDATE documents SET net_fils = ?, vat_fils = ?, gross_fils = ? WHERE id = ?", [net, vat, gross, cnId]);
+      recomputeInvoiceMoney(db, inv.id);
+      // Paid more than is now owed: take the excess back off the invoice, newest payments first, as customer credit.
+      let excess = -db.get<{ owed: number }>("SELECT gross_fils - credited_fils - paid_fils AS owed FROM documents WHERE id = ?", [inv.id])!.owed;
+      if (excess > 0) {
+        const byReceipt = db.all<{ receipt_id: string; amount: number }>(
+          `SELECT a.receipt_id, SUM(a.amount_fils) AS amount, MAX(r.received_at) AS at FROM receipt_allocations a JOIN receipts r ON r.id = a.receipt_id
+           WHERE a.document_id = ? GROUP BY a.receipt_id HAVING SUM(a.amount_fils) > 0 ORDER BY at DESC`,
+          [inv.id],
+        );
+        for (const r of byReceipt) {
+          if (excess <= 0) break;
+          const take = Math.min(excess, r.amount);
+          db.run("INSERT INTO receipt_allocations (id, receipt_id, document_id, amount_fils, created_by, created_at) VALUES (?, ?, ?, ?, ?, ?)", [
+            newId(), r.receipt_id, inv.id, -take, user.id, t,
+          ]);
+          excess -= take;
+        }
+        recomputeInvoiceMoney(db, inv.id);
+      }
+      audit(db, {
+        action: "credit_note.issue", entity: "document", entityId: cnId, userId: user.id,
+        after: { creditNote: number, invoice: inv.number, reason: input.reason, amountFils: gross },
+      });
+      return cnId;
+    });
+    return { document: full(id, user) };
   });
 
   /**

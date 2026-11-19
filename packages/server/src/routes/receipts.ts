@@ -35,7 +35,7 @@ export function receiptOut(db: Db, id: string) {
   if (!r) return null;
   const allocations = db.all<{ id: string; document_id: string; number: string; amount_fils: number; created_at: string }>(
     `SELECT a.id, a.document_id, d.number, a.amount_fils, a.created_at FROM receipt_allocations a JOIN documents d ON d.id = a.document_id
-     WHERE a.receipt_id = ? ORDER BY a.created_at, a.id`,
+     WHERE a.receipt_id = ? ORDER BY a.created_at, a.rowid`,
     [id],
   );
   const allocated = allocations.reduce((s, a) => s + a.amount_fils, 0);
