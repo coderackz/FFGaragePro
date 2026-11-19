@@ -117,6 +117,9 @@ export const documentCreateSchema = z.object({
   notes: optionalText(4000),
   lines: z.array(lineSchema).max(500).default([]),
   approval: approvalSchema.optional(),
+  /** Job cards: the driver who gets "vehicle received/ready" messages. */
+  driverName: optionalText(120),
+  driverPhone: optionalText(40),
 });
 export type DocumentCreateInput = z.infer<typeof documentCreateSchema>;
 

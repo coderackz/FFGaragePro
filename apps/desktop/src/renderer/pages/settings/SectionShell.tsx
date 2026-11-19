@@ -15,8 +15,8 @@ export function BackToSettings() {
 }
 
 /** One Settings section: back link, title, its own Save, and an optional side column (the print preview). */
-export function SectionShell({ title, subtitle, dirty = false, busy = false, onSave, aside, children }: {
-  title: string; subtitle?: string; dirty?: boolean; busy?: boolean; onSave?: () => void; aside?: ReactNode; children: ReactNode;
+export function SectionShell({ title, subtitle, dirty = false, busy = false, onSave, onDiscard, aside, children }: {
+  title: string; subtitle?: string; dirty?: boolean; busy?: boolean; onSave?: () => void; onDiscard?: () => void; aside?: ReactNode; children: ReactNode;
 }) {
   useReportUnsaved(dirty, title);
   return (
@@ -30,6 +30,7 @@ export function SectionShell({ title, subtitle, dirty = false, busy = false, onS
         {onSave && (
           <div className="flex shrink-0 items-center gap-3">
             {dirty && <span className="text-sm text-amber-700">Unsaved changes</span>}
+            {dirty && onDiscard && <Button variant="ghost" onClick={onDiscard}>Discard</Button>}
             <Button variant="primary" busy={busy} disabled={!dirty} onClick={onSave}>Save</Button>
           </div>
         )}

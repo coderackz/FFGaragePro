@@ -138,18 +138,23 @@ export async function sendDue(
 
 /**
  * The garage's sender loop (only where this garage's messages are sent from): every `everyMs` sends what's due, and
- * once per Dubai day queues payment reminders. Returns a stop function.
+ * once per Dubai day queues payment reminders. `kick()` runs a round now (a message was just queued).
  */
 export function startOutbox(
   db: Db,
   o: { mailerFor: () => Mailer | null; place: string; now?: () => number; everyMs?: number; retryMinutes?: readonly number[] },
-): () => void {
+): { stop(): void; kick(): void } {
   const clock = o.now ?? Date.now;
   let running = false;
+  let again = false;
   let stopped = false;
   let lastDay = "";
   const tick = async () => {
-    if (running || stopped) return;
+    if (stopped) return;
+    if (running) {
+      again = true;
+      return;
+    }
     running = true;
     try {
       const t = new Date(clock());
@@ -163,13 +168,20 @@ export function startOutbox(
       if (!stopped) console.error("Messages:", error);
     } finally {
       running = false;
+      if (again && !stopped) {
+        again = false;
+        void tick();
+      }
     }
   };
   const timer = setInterval(() => void tick(), o.everyMs ?? 30_000);
   timer.unref?.();
   void tick();
-  return () => {
-    stopped = true;
-    clearInterval(timer);
+  return {
+    stop: () => {
+      stopped = true;
+      clearInterval(timer);
+    },
+    kick: () => void tick(),
   };
 }

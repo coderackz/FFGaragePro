@@ -3,6 +3,7 @@ import { useState } from "react";
 import { Link, useNavigate, useParams } from "react-router";
 import { DOC_LABELS } from "@ffgp/shared";
 import { AccountCard } from "../components/AccountCard";
+import { ContactsPanel } from "../components/ContactsPanel";
 import { CustomerFormModal, VehicleFormModal } from "../components/forms";
 import { Badge, Button, Card, Empty, PageHeader, Spinner, StatusBadge, Table } from "../components/ui";
 import { formatAED, formatDate, formatKm, vehicleLabel } from "../lib/format";
@@ -16,6 +17,7 @@ export function CustomerPage() {
   const docs = useApi<{ documents: DocumentSummary[] }>(`/api/documents?customerId=${id}`);
   const [editing, setEditing] = useState(false);
   const [vehicleModal, setVehicleModal] = useState<{ vehicle: Vehicle | null } | null>(null);
+  const [tab, setTab] = useState<Tab>("history");
 
   if (error) return <Empty title="Customer not found">{error}</Empty>;
   if (!data) return <Spinner />;
@@ -61,8 +63,9 @@ export function CustomerPage() {
           />
         </Card>
         <AccountCard customer={customer} onChanged={() => { void reload(); void docs.reload(); }} />
-        <Card title="History" className="col-span-3" padded={false}>
-          <Table
+        <Card title={<Tabs value={tab} onChange={setTab} />} className="col-span-3" padded={false}>
+          {tab === "contacts" && <ContactsPanel customerId={customer.id} />}
+          {tab === "history" && <Table
             rows={docs.data?.documents ?? []}
             rowKey={(d) => d.id}
             onRowClick={(d) => navigate(`/documents/${d.id}`)}
@@ -75,11 +78,36 @@ export function CustomerPage() {
               { header: "Status", cell: (d) => <StatusBadge status={d.status} /> },
               { header: "Total", cell: (d) => formatAED(d.grossFils), align: "right" },
             ]}
-          />
+          />}
         </Card>
       </div>
       <CustomerFormModal open={editing} customer={customer} onClose={() => setEditing(false)} onSaved={() => void reload()} />
       <VehicleFormModal open={vehicleModal !== null} vehicle={vehicleModal?.vehicle} customerId={customer.id} onClose={() => setVehicleModal(null)} onSaved={() => void reload()} />
     </>
+  );
+}
+
+type Tab = "history" | "contacts";
+const TABS: { value: Tab; label: string }[] = [
+  { value: "history", label: "History" },
+  { value: "contacts", label: "Contacts" },
+];
+
+function Tabs({ value, onChange }: { value: Tab; onChange: (t: Tab) => void }) {
+  return (
+    <div role="tablist" aria-label="Customer" className="-my-1 flex gap-1">
+      {TABS.map((t) => (
+        <button
+          key={t.value}
+          type="button"
+          role="tab"
+          aria-selected={value === t.value}
+          onClick={() => onChange(t.value)}
+          className={value === t.value ? "rounded-md bg-zinc-100 px-2.5 py-1 text-sm font-medium text-zinc-900" : "rounded-md px-2.5 py-1 text-sm text-zinc-600 hover:text-zinc-900"}
+        >
+          {t.label}
+        </button>
+      ))}
+    </div>
   );
 }

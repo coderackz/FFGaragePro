@@ -107,12 +107,13 @@ export async function buildApp(options: AppOptions): Promise<FastifyInstance & {
   syncIssueRoutes(app, db);
   reportRoutes(app, db);
   receiptRoutes(app, db, options.numbers);
-  messageRoutes(app, db, options.onMessageQueued);
-
-  if (options.sendsMessages) {
-    const stop = startOutbox(db, { mailerFor: () => mailerFor(db), ...options.sendsMessages });
-    app.addHook("onClose", async () => stop());
-  }
+  const outbox = options.sendsMessages ? startOutbox(db, { mailerFor: () => mailerFor(db), ...options.sendsMessages }) : null;
+  if (outbox) app.addHook("onClose", async () => outbox.stop());
+  messageRoutes(app, db, () => {
+    options.onMessageQueued?.();
+    // Sent from here: don't wait for the next round.
+    outbox?.kick();
+  });
   app.addHook("onClose", async () => db.close());
   return Object.assign(app, { db }) as unknown as FastifyInstance & { db: Db };
 }

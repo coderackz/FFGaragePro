@@ -9,7 +9,7 @@ import { Button, Field, Input, Modal, MoneyInput, Select, Textarea } from "./ui"
 
 const emptyCustomer = {
   kind: "individual" as Customer["kind"], name: "", phone: "", email: "", trn: "", address: "", notes: "",
-  nameAr: "", addressAr: "", docLanguage: "en" as NonNullable<Customer["docLanguage"]>,
+  nameAr: "", addressAr: "", docLanguage: "en" as NonNullable<Customer["docLanguage"]>, messageLanguage: "en" as NonNullable<Customer["messageLanguage"]>,
 };
 const emptyCredit = { creditAllowed: false, creditLimitFils: 0, termsDays: "", discountPct: "", lpoRequired: false, openingBalance: "", openingBalanceDate: "" };
 const creditOf = (c: Customer) => ({
@@ -30,7 +30,7 @@ export function CustomerFormModal({ open, customer, initialName, onClose, onSave
     setForm(customer
       ? {
           kind: customer.kind, name: customer.name, phone: customer.phone ?? "", email: customer.email ?? "", trn: customer.trn ?? "", address: customer.address ?? "",
-          notes: customer.notes ?? "", nameAr: customer.nameAr ?? "", addressAr: customer.addressAr ?? "", docLanguage: customer.docLanguage ?? "en",
+          notes: customer.notes ?? "", nameAr: customer.nameAr ?? "", addressAr: customer.addressAr ?? "", docLanguage: customer.docLanguage ?? "en", messageLanguage: customer.messageLanguage ?? "en",
         }
       : { ...emptyCustomer, name: initialName ?? "" });
     setCredit(customer ? creditOf(customer) : emptyCredit);
@@ -101,6 +101,12 @@ export function CustomerFormModal({ open, customer, initialName, onClose, onSave
           <Select {...f("docLanguage")}>
             <option value="en">English</option>
             <option value="en_ar">English + Arabic</option>
+          </Select>
+        </Field>
+        <Field label="Message language" hint="WhatsApp and email to their own phone and email">
+          <Select {...f("messageLanguage")}>
+            <option value="en">English</option>
+            <option value="ar">Arabic</option>
           </Select>
         </Field>
         <Field label="Arabic name" hint="Printed on English + Arabic documents">

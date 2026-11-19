@@ -65,6 +65,7 @@ describe("messages data (Part 3b)", () => {
     const jc = (await call(app, "POST", "/api/documents", owner, { type: "jobcard", customerId: customer.id })).body.document;
     expect((await call(app, "PATCH", `/api/documents/${jc.id}`, owner, { driverName: "Ali", driverPhone: "050 123 4567" })).status).toBe(200);
     const got = (await call(app, "GET", `/api/documents/${jc.id}`, owner)).body.document;
-    expect(got).toMatchObject({ driverName: "Ali", driverPhone: "050 123 4567" });
+    expect(got).toMatchObject({ driverName: "Ali", driverPhone: "050 123 4567" });    const created = (await call(app, "POST", "/api/documents", owner, { type: "jobcard", customerId: customer.id, driverName: "Sami", driverPhone: "0559876543" })).body.document;
+    expect(created).toMatchObject({ driverName: "Sami", driverPhone: "0559876543" });
   });
 });

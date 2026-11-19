@@ -6,7 +6,10 @@ import type { BackupStatus, Garage } from "../../lib/types";
 export interface TileContext {
   garage: Garage;
   settings: Settings;
-  overview: { nextNumbers: Record<NumberKind, string>; users: number; changesThisWeek: number } | null;
+  overview: {
+    nextNumbers: Record<NumberKind, string>; users: number; changesThisWeek: number;
+    messages?: { emailReady: boolean; passwordSet: boolean }; failedMessages?: number;
+  } | null;
   /** The browser app (Fleetfix Cloud). */
   isCloud: boolean;
   /** PC app: its own garage, main computer, or connected to a main computer. Null in the browser. */
@@ -119,8 +122,13 @@ export const TILES: Tile[] = [
     id: "backups", group: "running", title: "Backups", blurb: "Daily copy on this PC · restore", show: holdsGarage, status: backupStatus,
   },
   {
-    id: "messages", group: "running", title: "Messages", blurb: "WhatsApp, email, templates", coming: true, show: always,
-    status: () => muted("Coming in Part 3"),
+    id: "messages", group: "running", title: "Messages", blurb: "WhatsApp, email, templates", show: always,
+    status: (c) => {
+      const failed = c.overview?.failedMessages ?? 0;
+      if (failed) return alert(`${plural(failed, "message")} failed`);
+      if (!c.overview) return muted("WhatsApp and email");
+      return c.overview.messages?.emailReady ? ok("Email ready") : todo("Email not set up");
+    },
   },
   {
     id: "cloud", group: "connections", title: "Fleetfix cloud", blurb: "Sync, licence and sync issues", show: holdsGarage,

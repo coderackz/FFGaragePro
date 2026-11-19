@@ -341,6 +341,9 @@ export function documentRoutes(
         type: input.type, customerId: input.customerId, vehicleId: input.vehicleId ?? null, odometer: input.odometer ?? null, notes: input.notes,
         sourceId: null, pricesIncludeVat: getSettings(db).tax.pricesIncludeVat,
       }, input.lines, reserved);
+      if (input.driverName || input.driverPhone) {
+        db.run("UPDATE documents SET driver_name = ?, driver_phone = ? WHERE id = ?", [input.driverName, input.driverPhone, docId]);
+      }
       logApproval(user, docId, approved);
       if (limit.approvedBy) {
         const number = getDoc(docId)?.number ?? null;

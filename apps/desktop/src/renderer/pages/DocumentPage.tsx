@@ -33,6 +33,9 @@ interface Draft {
   lpoNumber: string;
   /** What it prints in (from the customer when it was created; can change while editable). */
   language: "en" | "en_ar";
+  /** Job cards: the driver who gets "vehicle received/ready" messages. */
+  driverName: string;
+  driverPhone: string;
 }
 
 /** A new empty line; labour starts at the garage's labour rate (Settings → Pricing). */
@@ -51,7 +54,7 @@ export function DocumentPage() {
   const type = (doc?.type ?? params.type) as DocType;
   const label = DOC_LABELS[type] ?? "Document";
 
-  const [draft, setDraft] = useState<Draft>({ customer: null, vehicleId: null, odometer: null, notes: "", lines: [blankLine("labour", settings?.pricing.labourRateFils)], lpoNumber: "", language: "en" });
+  const [draft, setDraft] = useState<Draft>({ customer: null, vehicleId: null, odometer: null, notes: "", lines: [blankLine("labour", settings?.pricing.labourRateFils)], lpoNumber: "", language: "en", driverName: "", driverPhone: "" });
   const [crediting, setCrediting] = useState(false);
   const approval = useOwnerApproval();
   const [dirty, setDirty] = useState(false);
@@ -71,6 +74,8 @@ export function DocumentPage() {
         lines: doc.lines.length ? doc.lines : doc.editable ? [blankLine("labour", settings?.pricing.labourRateFils)] : [],
         lpoNumber: doc.lpoNumber ?? "",
         language: doc.language ?? "en",
+        driverName: doc.driverName ?? "",
+        driverPhone: doc.driverPhone ?? "",
       });
       setDirty(false);
     }
@@ -121,7 +126,8 @@ export function DocumentPage() {
       partId: kind === "part" ? partId ?? null : null, suppliedBy: kind === "part" ? suppliedBy ?? "garage" : "garage", poLineId: poLineId ?? null,
     }));
     const body = { vehicleId: draft.vehicleId, odometer: draft.odometer, notes: draft.notes, lines, ...(type === "invoice" && !isNew ? { lpoNumber: draft.lpoNumber } : {}),
-      ...(!isNew && draft.language !== doc?.language ? { language: draft.language } : {}) };
+      ...(!isNew && draft.language !== doc?.language ? { language: draft.language } : {}),
+      ...(type === "jobcard" ? { driverName: draft.driverName, driverPhone: draft.driverPhone } : {}) };
     if (isNew) {
       const res = await approval.withApproval((a) => post<{ document: DocumentFull; warning?: string }>("/api/documents", { type, customerId: draft.customer!.id, ...body, approval: a }));
       if (res.warning) toast.warning(res.warning);
@@ -302,6 +308,16 @@ export function DocumentPage() {
                   }}
                 />
               </Field>
+              {type === "jobcard" && (
+                <>
+                  <Field label="Driver name" hint="Gets the vehicle received / ready messages">
+                    <Input value={draft.driverName} disabled={!editable} onChange={(e) => update({ driverName: e.target.value })} aria-label="Driver name" />
+                  </Field>
+                  <Field label="Driver phone">
+                    <Input value={draft.driverPhone} disabled={!editable} onChange={(e) => update({ driverPhone: e.target.value })} aria-label="Driver phone" placeholder="050 123 4567" />
+                  </Field>
+                </>
+              )}
               {isInvoice && (doc || isNew) && (
                 <Field label="LPO number" hint={customerDetail.data?.customer.lpoRequired ? "This customer needs one before the invoice is issued" : "The customer's purchase order, if any"}>
                   <Input value={draft.lpoNumber} disabled={!editable || isNew} onChange={(e) => update({ lpoNumber: e.target.value })} placeholder={isNew ? "Save first" : ""} aria-label="LPO number" />
