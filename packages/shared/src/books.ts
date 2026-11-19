@@ -73,6 +73,8 @@ export const journalLineSchema = z
     creditFils: fils.default(0),
     customerId: optionalId,
     supplierId: optionalId,
+    /** Work in progress lines: the job card (opening balances carry it so the job's invoice clears it). */
+    documentId: optionalId,
     memo: z.string().trim().max(200).nullable().optional().transform((v) => v || null),
   })
   .refine((l) => (l.debitFils > 0) !== (l.creditFils > 0), { message: "Each line is either a debit or a credit", path: ["debitFils"] });

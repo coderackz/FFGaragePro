@@ -14,6 +14,7 @@ const draftLine = z.object({
   creditFils: z.number().int().min(0).default(0),
   customerId: z.string().nullable().optional().transform((v) => v ?? null),
   supplierId: z.string().nullable().optional().transform((v) => v ?? null),
+  documentId: z.string().nullable().optional().transform((v) => v ?? null),
   memo: z.string().max(200).nullable().optional().transform((v) => v ?? null),
 });
 const draftSchema = z.object({
@@ -114,7 +115,9 @@ function checkAccounts(db: Db, lines: JournalLineInput[]): void {
 }
 
 const toPostLines = (lines: JournalLineInput[]): PostLine[] =>
-  lines.map((l) => ({ accountId: l.accountId, debitFils: l.debitFils, creditFils: l.creditFils, customerId: l.customerId, supplierId: l.supplierId, memo: l.memo }));
+  lines.map((l) => ({
+    accountId: l.accountId, debitFils: l.debitFils, creditFils: l.creditFils, customerId: l.customerId, supplierId: l.supplierId, documentId: l.documentId, memo: l.memo,
+  }));
 
 /**
  * Posts a draft. A manual journal: balanced, dated outside the lock. The opening balances: dated the day before the
@@ -133,7 +136,10 @@ export function postDraft(db: Db, id: string, userId: string, posts: boolean): E
     date = addDays(startDate, -1);
     const diff = lines.reduce((s, l) => s + l.debitFils - l.creditFils, 0);
     if (diff !== 0) {
-      lines = [...lines, { accountId: SYSTEM_ACCOUNTS.opening_equity.id, debitFils: diff < 0 ? -diff : 0, creditFils: diff > 0 ? diff : 0, customerId: null, supplierId: null, memo: "Opening balance equity" }];
+      lines = [...lines, {
+        accountId: SYSTEM_ACCOUNTS.opening_equity.id, debitFils: diff < 0 ? -diff : 0, creditFils: diff > 0 ? diff : 0, customerId: null, supplierId: null, documentId: null,
+        memo: "Opening balance equity",
+      }];
     }
   }
   const j = journalDraftSchema.parse({ date, narration: d.narration || (opening ? "Opening balances" : ""), lines });

@@ -5,9 +5,9 @@ import { customerBalance } from "../ledger";
 import { getSettings } from "../settings";
 import { addDays } from "./post";
 
-export interface ProposalLine { accountId: string; debitFils: number; creditFils: number; customerId: string | null; supplierId: null; memo: string }
-const line = (accountId: string, fils: number, memo: string, customerId: string | null = null): ProposalLine =>
-  ({ accountId, debitFils: fils > 0 ? fils : 0, creditFils: fils < 0 ? -fils : 0, customerId, supplierId: null, memo });
+export interface ProposalLine { accountId: string; debitFils: number; creditFils: number; customerId: string | null; supplierId: null; documentId: string | null; memo: string }
+const line = (accountId: string, fils: number, memo: string, customerId: string | null = null, documentId: string | null = null): ProposalLine =>
+  ({ accountId, debitFils: fils > 0 ? fils : 0, creditFils: fils < 0 ? -fils : 0, customerId, supplierId: null, documentId, memo });
 
 /**
  * What the app already knows of the opening position, the day before the books start: what each customer owes,
@@ -33,6 +33,6 @@ export function openingProposal(db: Db): { date: string; lines: ProposalLine[] }
      GROUP BY j.id HAVING wip <> 0`,
     [startDate, startDate],
   );
-  for (const j of jobs) lines.push({ ...line(A.wip.id, j.wip, `Parts on ${j.number}`), documentId: j.id } as ProposalLine);
+  for (const j of jobs) lines.push(line(A.wip.id, j.wip, `Parts on ${j.number}`, null, j.id));
   return { date, lines };
 }

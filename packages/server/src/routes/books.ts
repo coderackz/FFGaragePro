@@ -8,6 +8,9 @@ import { closeYear } from "../books/close";
 import { createDraft, deleteDraft, listDrafts, postDraft, reverseEntry, updateDraft } from "../books/journals";
 import { openingProposal } from "../books/opening";
 import { postPending } from "../books/pending";
+import { balanceSheet, health, journals, ledger, profitAndLoss, revalueStock, trialBalance } from "../books/reports";
+import { getEntry } from "../books/journals";
+import { notFound } from "../errors";
 
 export interface BooksRouteOptions {
   /** This server posts the books (the cloud, or a PC/main computer that isn't linked). */
@@ -87,5 +90,56 @@ export function bookRoutes(app: FastifyInstance, db: Db, o: BooksRouteOptions): 
     requireAction(user, "books.lock");
     fresh();
     return { entry: closeYear(db, yearEndInput.parse(req.body).yearEnd, user.id, o.posts) };
+  });
+
+  type Q = Record<string, string | undefined>;
+  app.get<{ Querystring: Q }>("/api/books/trial-balance", async (req) => {
+    requireAction(sessionUser(db, req), "books.view");
+    fresh();
+    return trialBalance(db, req.query.asOf);
+  });
+
+  app.get<{ Querystring: Q }>("/api/books/profit-loss", async (req) => {
+    requireAction(sessionUser(db, req), "books.view");
+    fresh();
+    return profitAndLoss(db, req.query.from, req.query.to);
+  });
+
+  app.get<{ Querystring: Q }>("/api/books/balance-sheet", async (req) => {
+    requireAction(sessionUser(db, req), "books.view");
+    fresh();
+    return balanceSheet(db, req.query.asOf);
+  });
+
+  app.get<{ Querystring: Q }>("/api/books/ledger", async (req) => {
+    requireAction(sessionUser(db, req), "books.view");
+    fresh();
+    return ledger(db, req.query);
+  });
+
+  app.get<{ Querystring: Q }>("/api/books/journals", async (req) => {
+    requireAction(sessionUser(db, req), "books.view");
+    fresh();
+    return { journals: journals(db, req.query) };
+  });
+
+  app.get<{ Params: { id: string } }>("/api/books/journals/:id", async (req) => {
+    requireAction(sessionUser(db, req), "books.view");
+    const entry = getEntry(db, req.params.id);
+    if (!entry) throw notFound("Journal not found");
+    return { entry };
+  });
+
+  app.get("/api/books/health", async (req) => {
+    requireAction(sessionUser(db, req), "books.view");
+    fresh();
+    return { ...health(db), posts: o.posts };
+  });
+
+  app.post("/api/books/revalue-stock", async (req) => {
+    const user = sessionUser(db, req);
+    requireAction(user, "books.post");
+    fresh();
+    return { entry: revalueStock(db, user.id, o.posts) };
   });
 }
