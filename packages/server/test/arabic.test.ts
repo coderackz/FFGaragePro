@@ -28,6 +28,7 @@ describe("English + Arabic documents (server)", () => {
     expect(db.get("SELECT doc_language, name_ar, address_ar FROM customers WHERE id = 'c1'")).toEqual({ doc_language: "en", name_ar: null, address_ar: null });
     expect(db.all<{ name: string }>("PRAGMA table_info(documents)").map((c) => c.name)).toContain("language");
     expect(db.all<{ name: string }>("PRAGMA table_info(parts)").map((c) => c.name)).toContain("name_ar");
+    db.close();
   });
 
   it("customer Arabic fields round-trip", async () => {
