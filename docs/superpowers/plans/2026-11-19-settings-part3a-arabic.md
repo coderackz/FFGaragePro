@@ -33,7 +33,7 @@
 
 **Files:**
 - Create: `packages/shared/src/words.ts`, `packages/shared/test/words.test.ts`
-- Modify: `packages/shared/src/index.ts` (export), `packages/shared/src/settings.ts`, `packages/shared/src/schemas.ts`, `packages/shared/test/settings.test.ts` (or the existing settings schema test file)
+- Modify: `packages/shared/src/index.ts` (export), `packages/shared/src/settings.ts`, `packages/shared/src/schemas.ts`, `packages/shared/test/settings.test.ts`
 - Modify: `docs/superpowers/specs/2026-11-19-settings-design.md` — append "## Part 3a decisions (2026-11-19)" listing the *My call* items marked below.
 
 **Interfaces:**
@@ -103,7 +103,7 @@ Rules (*My call*, into the spec's Part 3a decisions): a new estimate, job card o
   - `credit note takes its invoice's language`.
   - `language can change while editable, not once issued` — PATCH draft `{ language: "en" }` → 200; after issue → 4xx (same status the editable check returns today).
   - `lines carry the part's Arabic name` — part with `nameAr: "فلتر زيت"`, invoice line with that `partId` → `lines[0].partNameAr === "فلتر زيت"`.
-  - `sync carries language and Arabic names` — in `packages/sync` test style (existing apply tests): a change row for `customers` with `doc_language: "en_ar"` and `name_ar` applies on a fresh migrated db.
+  - `sync carries language and Arabic names` — in `packages/sync/test/apply.test.ts`: a change row for `customers` with `doc_language: "en_ar"` and `name_ar` applies on a fresh migrated db.
 
 - [ ] **Step 2: Run** `npx vitest run packages/server/test/arabic.test.ts` — Expected: FAIL.
 - [ ] **Step 3: Implement** migration 9 and the route changes per Interfaces.
