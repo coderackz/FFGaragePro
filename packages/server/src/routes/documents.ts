@@ -1,12 +1,13 @@
 import type { FastifyInstance } from "fastify";
 import {
   can, CONVERTS_TO, DOC_STATUSES, DOC_TYPES, documentCreateSchema, documentUpdateSchema, formatDocNumber, lineSchema, lineTotals,
-  paymentSchema, prefixOf, type DocType, type LineInput,
+  approvalSchema, paymentSchema, prefixOf, type ApprovalInput, type DocType, type LineInput,
 } from "@ffgp/shared";
 import { z } from "zod";
-import { requireAction, sessionUser, type SessionUser } from "../auth";
+import { audit } from "../audit";
+import { LoginThrottle, requireAction, sessionUser, verifyPassword, type SessionUser } from "../auth";
 import { newId, now, type Db } from "../db";
-import { badRequest, conflict, notFound } from "../errors";
+import { badRequest, conflict, HttpError, notFound, tooManyRequests } from "../errors";
 import { documentCost, reconcileDocumentStock } from "../stock";
 import { reserveNumber, takeNumber, type NumberSource, type Reserved } from "../numbering";
 import { getSettings } from "../settings";
@@ -39,8 +40,51 @@ function linesEditable(doc: DocRow): boolean {
 
 export type DocumentOut = (id: string, user: SessionUser) => unknown;
 
-export function documentRoutes(app: FastifyInstance, db: Db, numbers?: NumberSource): { full: DocumentOut } {
+export function documentRoutes(
+  app: FastifyInstance,
+  db: Db,
+  numbers?: NumberSource,
+  auth: { throttle: LoginThrottle; clock: () => number } = { throttle: new LoginThrottle(), clock: Date.now },
+): { full: DocumentOut } {
   const vatRate = () => garage(db)?.vat_rate_bp ?? 500;
+  const blockStock = () => getSettings(db).inventory.belowZero === "block";
+
+  /**
+   * Discounts above the user's limit (Settings -> Pricing) need the Owner's username and password. A line that
+   * was already on the document at the same position with the same or a bigger discount was approved before.
+   * Returns what was approved (for the activity log), or null when nothing needed approving.
+   */
+  function checkDiscounts(user: SessionUser, docId: string | null, lines: LineInput[], approval: ApprovalInput | undefined) {
+    if (user.role === "owner") return null;
+    const pricing = getSettings(db).pricing;
+    const limit = user.role === "accountant" ? pricing.maxDiscountAccountantPct : pricing.maxDiscountAdvisorPct;
+    const before = docId
+      ? new Map(db.all<{ position: number; discount_pct: number }>("SELECT position, discount_pct FROM document_lines WHERE document_id = ?", [docId])
+          .map((l) => [l.position, l.discount_pct]))
+      : new Map<number, number>();
+    const over = lines.filter((l, i) => l.discountPct > limit && !((before.get(i) ?? -1) >= l.discountPct));
+    if (!over.length) return null;
+    const refuse = () => new HttpError(403, `A discount over ${limit}% needs the Owner's approval`, "discount_approval");
+    if (!approval) throw refuse();
+    const locked = auth.throttle.lockedMinutes(approval.username, auth.clock());
+    if (locked) throw tooManyRequests(`Too many wrong passwords. This login is locked — try again in ${locked} minute${locked === 1 ? "" : "s"}.`);
+    const owner = db.get<{ name: string; password_hash: string }>(
+      "SELECT name, password_hash FROM users WHERE username = ? AND role = 'owner' AND active = 1",
+      [approval.username],
+    );
+    if (!owner || !verifyPassword(approval.password, owner.password_hash)) {
+      auth.throttle.failed(approval.username, auth.clock());
+      throw refuse();
+    }
+    auth.throttle.succeeded(approval.username);
+    return { approvedBy: owner.name, lines: over.map((l) => ({ description: l.description, discountPct: l.discountPct })) };
+  }
+
+  function logApproval(user: SessionUser, docId: string, approved: ReturnType<typeof checkDiscounts>): void {
+    if (!approved) return;
+    const number = getDoc(docId)?.number ?? null;
+    audit(db, { action: "discount.approve", entity: "document", entityId: docId, after: { document: number, ...approved }, userId: user.id });
+  }
   const getDoc = (id: string) => db.get<DocRow>("SELECT * FROM documents WHERE id = ?", [id]);
 
   function nextNumber(type: DocType, reserved: Reserved | null): { series: string; seq: number; number: string } {
@@ -101,7 +145,7 @@ export function documentRoutes(app: FastifyInstance, db: Db, numbers?: NumberSou
       );
     });
     db.run("UPDATE documents SET net_fils = ?, vat_fils = ?, gross_fils = ?, updated_at = ? WHERE id = ?", [net, vat, gross, now(), docId]);
-    if (getDoc(docId)?.type === "jobcard") reconcileDocumentStock(db, docId, userId);
+    if (getDoc(docId)?.type === "jobcard") reconcileDocumentStock(db, docId, userId, { block: blockStock() });
   }
 
   function checkVehicle(customerId: string, vehicleId: string | null | undefined): void {
@@ -220,10 +264,13 @@ export function documentRoutes(app: FastifyInstance, db: Db, numbers?: NumberSou
     const reserved = await reserveNumber(numbers, input.type);
     const id = db.tx(() => {
       checkVehicle(input.customerId, input.vehicleId);
-      return insertDoc(user, {
+      const approved = checkDiscounts(user, null, input.lines, input.approval);
+      const docId = insertDoc(user, {
         type: input.type, customerId: input.customerId, vehicleId: input.vehicleId ?? null, odometer: input.odometer ?? null, notes: input.notes,
         sourceId: null, pricesIncludeVat: getSettings(db).tax.pricesIncludeVat,
       }, input.lines, reserved);
+      logApproval(user, docId, approved);
+      return docId;
     });
     return { document: full(id, user) };
   });
@@ -253,7 +300,11 @@ export function documentRoutes(app: FastifyInstance, db: Db, numbers?: NumberSou
           d.id,
         ],
       );
-      if (input.lines) writeLines(d.id, input.lines, user.id);
+      if (input.lines) {
+        const approved = checkDiscounts(user, d.id, input.lines, input.approval);
+        writeLines(d.id, input.lines, user.id);
+        logApproval(user, d.id, approved);
+      }
     });
     return { document: full(req.params.id, user) };
   });
@@ -261,12 +312,14 @@ export function documentRoutes(app: FastifyInstance, db: Db, numbers?: NumberSou
   app.put<{ Params: { id: string } }>("/api/documents/:id/lines", async (req) => {
     const user = sessionUser(db, req);
     requireAction(user, "documents.edit");
-    const { lines } = z.object({ lines: z.array(lineSchema).max(500) }).parse(req.body);
+    const { lines, approval } = z.object({ lines: z.array(lineSchema).max(500), approval: approvalSchema.optional() }).parse(req.body);
     db.tx(() => {
       const d = getDoc(req.params.id);
       if (!d) throw notFound("Document not found");
       if (!linesEditable(d)) throw conflict(`${d.number} can no longer be edited`);
+      const approved = checkDiscounts(user, d.id, lines, approval);
       writeLines(d.id, lines, user.id);
+      logApproval(user, d.id, approved);
     });
     return { document: full(req.params.id, user) };
   });
@@ -305,7 +358,7 @@ export function documentRoutes(app: FastifyInstance, db: Db, numbers?: NumberSou
       if (d.type !== "invoice") throw badRequest("Only invoices are issued");
       if (d.status !== "draft") throw conflict(`${d.number} is already issued`);
       if (d.gross_fils <= 0) throw badRequest("Add at least one charged line before issuing");
-      reconcileDocumentStock(db, d.id, user.id);
+      reconcileDocumentStock(db, d.id, user.id, { block: blockStock() });
       const t = now();
       db.run("UPDATE documents SET status = 'issued', issued_at = ?, updated_at = ? WHERE id = ?", [t, t, d.id]);
     });

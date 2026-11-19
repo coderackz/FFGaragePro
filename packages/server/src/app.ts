@@ -2,7 +2,7 @@ import { hostname } from "node:os";
 import Fastify, { type FastifyInstance, type FastifyRequest } from "fastify";
 import cors from "@fastify/cors";
 import { ZodError } from "zod";
-import type { LoginThrottle } from "./auth";
+import { LoginThrottle } from "./auth";
 import { Db } from "./db";
 import { HttpError } from "./errors";
 import type { NumberSource } from "./numbering";
@@ -78,12 +78,14 @@ export async function buildApp(options: AppOptions): Promise<FastifyInstance & {
   }
 
   app.get("/api/health", async () => ({ ok: true }));
-  setupRoutes(app, db, now, options.loginThrottle);
+  // One lockout for every place a password is typed (sign-in and the Owner's approval of a discount).
+  const throttle = options.loginThrottle ?? new LoginThrottle();
+  setupRoutes(app, db, now, throttle);
   if (!options.cloud) networkRoutes(app, db, { now, port: options.networkPort ?? NETWORK_PORT, status: options.networkStatus ?? { listening: false, error: null } });
   settingsRoutes(app, db);
   userRoutes(app, db);
   customerRoutes(app, db);
-  const documents = documentRoutes(app, db, options.numbers);
+  const documents = documentRoutes(app, db, options.numbers, { throttle, clock: now });
   partRoutes(app, db);
   purchaseRoutes(app, db, documents, options.numbers);
   syncIssueRoutes(app, db);

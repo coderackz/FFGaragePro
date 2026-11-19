@@ -81,6 +81,10 @@ export const lineSchema = z.object({
 }).refine((l) => l.suppliedBy === "garage" || l.kind === "part", { message: "Only parts can be supplied by Fleet Fix", path: ["suppliedBy"] });
 export type LineInput = z.infer<typeof lineSchema>;
 
+/** The Owner's username and password, typed on the spot to approve something beyond the user's limit. */
+export const approvalSchema = z.object({ username: text(60).min(1), password: z.string().min(1).max(200) });
+export type ApprovalInput = z.infer<typeof approvalSchema>;
+
 export const documentCreateSchema = z.object({
   type: z.enum(DOC_TYPES),
   customerId: z.string().uuid(),
@@ -88,6 +92,7 @@ export const documentCreateSchema = z.object({
   odometer: z.number().int().min(0).optional().nullable(),
   notes: optionalText(4000),
   lines: z.array(lineSchema).max(500).default([]),
+  approval: approvalSchema.optional(),
 });
 export type DocumentCreateInput = z.infer<typeof documentCreateSchema>;
 
@@ -97,6 +102,7 @@ export const documentUpdateSchema = z.object({
   notes: patchText(4000),
   status: z.string().optional(),
   lines: z.array(lineSchema).max(500).optional(),
+  approval: approvalSchema.optional(),
 });
 
 export const PAYMENT_METHODS = ["cash", "card", "bank_transfer", "cheque"] as const;
