@@ -1,10 +1,10 @@
 import { randomUUID } from "node:crypto";
 import { mkdirSync, readFileSync, writeFileSync } from "node:fs";
-import { rm, writeFile } from "node:fs/promises";
+import { mkdir, rm, writeFile } from "node:fs/promises";
 import { hostname } from "node:os";
 import { basename, join } from "node:path";
 import { app, BrowserWindow, dialog, ipcMain, Menu, shell } from "electron";
-import { audit, discoverMainComputers, NETWORK_PORT, SCHEMA_VERSION, startGarageServer, type GarageServer } from "@ffgp/server";
+import { abandonQueuedEmails, audit, discoverMainComputers, NETWORK_PORT, SCHEMA_VERSION, startGarageServer, type GarageServer } from "@ffgp/server";
 import { CloudError, installCapture, linkDownload, linkUpload, readOnlyGuard, removeCapture, trustedLink, type CloudLink } from "@ffgp/sync";
 import { backupNow, backupStatus, checkRestoreFile, pruneBackups, restoreFile, scheduleBackups, undoRestore, type BackupStatus } from "./backups";
 import { CloudSync, type CloudStatus } from "./cloud";
@@ -68,6 +68,8 @@ async function startLocal(saved?: CloudLink): Promise<void> {
     dataDir: dataDir(),
     networkPort: networkPort(),
     app: sync ? { numbers: sync.client.numbers(), guard: readOnlyGuard(sync.client) } : undefined,
+    // One sender per garage: the cloud when linked, else this PC (or main computer). Client PCs have no server.
+    sendsMessages: !sync,
   });
   connection = { apiBase: server.address, deviceKey: null, mode: server.sharing ? "main" : "local", mainComputer: null };
   if (sync) {
@@ -277,6 +279,8 @@ ipcMain.handle("ffgp:cloudUnlink", async () => {
   if (!cloud || !server) return;
   cloud.stop();
   removeCapture(server.db);
+  // This PC becomes the sender: emails it holds as queued may still be sent by the cloud, so a person decides.
+  abandonQueuedEmails(server.db, "this PC was unlinked from the cloud, which may already have sent it");
   writeConfig({ mode: "local" });
   await startLocal();
   reloadSoon();
@@ -418,7 +422,7 @@ async function withPrintWindow<T>(html: string, fn: (win: BrowserWindow) => Prom
 
 ipcMain.handle("ffgp:savePdf", async (_event, args: { html: string; fileName: string }) => {
   const pdf = await withPrintWindow(args.html, (win) =>
-    win.webContents.printToPDF({ pageSize: "A4", printBackground: true, margins: { top: 0, bottom: 0, left: 0, right: 0 } }),
+    win.webContents.printToPDF(PDF_OPTIONS),
   );
   const parent = mainWindow ?? undefined;
   const options = { defaultPath: join(app.getPath("documents"), args.fileName), filters: [{ name: "PDF", extensions: ["pdf"] }] };
@@ -427,6 +431,30 @@ ipcMain.handle("ffgp:savePdf", async (_event, args: { html: string; fileName: st
   await writeFile(result.filePath, pdf);
   void shell.openPath(result.filePath);
   return result.filePath;
+});
+
+const PDF_OPTIONS = { pageSize: "A4", printBackground: true, margins: { top: 0, bottom: 0, left: 0, right: 0 } } as const;
+
+/** A page as PDF bytes (base64), to attach to an email or hand to WhatsApp. */
+ipcMain.handle("ffgp:makePdf", async (_event, args: { html: string }) =>
+  Buffer.from(await withPrintWindow(args.html, (win) => win.webContents.printToPDF(PDF_OPTIONS))).toString("base64"),
+);
+
+/**
+ * WhatsApp click-to-send: saves the PDF to Documents/Fleetfix Garage Pro/Sent, shows it in its folder (ready to drag
+ * into the chat), then opens the chat with the message typed in. Only wa.me links are opened.
+ */
+ipcMain.handle("ffgp:whatsapp", async (_event, args: { url: string; pdf: { fileName: string; base64: string } | null }) => {
+  if (!/^https:\/\/wa\.me\/\d{8,15}\?text=/.test(args.url)) throw new Error("Not a WhatsApp link");
+  if (args.pdf) {
+    const dir = join(app.getPath("documents"), "Fleetfix Garage Pro", "Sent");
+    await mkdir(dir, { recursive: true });
+    const file = join(dir, basename(args.pdf.fileName.replace(/[\\/:*?"<>|]+/g, " ").trim() || "document.pdf"));
+    await writeFile(file, Buffer.from(args.pdf.base64, "base64"));
+    shell.showItemInFolder(file);
+  }
+  await shell.openExternal(args.url);
+  return true;
 });
 
 ipcMain.handle("ffgp:print", async (_event, args: { html: string }) =>

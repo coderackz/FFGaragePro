@@ -1,6 +1,6 @@
 import { afterEach, describe, expect, it } from "vitest";
-import { applyAtCloud, applyAtPc, changesFor, getState, installCapture, localChanges, maxSeq, setState } from "../src/index";
-import { customerBalance, legacyPaymentReceipt } from "@ffgp/server";
+import { applyAtCloud, applyAtPc, changesFor, forgetPushed, getState, installCapture, localChanges, maxSeq, PUSH_PAGE_BYTES, setState } from "../src/index";
+import { customerBalance, Db, legacyPaymentReceipt } from "@ffgp/server";
 import { call, createPart, garageApp, onHand, setUp, twin, type App } from "./helpers";
 
 const apps: App[] = [];
@@ -354,4 +354,79 @@ describe("English + Arabic (Part 3a)", () => {
     expect(C.db.get("SELECT name_ar FROM parts WHERE id = ?", [part.id])).toEqual({ name_ar: "فلتر زيت" });
     expect(C.db.get("SELECT language FROM documents WHERE id = ?", [doc.id])).toEqual({ language: "en_ar" });
   });
+  it("sync carries contacts and messages", async () => {
+    const { A, C, token, sync } = await pair();
+    const c = (await call(A, "POST", "/api/customers", token, { name: "Gulf Fleet", kind: "company" })).body.customer;
+    const contact = (await call(A, "POST", `/api/customers/${c.id}/contacts`, token, { name: "Accounts", email: "a@gulf.ae", getsInvoices: true })).body.contact;
+    const t = new Date().toISOString();
+    A.db.run(
+      `INSERT INTO messages (id, customer_id, contact_id, event, channel, recipient, subject, body, status, created_at, updated_at)
+       VALUES ('m1', ?, ?, 'invoice_issued', 'email', 'a@gulf.ae', 'Invoice', 'Hello', 'queued', ?, ?)`,
+      [c.id, contact.id, t, t],
+    );
+    A.db.run("INSERT INTO message_files (id, message_id, file_name, data_base64, created_at) VALUES ('f1', 'm1', 'INV.pdf', 'JVBERi0=', ?)", [t]);
+    sync();
+    expect(C.db.get("SELECT name, gets_invoices FROM customer_contacts WHERE id = ?", [contact.id])).toEqual({ name: "Accounts", gets_invoices: 1 });
+    expect(C.db.get("SELECT status, recipient FROM messages WHERE id = 'm1'")).toEqual({ status: "queued", recipient: "a@gulf.ae" });
+    expect(C.db.get("SELECT file_name, data_base64 FROM message_files WHERE id = 'f1'")).toEqual({ file_name: "INV.pdf", data_base64: "JVBERi0=" });
+  });
 });
+
+describe("review fixes: attachments and secrets", () => {
+  const big = "A".repeat(1024 * 1024);
+  const addMessage = (db: Db, id: string) => {
+    const t = new Date().toISOString();
+    db.run(`INSERT INTO messages (id, event, channel, recipient, subject, body, status, created_at, updated_at)
+            VALUES (?, 'test', 'email', 'a@b.ae', 'S', 'B', 'queued', ?, ?)`, [id, t, t]);
+  };
+  const addFile = (db: Db, id: string, messageId: string, data = "JVBERi0=") =>
+    db.run("INSERT INTO message_files (id, message_id, file_name, data_base64, created_at) VALUES (?, ?, 'x.pdf', ?, ?)", [id, messageId, data, new Date().toISOString()]);
+
+  it("I6/I7: the cloud never sends attachments or secrets down to PCs, however many there are", async () => {
+    const { C } = await pair();
+    addMessage(C.db, "m1");
+    for (let i = 0; i < 600; i++) addFile(C.db, `f${i}`, "m1");
+    C.db.run("INSERT INTO settings (key, value) VALUES ('secret.smtp.password', '\"pw\"')");
+    const t = new Date().toISOString();
+    C.db.run("INSERT INTO customers (id, kind, name, created_at, updated_at) VALUES ('c-after', 'individual', 'After', ?, ?)", [t, t]);
+    const down = changesFor(C.db, 0, "P1");
+    expect(down.some((e) => e.table === "message_files")).toBe(false);
+    expect(down.some((e) => e.table === "settings" && String(e.rowId).startsWith("secret."))).toBe(false);
+    expect(down.some((e) => e.table === "customers" && e.rowId === "c-after")).toBe(true);
+    expect(down.some((e) => e.table === "messages" && e.rowId === "m1")).toBe(true);
+  });
+
+  it("I6: a push page stays under the size cap and never splits one change", async () => {
+    const { A } = await pair();
+    addMessage(A.db, "m1");
+    for (let i = 0; i < 30; i++) addFile(A.db, `f${i}`, "m1", big);
+    let after = Number(getState(A.db, "last_pushed_seq") ?? 0);
+    let pages = 0;
+    let files = 0;
+    for (;;) {
+      const page = localChanges(A.db, after);
+      if (!page.length) break;
+      pages++;
+      expect(JSON.stringify(page).length).toBeLessThanOrEqual(PUSH_PAGE_BYTES + 2 * big.length);
+      files += page.filter((e) => e.table === "message_files").length;
+      after = page.at(-1)!.seq;
+    }
+    expect(files).toBe(30);
+    expect(pages).toBeGreaterThan(2);
+  });
+
+  it("I6/I7: after pushing, a PC's log keeps no attachments or secrets; the cloud's log neither", async () => {
+    const { A, C, push } = await pair();
+    addMessage(A.db, "m1");
+    addFile(A.db, "f1", "m1");
+    A.db.run("INSERT INTO settings (key, value) VALUES ('secret.smtp.password', '\"pw\"')");
+    const { entries } = push();
+    forgetPushed(A.db, entries.at(-1)!.seq);
+    const heavy = "SELECT COUNT(*) AS n FROM change_log WHERE table_name = 'message_files' OR (table_name = 'settings' AND row_id LIKE 'secret.%')";
+    expect(A.db.get(heavy)).toEqual({ n: 0 });
+    expect(C.db.get("SELECT data_base64 FROM message_files WHERE id = 'f1'")).toEqual({ data_base64: "JVBERi0=" });
+    forgetPushed(C.db);
+    expect(C.db.get(heavy)).toEqual({ n: 0 });
+  });
+});
+

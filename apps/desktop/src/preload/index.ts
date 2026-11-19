@@ -13,6 +13,8 @@ contextBridge.exposeInMainWorld("ffgp", {
   ...info,
   savePdf: (html: string, fileName: string) => ipcRenderer.invoke("ffgp:savePdf", { html, fileName }) as Promise<string | null>,
   print: (html: string) => ipcRenderer.invoke("ffgp:print", { html }) as Promise<boolean>,
+  makePdf: (html: string) => ipcRenderer.invoke("ffgp:makePdf", { html }) as Promise<string>,
+  whatsapp: (args: { url: string; pdf: { fileName: string; base64: string } | null }) => ipcRenderer.invoke("ffgp:whatsapp", args) as Promise<boolean>,
   discover: () => ipcRenderer.invoke("ffgp:discover"),
   connect: (args: { host: string; code: string; deviceName: string }) => ipcRenderer.invoke("ffgp:connect", args),
   disconnect: () => ipcRenderer.invoke("ffgp:disconnect"),

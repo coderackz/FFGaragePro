@@ -1,12 +1,13 @@
 import { existsSync } from "node:fs";
 import { createServer, type IncomingMessage, type Server, type ServerResponse } from "node:http";
 import Fastify, { type FastifyInstance, type FastifyRequest } from "fastify";
-import { HttpError, LoginThrottle } from "@ffgp/server";
+import { HttpError, LoginThrottle, type Db, type Mailer } from "@ffgp/server";
 import fastifyStatic from "@fastify/static";
 import { GARAGE_HEADER, licenceState, normalizeGarageCode, SETUP_CODE_HEADER } from "@ffgp/shared";
 import { AdminDb, type GarageRow } from "./admin-db";
 import { GarageHost } from "./garages";
 import { loadOrCreateKey } from "./licence-token";
+import { CloudOutbox } from "./outbox";
 
 export interface CloudOptions {
   dataDir: string;
@@ -14,6 +15,8 @@ export interface CloudOptions {
   webDir?: string;
   maxOpen?: number;
   now?: () => number;
+  /** Tests: a stand-in for the garages' mail servers. */
+  mailerFor?: (db: Db) => Mailer | null;
 }
 
 export interface CloudServer {
@@ -21,6 +24,8 @@ export interface CloudServer {
   admin: AdminDb;
   host: GarageHost;
   cloudApp: FastifyInstance;
+  /** Sends linked garages' email; `runCloud` starts it (tests call `runOnce`). */
+  outbox: CloudOutbox;
   close(): Promise<void>;
 }
 
@@ -64,7 +69,11 @@ export async function createCloudServer(o: CloudOptions): Promise<CloudServer> {
       throw new HttpError(402, "This garage's subscription has ended. You can still view and print. Contact Fleet Fix to renew.", "read_only");
     }
   };
-  const host = new GarageHost(o.dataDir, o.maxOpen ?? 50, (id) => ({ now, guard: guardFor(id), loginThrottle: throttleFor(id) }));
+  let outbox: CloudOutbox | null = null;
+  const host = new GarageHost(o.dataDir, o.maxOpen ?? 50, (id) => ({
+    now, guard: guardFor(id), loginThrottle: throttleFor(id), onMessageQueued: () => outbox?.mark(id),
+  }));
+  outbox = new CloudOutbox(admin, host, { now, mailerFor: o.mailerFor });
   const cloudApp = Fastify({ logger: false, bodyLimit: 1024 * 1024 });
 
   const garageFromHeader = (value: unknown): GarageRow | undefined => {
@@ -84,7 +93,7 @@ export async function createCloudServer(o: CloudOptions): Promise<CloudServer> {
   const { adminRoutes } = await import("./admin-routes");
   adminRoutes(cloudApp, { admin, host, now });
   const { syncRoutes } = await import("./sync-routes");
-  syncRoutes(cloudApp, { admin, host, now, dataDir: o.dataDir, key: loadOrCreateKey(o.dataDir), throttleFor });
+  syncRoutes(cloudApp, { admin, host, now, dataDir: o.dataDir, key: loadOrCreateKey(o.dataDir), throttleFor, outbox });
 
   if (o.webDir && existsSync(o.webDir)) {
     await cloudApp.register(fastifyStatic, { root: o.webDir, prefix: "/", index: ["index.html"] });
@@ -117,8 +126,9 @@ export async function createCloudServer(o: CloudOptions): Promise<CloudServer> {
   });
 
   return {
-    server, admin, host, cloudApp,
+    server, admin, host, cloudApp, outbox,
     async close() {
+      await outbox.stop();
       await new Promise<void>((r) => (server.listening ? server.close(() => r()) : r()));
       await host.closeAll();
       await cloudApp.close();

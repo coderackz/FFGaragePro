@@ -1,11 +1,15 @@
 import { z } from "zod";
+import { DEFAULT_MESSAGE_TEXTS } from "./message-texts";
+import { MESSAGE_EVENTS, PLACEHOLDERS, unknownPlaceholders, type MessageEvent } from "./messages";
 import type { NumberKind } from "./rules";
 
 /**
  * Garage-wide settings, stored one row per field in the `settings` table as `section.field` → JSON value, so two
  * people changing different settings on two PCs never overwrite each other. Every field has a default.
  */
-export const SETTINGS_SECTIONS = ["garage", "documents", "numbering", "tax", "pricing", "inventory", "security", "credit"] as const;
+export const SETTINGS_SECTIONS = [
+  "garage", "documents", "numbering", "tax", "pricing", "inventory", "security", "credit", "messages",
+] as const;
 export type SettingsSection = (typeof SETTINGS_SECTIONS)[number];
 
 /** Settings that belong to one PC and never sync (network sharing, backup folder). */
@@ -38,6 +42,45 @@ const iban = z
 
 const prefix = (d: string) => z.string().regex(/^[A-Z]{1,6}$/, "Use 1 to 6 capital letters").default(d);
 const start = z.number().int().min(1).max(99_999_999).default(1);
+
+/** Message text: known placeholders only (spec F: unknown ones are refused when the template is saved). */
+const templateText = (max: number) =>
+  z.string().trim().min(1, "Enter the text").max(max).superRefine((v, ctx) => {
+    const unknown = unknownPlaceholders(v);
+    if (unknown.length) {
+      ctx.addIssue({
+        code: "custom",
+        message: `Unknown placeholder ${unknown.map((n) => `{${n}}`).join(", ")}. Use one of: ${PLACEHOLDERS.map((p) => `{${p}}`).join(", ")}`,
+      });
+    }
+  });
+
+const REMINDERS: readonly MessageEvent[] = ["payment_due", "payment_overdue"];
+
+/** One message's settings. Reminders are email only (sent by a daily job); statements always ask (the PDF is made on a PC). */
+function eventSchema(event: MessageEvent) {
+  const reminder = REMINDERS.includes(event);
+  const t = DEFAULT_MESSAGE_TEXTS[event];
+  const defaults = { on: !reminder, mode: reminder ? "auto" : "ask", channel: reminder ? "email" : "both", ...t } as const;
+  return z
+    .object({
+      on: z.boolean().default(defaults.on),
+      mode: z.enum(["auto", "ask"]).default(defaults.mode),
+      channel: z.enum(["email", "whatsapp", "both"]).default(defaults.channel),
+      subjectEn: templateText(200).default(t.subjectEn),
+      subjectAr: templateText(200).default(t.subjectAr),
+      textEn: templateText(1000).default(t.textEn),
+      textAr: templateText(1000).default(t.textAr),
+    })
+    .refine((v) => !reminder || v.channel === "email", { message: "Reminders go by email only", path: ["channel"] })
+    .refine((v) => event !== "statement" || v.mode === "ask", { message: "Statements are sent from the dashboard, so they always ask", path: ["mode"] })
+    .default({ ...defaults });
+}
+
+const email = z.preprocess(
+  blankToNull,
+  z.string().trim().max(120).regex(/^[^\s@]+@[^\s@]+\.[^\s@]+$/, "Enter a valid email address").nullable(),
+).default(null);
 
 export const settingsSchemas = {
   garage: z.object({
@@ -105,7 +148,21 @@ export const settingsSchemas = {
     defaultTermsDays: z.number().int().min(0).max(365).default(30),
     overLimit: z.enum(["warn", "block", "approve"]).default("warn"),
   }),
+  /** Email from the garage's own mailbox (the password is a secret, saved on its own) and each message's settings. */
+  messages: z.object({
+    smtpHost: optText(200),
+    smtpPort: z.number().int().min(1).max(65535).default(587),
+    smtpSecurity: z.enum(["starttls", "ssl", "none"]).default("starttls"),
+    smtpUser: optText(200),
+    fromName: optText(120),
+    fromAddress: email,
+    dueSoonDays: z.number().int().min(1).max(60).default(3),
+    overdueDays: z.number().int().min(1).max(120).default(7),
+    ...(Object.fromEntries(MESSAGE_EVENTS.map((e) => [e, eventSchema(e)])) as { [E in MessageEvent]: ReturnType<typeof eventSchema> }),
+  }),
 } as const;
+
+export type MessageEventSettings = z.output<ReturnType<typeof eventSchema>>;
 
 export type Settings = { [S in SettingsSection]: z.output<(typeof settingsSchemas)[S]> };
 

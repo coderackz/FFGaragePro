@@ -116,3 +116,30 @@ test("closing with unsaved Settings changes asks first", async () => {
   await app.evaluate(({ BrowserWindow }) => BrowserWindow.getAllWindows()[0]?.close());
   await closed;
 });
+
+test("messages: makePdf returns a PDF and WhatsApp saves the attachment", async () => {
+  test.setTimeout(120_000);
+  const dataDir = mkdtempSync(join(tmpdir(), "ffgp-electron-msg-"));
+  const docs = mkdtempSync(join(tmpdir(), "ffgp-docs-"));
+  const app = await launch(dataDir);
+  const win = await app.firstWindow();
+  await win.waitForLoadState("domcontentloaded");
+  const b64 = await win.evaluate(() => window.ffgp!.makePdf("<!doctype html><p>Invoice INV-00001</p>"));
+  expect(Buffer.from(b64, "base64").subarray(0, 5).toString()).toBe("%PDF-");
+
+  // WhatsApp: the PDF lands in Documents/Fleetfix Garage Pro/Sent and the wa.me chat opens (stubbed here).
+  await app.evaluate(({ app: electronApp, shell }, dir) => {
+    electronApp.setPath("documents", dir);
+    const g = globalThis as unknown as { opened: string[]; shown: string[] };
+    g.opened = [];
+    g.shown = [];
+    shell.openExternal = async (url: string) => void g.opened.push(url);
+    shell.showItemInFolder = (p: string) => void g.shown.push(p);
+  }, docs);
+  await win.evaluate((pdf) => window.ffgp!.whatsapp({ url: "https://wa.me/971501234567?text=Hi", pdf: { fileName: "INV-00001.pdf", base64: pdf } }), b64);
+  const saved = join(docs, "Fleetfix Garage Pro", "Sent", "INV-00001.pdf");
+  expect(readFileSync(saved).subarray(0, 5).toString()).toBe("%PDF-");
+  expect(await app.evaluate(() => (globalThis as unknown as { opened: string[] }).opened)).toEqual(["https://wa.me/971501234567?text=Hi"]);
+  await expect(win.evaluate(() => window.ffgp!.whatsapp({ url: "https://evil.example/", pdf: null }))).rejects.toThrow(/WhatsApp link/);
+  await app.close();
+});

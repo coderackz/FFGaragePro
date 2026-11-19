@@ -88,6 +88,8 @@ describe("settings API", () => {
       nextNumbers: { estimate: "EST-00001", jobcard: "JC-00001", invoice: "INV-00001", purchase_order: "PO-00001", credit_note: "CN-00001", receipt: "RCT-00001" },
       users: 1,
       changesThisWeek: 1,
+      messages: { emailReady: false, passwordSet: false },
+      failedMessages: 0,
     });
   });
 
@@ -98,5 +100,24 @@ describe("settings API", () => {
     const entry = (await call(app, "GET", "/api/audit?action=user.create", owner)).body.entries[0];
     expect(entry.after).toMatchObject({ username: "sara", role: "advisor" });
     expect(JSON.stringify(entry)).not.toMatch(/scrypt|password/i);
+  });
+
+  it("smtp password is write-only", async () => {
+    const app = await makeApp();
+    const owner = await setUp(app);
+    const advisor = await addUser(app, owner, "advisor");
+    expect((await call(app, "PUT", "/api/settings/messages/password", advisor, { password: "s3cret!" })).status).toBe(403);
+    expect((await call(app, "PUT", "/api/settings/messages/password", owner, { password: "s3cret!" })).status).toBe(200);
+    expect((await call(app, "GET", "/api/settings/overview", owner)).body.messages).toEqual({ emailReady: false, passwordSet: true });
+    await call(app, "PUT", "/api/settings/messages", owner, { smtpHost: "mail.example.com", fromAddress: "garage@example.com" });
+    const overview = await call(app, "GET", "/api/settings/overview", owner);
+    expect(overview.body.messages).toEqual({ emailReady: true, passwordSet: true });
+    for (const url of ["/api/settings", "/api/settings/overview", "/api/audit"]) {
+      expect(JSON.stringify((await call(app, "GET", url, owner)).body)).not.toContain("s3cret!");
+    }
+    const logged = (await call(app, "GET", "/api/audit", owner)).body.entries.find((e: { entityId: string }) => e.entityId === "messages.password");
+    expect(logged.after).toEqual({ smtpPassword: "(changed)" });
+    await call(app, "PUT", "/api/settings/messages/password", owner, { password: null });
+    expect((await call(app, "GET", "/api/settings/overview", owner)).body.messages).toEqual({ emailReady: false, passwordSet: false });
   });
 });

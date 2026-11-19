@@ -6,6 +6,7 @@ import { useAuth } from "../lib/auth";
 import { formatAED, formatDate, PAYMENT_LABELS } from "../lib/format";
 import type { Customer, DocumentSummary, Receipt } from "../lib/types";
 import { printReceipt } from "../print/print";
+import { afterAction, receiptRequest } from "../messages/triggers";
 import { Button, Field, Input, Modal, MoneyInput, Select, Spinner } from "./ui";
 
 type Mode = "receive" | "allocate" | "refund";
@@ -69,6 +70,7 @@ export function ReceivePaymentDialog({ customer, mode, onClose, onDone }: {
           customerId: customer.id, amountFils: amount, method, reference, chequeDate: method === "cheque" && chequeDate ? chequeDate : null, allocations,
         });
         toast.success(`${receipt.number} saved`, { action: { label: "Print", onClick: () => void printReceipt(receipt, garage!, settings ?? DEFAULT_SETTINGS, "print") } });
+        void afterAction(receiptRequest(receipt, garage!, settings ?? DEFAULT_SETTINGS), settings ?? DEFAULT_SETTINGS);
       } else if (mode === "refund") {
         const { receipt } = await post<{ receipt: Receipt }>("/api/receipts", { customerId: customer.id, amountFils: -amount, method, reference });
         toast.success(`Refund ${receipt.number} saved`, { action: { label: "Print", onClick: () => void printReceipt(receipt, garage!, settings ?? DEFAULT_SETTINGS, "print") } });

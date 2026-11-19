@@ -37,6 +37,7 @@ export const ACTIONS = [
   "audit.view",
   "credit_notes.issue",
   "credit.override",
+  "messages.send",
 ] as const;
 export type Action = (typeof ACTIONS)[number];
 
@@ -44,9 +45,9 @@ const PERMISSIONS: Record<Role, ReadonlySet<Action>> = {
   owner: new Set(ACTIONS),
   accountant: new Set<Action>([
     "customers.edit", "documents.edit", "invoices.issue", "payments.record", "costs.view", "reports.view", "inventory.edit", "purchases.manage",
-    "credit_notes.issue",
+    "credit_notes.issue", "messages.send",
   ]),
-  advisor: new Set<Action>(["customers.edit", "documents.edit", "invoices.issue"]),
+  advisor: new Set<Action>(["customers.edit", "documents.edit", "invoices.issue", "messages.send"]),
 };
 
 export function can(role: Role, action: Action): boolean {

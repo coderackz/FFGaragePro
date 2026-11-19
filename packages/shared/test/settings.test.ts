@@ -1,5 +1,7 @@
 import { describe, expect, it } from "vitest";
-import { customerSchema, DEFAULT_SETTINGS, documentUpdateSchema, partSchema, readSettings, sectionRows, settingsSchemas } from "../src/index";
+import {
+  customerSchema, DEFAULT_SETTINGS, documentUpdateSchema, MESSAGE_EVENTS, partSchema, readSettings, sectionRows, settingsSchemas, unknownPlaceholders,
+} from "../src/index";
 
 const PNG_1x1 =
   "data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mNkYPhfDwAChwGA60e6kgAAAABJRU5ErkJggg==";
@@ -71,5 +73,28 @@ describe("Arabic fields (Part 3a)", () => {
     expect(customerSchema.parse({ name: "A", nameAr: " محمد ", docLanguage: "en_ar" })).toMatchObject({ nameAr: "محمد", docLanguage: "en_ar" });
     expect(partSchema.parse({ partNo: "X", name: "Oil filter", stocked: false, sellPriceFils: 0, nameAr: "فلتر زيت" }).nameAr).toBe("فلتر زيت");
     expect(documentUpdateSchema.parse({ language: "en_ar" }).language).toBe("en_ar");
+  });
+});
+
+describe("messages settings", () => {
+  it("messages defaults and placeholder check", () => {
+    const m = DEFAULT_SETTINGS.messages;
+    expect(m).toMatchObject({ smtpPort: 587, smtpSecurity: "starttls", dueSoonDays: 3, overdueDays: 7 });
+    expect(m.invoice_issued).toMatchObject({ on: true, mode: "ask", channel: "both" });
+    expect(m.payment_due).toMatchObject({ on: false, mode: "auto", channel: "email" });
+    expect(m.statement.mode).toBe("ask");
+    for (const e of MESSAGE_EVENTS) {
+      const t = m[e];
+      for (const text of [t.subjectEn, t.subjectAr, t.textEn, t.textAr]) {
+        expect(text.length).toBeGreaterThan(0);
+        expect(unknownPlaceholders(text)).toEqual([]);
+      }
+    }
+    const bad = settingsSchemas.messages.safeParse({ invoice_issued: { ...m.invoice_issued, textEn: "Hi {name}" } });
+    expect(bad.success).toBe(false);
+    expect(JSON.stringify(bad.error?.issues)).toContain("{name}");
+    expect(settingsSchemas.messages.safeParse({ statement: { ...m.statement, mode: "auto" } }).success).toBe(false);
+    expect(settingsSchemas.messages.safeParse({ payment_due: { ...m.payment_due, channel: "whatsapp" } }).success).toBe(false);
+    expect(settingsSchemas.messages.safeParse({ fromAddress: "nope" }).success).toBe(false);
   });
 });

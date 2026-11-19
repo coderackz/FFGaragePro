@@ -20,6 +20,7 @@ interface DocRow {
   odometer: number | null; notes: string | null; source_id: string | null; issued_at: string | null; net_fils: number;
   vat_fils: number; gross_fils: number; paid_fils: number; created_by: string | null; created_at: string; updated_at: string;
   prices_include_vat: number; credited_fils: number; due_date: string | null; lpo_number: string | null; reason: string | null;
+  driver_name: string | null; driver_phone: string | null;
   language: string;
 }
 interface LineRow {
@@ -266,6 +267,7 @@ export function documentRoutes(
       editable: linesEditable(d),
       pricesIncludeVat: !!d.prices_include_vat,
       dueDate: d.due_date, lpoNumber: d.lpo_number, reason: d.reason, language: d.language,
+      driverName: d.driver_name, driverPhone: d.driver_phone,
       creditedFils: d.credited_fils,
       owedFils: d.type === "invoice" && d.status !== "draft" ? d.gross_fils - d.credited_fils - d.paid_fils : 0,
       customerBalanceFils: customerBalance(db, d.customer_id).balanceFils,
@@ -339,6 +341,9 @@ export function documentRoutes(
         type: input.type, customerId: input.customerId, vehicleId: input.vehicleId ?? null, odometer: input.odometer ?? null, notes: input.notes,
         sourceId: null, pricesIncludeVat: getSettings(db).tax.pricesIncludeVat,
       }, input.lines, reserved);
+      if (input.driverName || input.driverPhone) {
+        db.run("UPDATE documents SET driver_name = ?, driver_phone = ? WHERE id = ?", [input.driverName, input.driverPhone, docId]);
+      }
       logApproval(user, docId, approved);
       if (limit.approvedBy) {
         const number = getDoc(docId)?.number ?? null;
@@ -357,7 +362,7 @@ export function documentRoutes(
       const d = getDoc(req.params.id);
       if (!d) throw notFound("Document not found");
       const changesContent = input.lines !== undefined || input.vehicleId !== undefined || input.odometer !== undefined || input.notes !== undefined
-        || input.lpoNumber !== undefined || input.language !== undefined;
+        || input.lpoNumber !== undefined || input.language !== undefined || input.driverName !== undefined || input.driverPhone !== undefined;
       if (changesContent && !linesEditable(d)) throw conflict(`${d.number} can no longer be edited`);
       if (input.status !== undefined && input.status !== d.status) {
         if (!MANUAL_STATUSES[d.type].includes(input.status)) throw badRequest("That status can't be set directly");
@@ -365,13 +370,16 @@ export function documentRoutes(
       }
       if (input.vehicleId !== undefined) checkVehicle(d.customer_id, input.vehicleId);
       db.run(
-        `UPDATE documents SET vehicle_id = ?, odometer = ?, notes = ?, lpo_number = ?, language = ?, status = ?, updated_at = ? WHERE id = ?`,
+        `UPDATE documents SET vehicle_id = ?, odometer = ?, notes = ?, lpo_number = ?, language = ?, driver_name = ?, driver_phone = ?, status = ?,
+           updated_at = ? WHERE id = ?`,
         [
           input.vehicleId !== undefined ? input.vehicleId : d.vehicle_id,
           input.odometer !== undefined ? input.odometer : d.odometer,
           input.notes !== undefined ? input.notes : d.notes,
           input.lpoNumber !== undefined ? input.lpoNumber : d.lpo_number,
           input.language ?? d.language,
+          input.driverName !== undefined ? input.driverName : d.driver_name,
+          input.driverPhone !== undefined ? input.driverPhone : d.driver_phone,
           input.status ?? d.status,
           now(),
           d.id,

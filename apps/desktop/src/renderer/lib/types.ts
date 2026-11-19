@@ -1,4 +1,5 @@
-import type { DocLanguage, DocType, LineKind, Role } from "@ffgp/shared";
+import type { DocLanguage, DocType, LineKind, MessageLanguage, Role } from "@ffgp/shared";
+export type { Contact } from "@ffgp/shared";
 
 export interface User { id: string; name: string; username: string; role: Role; active?: boolean; createdAt?: string }
 /** A PC's backup folder and newest backup (filled by the main process). */
@@ -13,6 +14,8 @@ export interface Customer {
   openingBalanceFils?: number; openingBalanceDate?: string | null;
   /** Arabic name and address, and what their documents print in (English, or English + Arabic). */
   nameAr?: string | null; addressAr?: string | null; docLanguage?: DocLanguage;
+  /** The language of messages to the customer's own phone/email. */
+  messageLanguage?: MessageLanguage;
   /** Where the account stands: owed (negative = in credit), past due, unallocated payments, over the credit limit. */
   balanceFils?: number; overdueFils?: number; creditFils?: number; openingDueFils?: number; overLimit?: boolean;
 }
@@ -43,6 +46,8 @@ export interface DocumentFull {
   /** Times an issued invoice has been printed (the 2nd print onwards says COPY). */
   printCount?: number;
   dueDate?: string | null; lpoNumber?: string | null;
+  /** Job cards: the driver who gets "vehicle received/ready" messages. */
+  driverName?: string | null; driverPhone?: string | null;
   /** A credit note's reason. */
   reason?: string | null;
   /** Invoices: issued credit notes against it, and what's still owed after them and payments. */
@@ -102,3 +107,11 @@ export interface LedgerRow {
   date: string; kind: "opening" | "invoice" | "credit_note" | "receipt"; number: string; description: string; debitFils: number; creditFils: number; balanceFils: number;
 }
 export interface Statement { openingFils: number; rows: LedgerRow[]; closingFils: number; aging: Record<AgingBucket, number>; creditFils: number }
+
+/** A message in the log: an email (queued → sent / failed) or a WhatsApp message opened on a PC. */
+export interface Message {
+  id: string; customerId: string | null; contactId: string | null; documentId: string | null; receiptId: string | null;
+  event: string; channel: "email" | "whatsapp"; recipient: string; subject: string | null; body: string;
+  status: "queued" | "sending" | "sent" | "failed" | "opened"; attempts: number; nextAttemptAt: string | null; error: string | null;
+  senderPlace: string | null; createdBy: string | null; createdAt: string; sentAt: string | null; fileName: string | null;
+}

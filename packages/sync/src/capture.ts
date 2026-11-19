@@ -128,11 +128,43 @@ export const toEntry = (r: LogRow): ChangeEntry => ({
  * This database's own changes after `afterSeq` (what a PC pushes). When an invoice was issued here, its lines as
  * issued go just before the issue, so the cloud ends up with exactly the invoice this PC printed.
  */
-export function localChanges(db: Db, afterSeq: number, limit = 500): ChangeEntry[] {
+/** A push page's size cap (bytes of JSON), well under the cloud's 50 MB limit: attachments are big. */
+export const PUSH_PAGE_BYTES = 8 * 1024 * 1024;
+
+/**
+ * Log entries that stay where they were made: email attachments (only the sender needs them, and it gets them by
+ * push) and secrets (only the cloud, which sends, needs the mail password). Never sent down to PCs.
+ */
+const NOT_FOR_PCS = "table_name = 'message_files' OR (table_name = 'settings' AND row_id LIKE 'secret.%')";
+
+/**
+ * Forgets log entries of attachments and secrets once they're no longer needed: on a PC, those it has pushed (up to
+ * `upToSeq`); on the cloud, all of them (they're never sent on). The rows themselves stay.
+ */
+export function forgetPushed(db: Db, upToSeq = Number.MAX_SAFE_INTEGER): void {
+  db.run(`DELETE FROM change_log WHERE seq <= ? AND (${NOT_FOR_PCS})`, [upToSeq]);
+}
+
+/** Cuts a page at about `maxBytes`, only between log entries (a document and its lines share one seq). */
+function capBytes(entries: ChangeEntry[], maxBytes: number): ChangeEntry[] {
+  let size = 0;
+  let cut = entries.length;
+  for (let i = 0; i < entries.length; i++) {
+    size += JSON.stringify(entries[i]).length;
+    const boundary = i + 1 < entries.length && entries[i + 1]!.seq !== entries[i]!.seq;
+    if (size >= maxBytes && boundary) {
+      cut = i + 1;
+      break;
+    }
+  }
+  return entries.slice(0, cut);
+}
+
+export function localChanges(db: Db, afterSeq: number, limit = 500, maxBytes = PUSH_PAGE_BYTES): ChangeEntry[] {
   const entries = db
     .all<LogRow>("SELECT * FROM change_log WHERE seq > ? AND origin = ? ORDER BY seq LIMIT ?", [afterSeq, ownOrigin(db), limit])
     .map(toEntry);
-  return entries.flatMap((e) => {
+  const withLines = entries.flatMap((e) => {
     const doc = e.data as Row | null;
     const issues = e.table === "documents" && doc?.type === "invoice" && doc.status === "issued" && (e.op === "insert" || e.changed?.includes("status"));
     if (!issues) return [e];
@@ -141,11 +173,14 @@ export function localChanges(db: Db, afterSeq: number, limit = 500): ChangeEntry
     const lines = db.all<Row>("SELECT * FROM document_lines WHERE document_id = ? ORDER BY position", [e.rowId]).map((r) => Object.fromEntries(cols.map((k) => [k, r[k]])));
     return [{ ...e, table: t.name, op: "set" as const, data: lines, changed: null }, e];
   });
+  return capBytes(withLines, maxBytes);
 }
 
 /** Every change after `afterSeq` except those that came from `excludeOrigin` (what the cloud sends a PC). */
 export function changesSince(db: Db, afterSeq: number, excludeOrigin: string, limit = 500): ChangeEntry[] {
-  return db.all<LogRow>("SELECT * FROM change_log WHERE seq > ? AND origin <> ? ORDER BY seq LIMIT ?", [afterSeq, excludeOrigin, limit]).map(toEntry);
+  return db
+    .all<LogRow>(`SELECT * FROM change_log WHERE seq > ? AND origin <> ? AND NOT (${NOT_FOR_PCS}) ORDER BY seq LIMIT ?`, [afterSeq, excludeOrigin, limit])
+    .map(toEntry);
 }
 
 export const maxSeq = (db: Db): number => db.get<{ m: number | null }>("SELECT MAX(seq) AS m FROM change_log")?.m ?? 0;

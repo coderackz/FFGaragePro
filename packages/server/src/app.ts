@@ -7,6 +7,10 @@ import { Db } from "./db";
 import { HttpError } from "./errors";
 import type { NumberSource } from "./numbering";
 import { deviceGuard, NETWORK_PORT, networkRoutes, type NetworkStatus } from "./network";
+import { mailerFor } from "./messages/mailer";
+import { startOutbox } from "./messages/outbox";
+import { contactRoutes } from "./routes/contacts";
+import { messageRoutes } from "./routes/messages";
 import { customerRoutes } from "./routes/customers";
 import { documentRoutes } from "./routes/documents";
 import { partRoutes } from "./routes/parts";
@@ -42,6 +46,13 @@ export interface AppOptions {
   loginThrottle?: LoginThrottle;
   /** A cloud-linked PC: numbers from the cloud when it answers, else from this PC's own series. Absent: as before. */
   numbers?: NumberSource;
+  /**
+   * This server is where the garage's email goes out from (its one sender): a PC or main computer that isn't linked
+   * to the cloud. The cloud sends for linked garages itself (apps/cloud outbox), so its garage apps leave this off.
+   */
+  sendsMessages?: { place: string; everyMs?: number; retryMinutes?: readonly number[] };
+  /** Called when an email is queued (the cloud uses it to send soon). */
+  onMessageQueued?: () => void;
 }
 
 /** The app's own pages: Electron (file:// sends "null") and local dev servers. */
@@ -89,13 +100,23 @@ export async function buildApp(options: AppOptions): Promise<FastifyInstance & {
   settingsRoutes(app, db);
   userRoutes(app, db);
   customerRoutes(app, db);
+  contactRoutes(app, db);
   const documents = documentRoutes(app, db, options.numbers, { throttle, clock: now });
   partRoutes(app, db);
   purchaseRoutes(app, db, documents, options.numbers);
   syncIssueRoutes(app, db);
   reportRoutes(app, db);
   receiptRoutes(app, db, options.numbers);
-
-  app.addHook("onClose", async () => db.close());
+  const outbox = options.sendsMessages ? startOutbox(db, { mailerFor: () => mailerFor(db), ...options.sendsMessages }) : null;
+  messageRoutes(app, db, () => {
+    options.onMessageQueued?.();
+    // Sent from here: don't wait for the next round.
+    outbox?.kick();
+  });
+  // One hook, in this order: the email in flight is finished and written before the database closes.
+  app.addHook("onClose", async () => {
+    await outbox?.stop();
+    db.close();
+  });
   return Object.assign(app, { db }) as unknown as FastifyInstance & { db: Db };
 }

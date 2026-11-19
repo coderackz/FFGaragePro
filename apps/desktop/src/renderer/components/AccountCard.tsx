@@ -1,5 +1,5 @@
 import { addDays, DEFAULT_SETTINGS, dubaiDate } from "@ffgp/shared";
-import { Banknote, FileDown, Printer, Undo2, WalletCards } from "lucide-react";
+import { Banknote, FileDown, Printer, Send, Undo2, WalletCards } from "lucide-react";
 import { useState } from "react";
 import { toast } from "sonner";
 import { get } from "../lib/api";
@@ -8,6 +8,7 @@ import { formatAED, formatDate, PAYMENT_LABELS } from "../lib/format";
 import type { Customer, Receipt, Statement } from "../lib/types";
 import { useApi } from "../lib/useApi";
 import { printReceipt, printStatement } from "../print/print";
+import { askToSend, statementRequest } from "../messages/triggers";
 import { ReceivePaymentDialog } from "./ReceivePaymentDialog";
 import { Badge, Button, Card, Field, Input, Table } from "./ui";
 
@@ -27,6 +28,14 @@ export function AccountCard({ customer, onChanged }: { customer: Customer; onCha
     try {
       const s = await get<{ statement: Statement; from: string; to: string }>(`/api/customers/${customer.id}/statement?from=${from}&to=${to}`);
       await printStatement(s.statement, customer, garage!, settings ?? DEFAULT_SETTINGS, { from: s.from, to: s.to }, mode);
+    } catch (err) {
+      toast.error((err as Error).message);
+    }
+  };
+  const sendStatement = async () => {
+    try {
+      const s = await get<{ statement: Statement; from: string; to: string }>(`/api/customers/${customer.id}/statement?from=${from}&to=${to}`);
+      askToSend(statementRequest(s.statement, customer, garage!, settings ?? DEFAULT_SETTINGS, { from: s.from, to: s.to }, true));
     } catch (err) {
       toast.error((err as Error).message);
     }
@@ -70,6 +79,7 @@ export function AccountCard({ customer, onChanged }: { customer: Customer; onCha
             <div className="mt-3 flex gap-2">
               <Button size="sm" icon={<Printer className="size-3.5" />} onClick={() => void statement("print")}>Print statement</Button>
               <Button size="sm" icon={<FileDown className="size-3.5" />} onClick={() => void statement("pdf")}>PDF</Button>
+              <Button size="sm" icon={<Send className="size-3.5" />} onClick={() => void sendStatement()}>Send</Button>
               <Button size="sm" variant="ghost" onClick={() => { setFrom(addDays(today, -90)); setTo(today); }}>Last 90 days</Button>
             </div>
           </div>

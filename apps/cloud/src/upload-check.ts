@@ -1,9 +1,13 @@
 import { Worker } from "node:worker_threads";
 
-/** Tidies a garage file before it moves between PC and cloud: no sign-ins, LAN pairing, sync log, or this PC's own settings (sharing, backups). */
+/**
+ * Tidies a garage file before it moves between PC and cloud: no sign-ins, LAN pairing, sync log, or this PC's own
+ * settings (sharing, backups). A copy for a PC ("local") also leaves out secrets: only the cloud sends email.
+ */
 export const cleanSql = (origin: "local" | "cloud") =>
   `DELETE FROM sessions; DELETE FROM devices; DELETE FROM change_log; DELETE FROM sync_peers; DELETE FROM sync_issues; DELETE FROM sync_state;
-   DELETE FROM settings WHERE key LIKE 'network.%' OR key LIKE 'local.%'; UPDATE sync_ctx SET origin = '${origin}', origin_seq = NULL;`;
+   DELETE FROM settings WHERE key LIKE 'network.%' OR key LIKE 'local.%'${origin === "local" ? " OR key LIKE 'secret.%'" : ""};
+   UPDATE sync_ctx SET origin = '${origin}', origin_seq = NULL;`;
 
 export type UploadCheck = { ok: true } | { ok: false; status: number; error: string } | { ok: false; schema: number };
 

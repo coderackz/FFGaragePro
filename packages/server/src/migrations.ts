@@ -502,6 +502,64 @@ ALTER TABLE parts ADD COLUMN name_ar TEXT;
 ALTER TABLE documents ADD COLUMN language TEXT NOT NULL DEFAULT 'en' CHECK (language IN ('en', 'en_ar'));
 `,
   },
+  {
+    id: 10,
+    // Settings Part 3b (messages): customer contacts, the job card's driver, and the message outbox and log.
+    sql: `
+ALTER TABLE customers ADD COLUMN message_language TEXT NOT NULL DEFAULT 'en' CHECK (message_language IN ('en', 'ar'));
+ALTER TABLE documents ADD COLUMN driver_name TEXT;
+ALTER TABLE documents ADD COLUMN driver_phone TEXT;
+CREATE TABLE customer_contacts (
+  id TEXT PRIMARY KEY,
+  customer_id TEXT NOT NULL REFERENCES customers(id) ON DELETE CASCADE,
+  name TEXT NOT NULL,
+  phone TEXT,
+  email TEXT,
+  language TEXT NOT NULL DEFAULT 'en' CHECK (language IN ('en', 'ar')),
+  gets_approvals INTEGER NOT NULL DEFAULT 0,
+  gets_invoices INTEGER NOT NULL DEFAULT 0,
+  gets_ready INTEGER NOT NULL DEFAULT 0,
+  gets_statements INTEGER NOT NULL DEFAULT 0,
+  marketing_consent_at TEXT,
+  created_at TEXT NOT NULL,
+  updated_at TEXT NOT NULL
+);
+CREATE INDEX customer_contacts_customer ON customer_contacts(customer_id);
+CREATE TABLE messages (
+  id TEXT PRIMARY KEY,
+  customer_id TEXT REFERENCES customers(id),
+  contact_id TEXT,
+  document_id TEXT REFERENCES documents(id),
+  receipt_id TEXT REFERENCES receipts(id),
+  event TEXT NOT NULL,
+  channel TEXT NOT NULL CHECK (channel IN ('email', 'whatsapp')),
+  recipient TEXT NOT NULL,
+  subject TEXT,
+  body TEXT NOT NULL,
+  status TEXT NOT NULL CHECK (status IN ('queued', 'sending', 'sent', 'failed', 'opened')),
+  attempts INTEGER NOT NULL DEFAULT 0,
+  next_attempt_at TEXT,
+  error TEXT,
+  sender_place TEXT,
+  dedupe_key TEXT UNIQUE,
+  created_by TEXT REFERENCES users(id),
+  created_at TEXT NOT NULL,
+  sent_at TEXT,
+  updated_at TEXT NOT NULL
+);
+CREATE INDEX messages_customer ON messages(customer_id);
+CREATE INDEX messages_document ON messages(document_id);
+CREATE INDEX messages_status ON messages(status);
+CREATE TABLE message_files (
+  id TEXT PRIMARY KEY,
+  message_id TEXT NOT NULL REFERENCES messages(id),
+  file_name TEXT NOT NULL,
+  data_base64 TEXT NOT NULL,
+  created_at TEXT NOT NULL
+);
+CREATE INDEX message_files_message ON message_files(message_id);
+`,
+  },
 ];
 
 /** The newest migration this code knows: the garage database's schema version. */

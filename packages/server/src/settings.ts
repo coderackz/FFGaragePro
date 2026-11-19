@@ -97,3 +97,39 @@ export function checkNumbering(db: Db, next: Settings["numbering"]): void {
   }
 }
 registerSectionCheck("numbering", checkNumbering);
+
+/**
+ * Secrets (the SMTP password) live in the settings table as `secret.<name>`, so they sync to the cloud that sends the
+ * mail, but `getSettings` never reads them and no route returns them.
+ */
+export type SecretName = "smtp.password";
+
+export function getSecret(db: Db, name: SecretName): string | null {
+  const row = db.get<{ value: string }>("SELECT value FROM settings WHERE key = ?", [`secret.${name}`]);
+  if (!row) return null;
+  try {
+    const v = JSON.parse(row.value) as unknown;
+    return typeof v === "string" && v ? v : null;
+  } catch {
+    return null;
+  }
+}
+
+/** Saves or removes a secret; the activity log says only that it changed. */
+export function setSecret(db: Db, userId: string, name: SecretName, value: string | null): void {
+  db.tx(() => {
+    const had = getSecret(db, name) !== null;
+    if (value) db.run("INSERT INTO settings (key, value) VALUES (?, ?) ON CONFLICT(key) DO UPDATE SET value = excluded.value", [`secret.${name}`, JSON.stringify(value)]);
+    else db.run("DELETE FROM settings WHERE key = ?", [`secret.${name}`]);
+    if (value || had) {
+      audit(db, { action: "settings.change", entity: "settings", entityId: "messages.password", before: null, after: { smtpPassword: value ? "(changed)" : "(removed)" }, userId });
+    }
+  });
+}
+
+/** Email can go out: a mail server, a from address and a password are all set. */
+export function emailReady(db: Db): boolean {
+  const m = getSettings(db).messages;
+  return !!(m.smtpHost && m.fromAddress && getSecret(db, "smtp.password"));
+}
+

@@ -44,7 +44,11 @@ describe("settings tiles", () => {
     expect(status("customers-credit", c)).toEqual({ tone: "ok", text: "Terms 30 days · warn over limit" });
     expect(tile("customers-credit").coming).toBeUndefined();
     expect(status("customers-credit", ctx({}, { credit: { defaultTermsDays: 45, overLimit: "approve" } }))).toEqual({ tone: "ok", text: "Terms 45 days · Owner approves over limit" });
-    expect(tile("messages").coming).toBe(true);
+    expect(tile("messages").coming).toBeUndefined();
+    expect(status("messages", c)).toEqual({ tone: "todo", text: "Email not set up" });
+    const withMail = (failedMessages: number) => ctx({ overview: { ...c.overview!, messages: { emailReady: true, passwordSet: true }, failedMessages } });
+    expect(status("messages", withMail(0))).toEqual({ tone: "ok", text: "Email ready" });
+    expect(status("messages", withMail(2))).toEqual({ tone: "alert", text: "2 messages failed" });
   });
 
   it("backups go amber, then red", () => {
