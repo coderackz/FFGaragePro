@@ -12,6 +12,18 @@ describe("document numbers", () => {
     expect(formatDocNumber("invoice", 3, "")).toBe("INV-00003");
     expect(formatPoNumber(4, "P2")).toBe("PO-P2-00004");
   });
+  it("uses the garage's own prefix when given", () => {
+    expect(formatDocNumber("invoice", 12, "", "TI")).toBe("TI-00012");
+    expect(formatPoNumber(5, "", "LPO")).toBe("LPO-00005");
+  });
+});
+
+describe("activity log permission", () => {
+  it("only the owner sees the activity log", () => {
+    expect(can("owner", "audit.view")).toBe(true);
+    expect(can("accountant", "audit.view")).toBe(false);
+    expect(can("advisor", "audit.view")).toBe(false);
+  });
 });
 
 describe("permissions", () => {
