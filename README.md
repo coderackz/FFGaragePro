@@ -87,7 +87,21 @@ set. Each tile opens its section with its own Save; every change goes to the Act
 
     npm run e2e:settings                            # Settings in the browser: sections, preview, numbering, Owner approval, screen lock
 
-Next: Settings Part 2 (credit customers and credit notes), then Accounting. See `docs/superpowers/specs/`.
+**Credit customers and credit notes (Settings Part 2):**
+- **Customers** can be on credit (Owner or Accountant sets it): credit limit, payment terms (blank = Settings →
+  Customers & credit default, 30 days), standing discount, "needs an LPO", opening balance. Cash customers owe on the day.
+- **Invoices** get a due date and LPO number when issued; going over a credit limit warns, is blocked, or needs the
+  Owner's password (Settings → Customers & credit).
+- **Receipts** (RCT-…): one payment split across invoices, oldest due first; what's left is the customer's credit, used
+  later or refunded. The invoice screen's "Record payment" makes a receipt for that invoice.
+- **Credit notes** (CN-…): from an issued invoice, whole or chosen lines, with a reason; a paid invoice's credited amount
+  becomes customer credit; stocked parts go back on the shelf.
+- **Statements of account** (any range, print or PDF) and the **Aging** report come from one ledger, so they agree with
+  the balance on screen. Existing payments became receipts in the upgrade (migration 8).
+
+    npm run e2e:credit                              # credit customer, one transfer across invoices, credit note, refund
+
+Next: Settings Part 3 (messages and Arabic documents), then Accounting. See `docs/superpowers/specs/`.
 
 ## Layout
 | Path | What |
