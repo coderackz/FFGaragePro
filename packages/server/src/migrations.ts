@@ -638,6 +638,181 @@ CREATE TABLE journal_drafts (
 );
 `,
   },
+  {
+    id: 12,
+    // Accounting Part 2 (suppliers, expenses and bank). journal_entries is rebuilt to accept the new kinds of entry.
+    foreignKeysOff: ["journal_entries", "journal_lines"],
+    sql: `
+CREATE TABLE journal_entries_new (
+  id TEXT PRIMARY KEY,
+  series TEXT NOT NULL DEFAULT '',
+  seq INTEGER NOT NULL,
+  number TEXT NOT NULL,
+  date TEXT NOT NULL,
+  narration TEXT NOT NULL,
+  source_type TEXT NOT NULL CHECK (source_type IN ('invoice', 'credit_note', 'receipt', 'goods_receipt', 'stock', 'cogs', 'customer_opening',
+    'opening', 'manual', 'reversal', 'year_close', 'revaluation', 'supplier_bill', 'bill_cancel', 'supplier_payment', 'supplier_opening', 'expense',
+    'transfer', 'cheque_deposit', 'cheque_clear')),
+  source_id TEXT,
+  post_key TEXT UNIQUE,
+  reverses_id TEXT REFERENCES journal_entries(id),
+  original_date TEXT,
+  created_by TEXT REFERENCES users(id),
+  created_at TEXT NOT NULL,
+  UNIQUE (series, seq)
+);
+INSERT INTO journal_entries_new SELECT id, series, seq, number, date, narration, source_type, source_id, post_key, reverses_id, original_date, created_by, created_at
+  FROM journal_entries;
+DROP TABLE journal_entries;
+ALTER TABLE journal_entries_new RENAME TO journal_entries;
+CREATE INDEX journal_entries_date ON journal_entries(date);
+CREATE INDEX journal_entries_source ON journal_entries(source_type, source_id);
+
+ALTER TABLE accounts ADD COLUMN money_kind TEXT CHECK (money_kind IN ('cash', 'bank', 'card_clearing', 'cheques_in_hand'));
+ALTER TABLE accounts ADD COLUMN bank_mapping TEXT;
+UPDATE accounts SET money_kind = 'cash' WHERE system_key = 'cash';
+UPDATE accounts SET money_kind = 'bank' WHERE system_key = 'bank';
+UPDATE accounts SET money_kind = 'card_clearing' WHERE system_key = 'card_clearing';
+UPDATE accounts SET money_kind = 'cheques_in_hand' WHERE system_key = 'cheques_in_hand';
+INSERT OR IGNORE INTO accounts (id, code, name, type, system_key, active, created_at, updated_at)
+VALUES ('00000000-0000-4000-8000-0000000a2010', '2010', 'Cheques issued', 'liability', 'cheques_issued', 1, strftime('%Y-%m-%dT%H:%M:%fZ','now'), strftime('%Y-%m-%dT%H:%M:%fZ','now'));
+
+ALTER TABLE suppliers ADD COLUMN terms_days INTEGER NOT NULL DEFAULT 30;
+ALTER TABLE suppliers ADD COLUMN opening_balance_fils INTEGER NOT NULL DEFAULT 0;
+ALTER TABLE suppliers ADD COLUMN opening_balance_date TEXT;
+
+CREATE TABLE supplier_bills (
+  id TEXT PRIMARY KEY,
+  supplier_id TEXT NOT NULL REFERENCES suppliers(id),
+  supplier_invoice_no TEXT NOT NULL,
+  bill_date TEXT NOT NULL,
+  due_date TEXT,
+  notes TEXT,
+  net_fils INTEGER NOT NULL,
+  vat_fils INTEGER NOT NULL,
+  gross_fils INTEGER NOT NULL,
+  status TEXT NOT NULL DEFAULT 'posted' CHECK (status IN ('posted', 'cancelled')),
+  cancel_reason TEXT,
+  cancelled_at TEXT,
+  created_by TEXT REFERENCES users(id),
+  created_at TEXT NOT NULL,
+  updated_at TEXT NOT NULL
+);
+CREATE INDEX supplier_bills_supplier ON supplier_bills(supplier_id);
+CREATE TABLE supplier_bill_lines (
+  id TEXT PRIMARY KEY,
+  bill_id TEXT NOT NULL REFERENCES supplier_bills(id),
+  position INTEGER NOT NULL,
+  account_id TEXT NOT NULL REFERENCES accounts(id),
+  description TEXT NOT NULL,
+  net_fils INTEGER NOT NULL,
+  vat TEXT NOT NULL CHECK (vat IN ('standard', 'none')),
+  vat_fils INTEGER NOT NULL
+);
+CREATE INDEX supplier_bill_lines_bill ON supplier_bill_lines(bill_id, position);
+CREATE TABLE supplier_payments (
+  id TEXT PRIMARY KEY,
+  series TEXT NOT NULL DEFAULT '',
+  seq INTEGER NOT NULL,
+  number TEXT NOT NULL,
+  supplier_id TEXT NOT NULL REFERENCES suppliers(id),
+  amount_fils INTEGER NOT NULL CHECK (amount_fils > 0),
+  method TEXT NOT NULL CHECK (method IN ('cash', 'bank_transfer', 'card', 'cheque')),
+  paid_from_account_id TEXT NOT NULL REFERENCES accounts(id),
+  reference TEXT,
+  cheque_no TEXT,
+  cheque_date TEXT,
+  paid_at TEXT NOT NULL,
+  created_by TEXT REFERENCES users(id),
+  created_at TEXT NOT NULL,
+  UNIQUE (series, seq)
+);
+CREATE INDEX supplier_payments_supplier ON supplier_payments(supplier_id);
+CREATE TABLE supplier_allocations (
+  id TEXT PRIMARY KEY,
+  payment_id TEXT NOT NULL REFERENCES supplier_payments(id),
+  target TEXT NOT NULL CHECK (target IN ('bill', 'goods_receipt')),
+  target_id TEXT NOT NULL,
+  amount_fils INTEGER NOT NULL CHECK (amount_fils <> 0),
+  created_by TEXT REFERENCES users(id),
+  created_at TEXT NOT NULL
+);
+CREATE INDEX supplier_allocations_payment ON supplier_allocations(payment_id);
+CREATE INDEX supplier_allocations_target ON supplier_allocations(target, target_id);
+CREATE TABLE expenses (
+  id TEXT PRIMARY KEY,
+  series TEXT NOT NULL DEFAULT '',
+  seq INTEGER NOT NULL,
+  number TEXT NOT NULL,
+  date TEXT NOT NULL,
+  account_id TEXT NOT NULL REFERENCES accounts(id),
+  description TEXT NOT NULL,
+  net_fils INTEGER NOT NULL,
+  vat TEXT NOT NULL CHECK (vat IN ('standard', 'none')),
+  vat_fils INTEGER NOT NULL,
+  gross_fils INTEGER NOT NULL,
+  paid_from_account_id TEXT NOT NULL REFERENCES accounts(id),
+  payee TEXT,
+  reference TEXT,
+  photo TEXT,
+  created_by TEXT REFERENCES users(id),
+  created_at TEXT NOT NULL,
+  UNIQUE (series, seq)
+);
+CREATE INDEX expenses_date ON expenses(date);
+CREATE TABLE money_transfers (
+  id TEXT PRIMARY KEY,
+  date TEXT NOT NULL,
+  from_account_id TEXT NOT NULL REFERENCES accounts(id),
+  to_account_id TEXT NOT NULL REFERENCES accounts(id),
+  amount_fils INTEGER NOT NULL CHECK (amount_fils > 0),
+  reference TEXT,
+  created_by TEXT REFERENCES users(id),
+  created_at TEXT NOT NULL
+);
+CREATE TABLE cheque_deposits (
+  id TEXT PRIMARY KEY,
+  receipt_id TEXT NOT NULL UNIQUE REFERENCES receipts(id),
+  bank_account_id TEXT NOT NULL REFERENCES accounts(id),
+  date TEXT NOT NULL,
+  created_by TEXT REFERENCES users(id),
+  created_at TEXT NOT NULL
+);
+CREATE TABLE cheque_clearances (
+  id TEXT PRIMARY KEY,
+  payment_id TEXT NOT NULL UNIQUE REFERENCES supplier_payments(id),
+  date TEXT NOT NULL,
+  created_by TEXT REFERENCES users(id),
+  created_at TEXT NOT NULL
+);
+CREATE TABLE bank_imports (
+  id TEXT PRIMARY KEY,
+  account_id TEXT NOT NULL REFERENCES accounts(id),
+  file_name TEXT NOT NULL,
+  added INTEGER NOT NULL,
+  skipped INTEGER NOT NULL,
+  created_by TEXT REFERENCES users(id),
+  created_at TEXT NOT NULL
+);
+CREATE TABLE bank_lines (
+  id TEXT PRIMARY KEY,
+  account_id TEXT NOT NULL REFERENCES accounts(id),
+  import_id TEXT REFERENCES bank_imports(id),
+  date TEXT NOT NULL,
+  description TEXT NOT NULL,
+  amount_fils INTEGER NOT NULL,
+  reference TEXT,
+  line_key TEXT NOT NULL,
+  matched_line_id TEXT,
+  matched_at TEXT,
+  created_at TEXT NOT NULL,
+  updated_at TEXT NOT NULL,
+  UNIQUE (account_id, line_key)
+);
+CREATE INDEX bank_lines_account ON bank_lines(account_id, date);
+CREATE UNIQUE INDEX bank_lines_matched ON bank_lines(matched_line_id) WHERE matched_line_id IS NOT NULL;
+`,
+  },
 ];
 
 /** The newest migration this code knows: the garage database's schema version. */

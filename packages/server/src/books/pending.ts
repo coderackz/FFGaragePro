@@ -1,7 +1,9 @@
 import { now, type Db } from "../db";
 import { getSettings } from "../settings";
 import { postEntry, type PostInput } from "./post";
-import { postCogs, postCustomerOpenings, postGoodsReceipts, postReceipts, postSalesDocuments, postStock, postStockCorrection, type PostCtx } from "./rules";
+import {
+  postCogs, postCustomerOpenings, postGoodsReceipts, postReceipts, postSalesDocuments, postStock, postStockCorrection, postSupplierOpenings, type PostCtx,
+} from "./rules";
 
 /** Changes on this database connection when it last had nothing left to post: nothing changed since, nothing to do. */
 const settled = new WeakMap<Db, number>();
@@ -52,6 +54,7 @@ export function postPending(db: Db, o: { limit?: number } = {}): number {
     postStock(ctx);
     postCogs(ctx);
     postCustomerOpenings(ctx);
+    postSupplierOpenings(ctx);
     postStockCorrection(ctx);
   });
   if (posted < limit) settled.set(db, changes(db));

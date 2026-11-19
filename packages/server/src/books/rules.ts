@@ -243,3 +243,30 @@ export function postStockCorrection(c: PostCtx): number {
   }) ? 1 : 0;
 }
 
+/**
+ * Supplier opening balances, whatever their date (dated the start date at the earliest): Dr opening balance clearing
+ * / Cr payables (supplier). A change posts the difference. The opening balances entry clears the clearing account.
+ */
+export function postSupplierOpenings(c: PostCtx): number {
+  let n = 0;
+  const rows = c.db.all<{ id: string; name: string; fils: number; day: string | null; posted: number; k: number }>(
+    `SELECT s.id, s.name, s.opening_balance_fils AS fils, s.opening_balance_date AS day,
+            (SELECT COALESCE(SUM(l.credit_fils - l.debit_fils), 0) FROM journal_lines l JOIN journal_entries e ON e.id = l.entry_id
+             WHERE e.source_type = 'supplier_opening' AND e.source_id = s.id AND l.account_id = ?) AS posted,
+            (SELECT COUNT(*) FROM journal_entries e WHERE e.source_type = 'supplier_opening' AND e.source_id = s.id) AS k
+     FROM suppliers s WHERE s.opening_balance_fils <> 0 OR EXISTS (SELECT 1 FROM journal_entries e WHERE e.source_type = 'supplier_opening' AND e.source_id = s.id)`,
+    [A.payables.id],
+  );
+  for (const r of rows) {
+    if (c.full()) break;
+    const diff = r.fils - r.posted;
+    if (diff === 0) continue;
+    if (c.post({
+      date: r.day && r.day > c.start ? r.day : c.start, narration: `Opening balance: ${r.name}`, sourceType: "supplier_opening", sourceId: r.id,
+      postKey: `supplier_opening:${r.id}:${r.k + 1}`, userId: null,
+      lines: [debit(A.opening_clearing.id, diff), credit(A.payables.id, diff, { supplierId: r.id })],
+    })) n++;
+  }
+  return n;
+}
+

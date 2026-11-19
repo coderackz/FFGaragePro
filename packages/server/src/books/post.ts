@@ -6,7 +6,8 @@ import { getSettings } from "../settings";
 
 export type SourceType =
   | "invoice" | "credit_note" | "receipt" | "goods_receipt" | "stock" | "cogs" | "customer_opening" | "opening" | "manual" | "reversal"
-  | "year_close" | "revaluation";
+  | "year_close" | "revaluation" | "supplier_bill" | "bill_cancel" | "supplier_payment" | "supplier_opening" | "expense" | "transfer"
+  | "cheque_deposit" | "cheque_clear";
 
 export interface PostLine {
   accountId: string;

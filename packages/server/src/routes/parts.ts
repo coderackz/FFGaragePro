@@ -14,7 +14,7 @@ export interface PartRow {
 }
 interface SupplierRow {
   id: string; name: string; trn: string | null; phone: string | null; email: string | null; address: string | null;
-  notes: string | null; is_fleetfix: number;
+  notes: string | null; is_fleetfix: number; terms_days: number; opening_balance_fils: number; opening_balance_date: string | null;
 }
 
 export function partOut(p: PartRow, showCost: boolean) {
@@ -27,6 +27,7 @@ export function partOut(p: PartRow, showCost: boolean) {
 }
 export const supplierOut = (s: SupplierRow) => ({
   id: s.id, name: s.name, trn: s.trn, phone: s.phone, email: s.email, address: s.address, notes: s.notes, isFleetfix: !!s.is_fleetfix,
+  termsDays: s.terms_days, openingBalanceFils: s.opening_balance_fils, openingBalanceDate: s.opening_balance_date,
 });
 
 const like = (q: string) => `%${q.replace(/[%_\\]/g, (m) => `\\${m}`)}%`;
@@ -263,22 +264,27 @@ export function partRoutes(app: FastifyInstance, db: Db): void {
     const id = newId();
     const t = now();
     db.run(
-      "INSERT INTO suppliers (id, name, trn, phone, email, address, notes, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)",
-      [id, s.name, s.trn, s.phone, s.email, s.address, s.notes, t, t],
+      `INSERT INTO suppliers (id, name, trn, phone, email, address, notes, terms_days, opening_balance_fils, opening_balance_date, created_at, updated_at)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+      [id, s.name, s.trn, s.phone, s.email, s.address, s.notes, s.termsDays, s.openingBalanceFils, s.openingBalanceDate, t, t],
     );
     return { supplier: supplierOut(getSupplier(id)!) };
   });
 
   app.patch<{ Params: { id: string } }>("/api/suppliers/:id", async (req) => {
     requireAction(sessionUser(db, req), "purchases.manage");
-    const s = supplierSchema.parse(req.body);
+    const current = getSupplier(req.params.id);
+    if (!current) throw notFound("Supplier not found");
+    // An edit changes what was sent; everything else stays as it is.
+    const s = supplierSchema.parse({ ...supplierOut(current), ...(req.body as object) });
     db.tx(() => {
       const existing = getSupplier(req.params.id);
       if (!existing) throw notFound("Supplier not found");
       if (existing.is_fleetfix && s.name !== existing.name) throw conflict("Fleet Fix's name can't be changed");
       db.run(
-        "UPDATE suppliers SET name = ?, trn = ?, phone = ?, email = ?, address = ?, notes = ?, updated_at = ? WHERE id = ?",
-        [s.name, s.trn, s.phone, s.email, s.address, s.notes, now(), existing.id],
+        `UPDATE suppliers SET name = ?, trn = ?, phone = ?, email = ?, address = ?, notes = ?, terms_days = ?, opening_balance_fils = ?,
+           opening_balance_date = ?, updated_at = ? WHERE id = ?`,
+        [s.name, s.trn, s.phone, s.email, s.address, s.notes, s.termsDays, s.openingBalanceFils, s.openingBalanceDate, now(), existing.id],
       );
     });
     return { supplier: supplierOut(getSupplier(req.params.id)!) };

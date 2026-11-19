@@ -61,11 +61,15 @@ export const DEFAULT_CHART: ChartAccount[] = [
   ...OTHER.map(([code, name]) => ({ id: accountIdOf(code), code, name, type: typeOf(code), systemKey: null })),
 ].sort((a, b) => a.code.localeCompare(b.code));
 
-export const accountSchema = z.object({
-  code: z.string().trim().regex(/^\d{4}$/, "Use a 4-digit code"),
-  name: z.string().trim().min(1, "Name is required").max(80),
-  type: z.enum(ACCOUNT_TYPES),
-});
+export const accountSchema = z
+  .object({
+    code: z.string().trim().regex(/^\d{4}$/, "Use a 4-digit code"),
+    name: z.string().trim().min(1, "Name is required").max(80),
+    type: z.enum(ACCOUNT_TYPES),
+    /** A bank, cash box, card clearing or cheques account (asset accounts only). */
+    moneyKind: z.enum(MONEY_KINDS).nullable().optional().transform((v) => v ?? null),
+  })
+  .refine((a) => !a.moneyKind || a.type === "asset", { message: "Only asset accounts hold money", path: ["moneyKind"] });
 export type AccountInput = z.infer<typeof accountSchema>;
 
 const fils = z.number().int().min(0).max(10_000_000_000_00);
