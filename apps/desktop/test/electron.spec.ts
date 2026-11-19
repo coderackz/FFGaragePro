@@ -1,5 +1,5 @@
 import { expect, test } from "@playwright/test";
-import { mkdirSync, mkdtempSync, readFileSync, statSync } from "node:fs";
+import { mkdirSync, mkdtempSync, readFileSync, statSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
 import { launchApp, screenPrefix as prefix } from "./electron-app";
@@ -47,5 +47,21 @@ test("desktop app: garage day, PDF tax invoice, data kept after restart", async 
   // Inventory on the real app (and on the installed Windows app in CI).
   win.on("dialog", (d) => void d.accept());
   await stockDay(win, shooter(win, prefix));
+
+  // Backups: Back up now, and a file that isn't a backup is refused without touching the garage.
+  await win.getByRole("navigation").getByRole("link", { name: "Settings", exact: true }).click();
+  await win.getByTestId("tile-backups").click();
+  await win.getByRole("button", { name: "Back up now" }).click();
+  await expect(win.getByTestId("backup-status")).toContainText("Last backup just now");
+  const notABackup = join(dataDir, "notes.db");
+  writeFileSync(notABackup, "not a garage");
+  await app.evaluate(({ dialog }, filePath) => {
+    dialog.showOpenDialog = (async () => ({ canceled: false, filePaths: [filePath] })) as unknown as typeof dialog.showOpenDialog;
+  }, notABackup);
+  await win.getByRole("button", { name: "Restore from a backup…" }).click();
+  await expect(win.getByText("This file isn't a Fleetfix Garage Pro backup")).toBeVisible();
+  await shooter(win, prefix)("08-backups");
+  await win.getByRole("navigation").getByRole("link", { name: "Invoices", exact: true }).click();
+  await expect(win.getByRole("cell", { name: "INV-00001" })).toBeVisible();
   await app.close();
 });

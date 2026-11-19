@@ -25,7 +25,8 @@ export function NumberingSection() {
       const out = { ...v } as Settings["numbering"];
       for (const k of NUMBER_KINDS) {
         const key = `${KIND[k].key}Start` as const;
-        out[key] = Math.max(form.saved[key], digits(next[k]));
+        // Only fields the person hasn't changed yet (the numbers can arrive after they start typing).
+        if (v[key] === form.saved[key]) out[key] = Math.max(form.saved[key], digits(next[k]));
       }
       return out;
     });

@@ -55,7 +55,7 @@ export function useOwnerApproval() {
       footer={<><Button onClick={() => finish(null)}>Cancel</Button><Button variant="primary" type="submit" form="owner-approval">Approve</Button></>}
     >
       <form id="owner-approval" onSubmit={submit} className="space-y-3">
-        <p className="text-sm text-zinc-700">{ask?.message} The Owner types their username and password to approve it.</p>
+        <p className="text-sm text-zinc-700">{ask?.message.replace(/\.?$/, ".")} The Owner types their username and password to approve it.</p>
         <Field label="Owner's username"><Input value={form.username} onChange={(e) => setForm({ ...form, username: e.target.value })} autoComplete="off" autoFocus required /></Field>
         <Field label="Owner's password"><Input type="password" value={form.password} onChange={(e) => setForm({ ...form, password: e.target.value })} autoComplete="off" required /></Field>
       </form>
