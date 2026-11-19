@@ -97,7 +97,7 @@ for corporate tax (9%, since 2023), and e-invoicing is coming in 2027.
   - unpaid leave reduces pay and isn't counted towards service.
 - **End-of-service gratuity (UAE Labour Law, Decree-Law 33 of 2021):**
   - 21 days of basic pay for each of the first five years, 30 days for each year after;
-  - pro rata for part years; due after one year of service; capped at two years' total wages.
+  - pro rata for part years; due after one year of service; capped (see "Leaver pay is the garage's choice").
   - The amount owed is put aside every month in the books.
   - A **final settlement** for a leaver pays gratuity, leave not taken, and salary to the last day, less advances.
 - **Advances and loans:** paid out, then taken back from salary in instalments.
@@ -169,12 +169,15 @@ for corporate tax (9%, since 2023), and e-invoicing is coming in 2027.
    - Payments received before an invoice (customer credit) don't post output VAT. At each period end, the VAT return
      page lists any such advances still unused, so the accountant can post VAT on them by manual journal if the law
      requires it. *(To confirm with the garage's accountant.)*
-5. **Payroll rules** (to confirm with an accountant or the MOHRE calculator before Part 4 is built):
-   - **day rate for gratuity:** basic ÷ 30;
-   - **gratuity cap:** two years of basic pay;
-   - **leave not taken at settlement:** paid on basic;
-   - **salary to the last day and unpaid leave:** gross ÷ 30 per day.
-   - Each is a setting with these defaults, so a garage's accountant can change it without new code.
+5. **Leaver pay is the garage's choice (user, 2026-11-19).**
+   - The app doesn't decide how a leaver's pay is worked out. Each garage chooses in Settings → Payroll:
+     - the day rate for gratuity (basic ÷ 30, or basic × 12 ÷ 365);
+     - the gratuity cap (two years of basic, or of gross);
+     - whether leave not taken is paid on basic or on gross;
+     - the day rate for salary to the last day and for unpaid leave.
+   - There is no hidden default: the first final settlement asks for these to be chosen.
+   - On every final settlement, the accountant sees each amount with how it was worked out, and can change it with a
+     reason before the owner approves. The reason is kept with the settlement.
 
 ## Constraints
 - Money in integer fils, as everywhere in the app. Every entry's debits equal its credits. The trial balance always
