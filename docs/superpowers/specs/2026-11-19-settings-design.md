@@ -15,8 +15,29 @@ add-on, bought later** — not part of this project. This project must leave roo
 add-on*), because insurers will be most garages' largest credit customers.
 
 ## Goals
-**A. Settings screen.** One Settings page with a section list on the left. Only the Owner (`settings.manage`)
-changes settings; others don't see the page. Every change is written to the audit log (G).
+**A. Settings screen.** Only the Owner (`settings.manage`) sees Settings and changes settings. Every change is
+written to the audit log (G). Layout picked by the user from mockups (2026-11-19):
+- **Home: a grid of tiles**, grouped *Your garage* (Garage details, Documents & printing, Numbering), *Money* (Tax,
+  Pricing & discounts, Customers & credit), *Running the garage* (Inventory, Users & roles, Security, Activity log,
+  Backups, Messages) and *Connections* (Fleetfix cloud, Other PCs, About & support). Each tile has its name, one line
+  of what it holds, and a **status line**: green when fine ("Next invoice INV-00143"), amber when something is left
+  to do ("Logo missing"), red when it needs attention now ("Last backup 4 days ago"). 3 columns on a PC, 2 on a
+  tablet (≥ 768 px), 1 on a phone.
+- **Getting ready bar** above the tiles ("5 of 9 done — add your logo, bank details…"), shown until every essential
+  is set, then gone. *(My call: the essentials are garage name, TRN, address, phone, bank & IBAN, logo, labour rate,
+  invoice terms, and — on a PC holding the garage — a working backup folder.)*
+- **A tile opens its section full-width** at `/settings/<section>`, with "← All settings" and its **own Save**
+  button. Leaving with unsaved changes asks first. Saving one section never touches another's keys.
+- **Documents & printing shows a live A4 preview** of a sample invoice beside the form, drawn by the real print
+  layout from the unsaved values, plus **Print a test page**. On narrow screens the preview sits under the form.
+- **Users & roles** moves into Settings (`/settings/users`, the existing Users screen); its main-menu item goes and
+  `/users` redirects there.
+- **Activity log** is the audit log (G) in plain words, filterable by person, kind and date.
+- **About & support:** app version, licence status, Fleet Fix support contact. *(My call: "Check for updates" needs
+  an updater, which is its own project; not in Part 1.)*
+- **Tiles of later parts** (Customers & credit, Messages) show faded, marked "Coming", and don't open.
+- **Browser app:** no Backups or Other PCs tiles (the cloud backs up); the Fleetfix cloud tile becomes **Sync
+  issues** when there are any.
 
 | Section | Holds | Where it lives |
 |---|---|---|
@@ -29,8 +50,11 @@ changes settings; others don't see the page. Every change is written to the audi
 | Messages | WhatsApp and email set-up; per-event on/off, auto/ask, channel, text (EN/AR) | garage-wide (secrets write-only) |
 | Inventory | stock below zero: **warn** / block; default reorder level | garage-wide |
 | Security | lock screen after N idle minutes (default 15) | garage-wide |
+| Users & roles | the existing Users screen, moved here | as today |
+| Activity log | read-only view of the audit log (G) | — |
 | Backups *(PC only)* | backup folder, keep N days, Back up now, Restore | this PC |
 | Fleetfix cloud, Other PCs *(PC)*, Sync issues | as today | as today |
+| About & support | version, licence status, Fleet Fix contact | — |
 
 **B. Documents and printing (A4 only).**
 - Logo top-left, garage details (EN, plus AR right-to-left when bilingual) top-right. **Letterhead mode** leaves a
@@ -179,7 +203,13 @@ invoice and splitting a transfer into several payments, because the bank shows o
 - **Numbering:** prefix 1–6 letters; next number can only go up, and only above the highest number used. Format stays
   `PREFIX-[series-]00000`; online numbers still come from the cloud, offline PCs keep their own series.
 
-**Migration 7 (never edit 1–6):**
+**Migrations (never edit 1–6).** The list below is the whole project; each part adds a migration with only its own
+columns and tables (Part 1: `documents.print_count` and `documents.prices_include_vat`, `audit_log`; the narrowed
+one-conversion rule comes with credit notes in Part 2). The live preview renders the same HTML templates as printing
+(`apps/desktop/src/renderer/print/templates.ts`) in a scaled frame. *(My call: a document copies
+"prices include VAT" when it is created, so changing the Tax setting never changes an existing document's totals.)*
+
+**Full list:**
 - `customers` + `name_ar`, `address_ar`, `doc_language` (`en`|`en_ar`), `credit_allowed`, `credit_limit_fils`,
   `terms_days`, `discount_bp`, `lpo_required`, `opening_balance_fils`, `opening_balance_date`.
 - `customer_contacts` (id, customer_id, name, phone, email, language, gets_approvals, gets_invoices,
