@@ -246,7 +246,9 @@ export function documentRoutes(
     const vehicle = d.vehicle_id
       ? db.get<Record<string, unknown>>("SELECT id, plate, make, model, year, vin, colour, odometer FROM vehicles WHERE id = ?", [d.vehicle_id])
       : null;
-    const source = d.source_id ? db.get<{ id: string; number: string; type: string }>("SELECT id, number, type FROM documents WHERE id = ?", [d.source_id]) : null;
+    const source = d.source_id
+      ? db.get<{ id: string; number: string; type: string; issuedAt: string | null }>("SELECT id, number, type, issued_at AS issuedAt FROM documents WHERE id = ?", [d.source_id])
+      : null;
     const derived = db.get<{ id: string; number: string; type: string }>("SELECT id, number, type FROM documents WHERE source_id = ? AND type <> 'credit_note'", [id]) ?? null;
     const creditNotes = d.type === "invoice"
       ? db.all<{ id: string; number: string; gross_fils: number }>("SELECT id, number, gross_fils FROM documents WHERE source_id = ? AND type = 'credit_note' ORDER BY seq", [id])

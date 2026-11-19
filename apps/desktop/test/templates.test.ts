@@ -1,7 +1,7 @@
 import { DEFAULT_SETTINGS, type Settings } from "@ffgp/shared";
 import { describe, expect, it } from "vitest";
 import { SAMPLE_DOCUMENTS, SAMPLE_GARAGE } from "../src/renderer/print/sample";
-import { renderDocumentHtml } from "../src/renderer/print/templates";
+import { renderDocumentHtml, renderReceiptHtml, renderStatementHtml } from "../src/renderer/print/templates";
 
 const PNG =
   "data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mNkYPhfDwAChwGA60e6kgAAAABJRU5ErkJggg==";
@@ -70,4 +70,49 @@ describe("printed documents follow Settings", () => {
   it("prices typed including VAT are labelled", () => {
     expect(renderDocumentHtml({ ...invoice(), pricesIncludeVat: true }, SAMPLE_GARAGE, settings())).toContain("Unit price (incl. VAT)");
   });
+
+  it("a credit note says what it corrects and why", () => {
+    const cn = { ...SAMPLE_DOCUMENTS.credit_note, reason: "Wrong part fitted", source: { id: "i1", number: "INV-00143", type: "invoice" as const, issuedAt: "2026-11-10T08:00:00.000Z" } };
+    const html = renderDocumentHtml(cn, SAMPLE_GARAGE, settings());
+    expect(html).toContain("TAX CREDIT NOTE");
+    expect(html).toContain("Credit for INV-00143 of 10 Nov 2026");
+    expect(html).toContain("Wrong part fitted");
+    expect(html).toContain("Total credit");
+  });
+
+  it("an invoice shows its due date, LPO and credit notes", () => {
+    const html = renderDocumentHtml({ ...invoice(), dueDate: "2026-12-19", lpoNumber: "LPO-7781", creditedFils: 5250, owedFils: 52500 }, SAMPLE_GARAGE, settings());
+    expect(html).toContain("Due: 19 Dec 2026");
+    expect(html).toContain("LPO: LPO-7781");
+    expect(html).toContain("Credited");
+  });
 });
+
+describe("receipts and statements", () => {
+  it("a receipt lists where the money went and what's kept as credit", () => {
+    const html = renderReceiptHtml({
+      id: "r1", number: "RCT-00004", customerId: "c1", customerName: "Emirates Logistics", amountFils: 30000, method: "bank_transfer", reference: "TT 4471",
+      chequeDate: null, receivedAt: "2026-11-19T08:00:00.000Z", createdBy: "Rashid", allocatedFils: 26750, unallocatedFils: 3250,
+      allocations: [{ id: "a1", documentId: "d1", number: "INV-00007", amountFils: 21000, createdAt: "" }, { id: "a2", documentId: "d2", number: "INV-00009", amountFils: 5750, createdAt: "" }],
+    }, SAMPLE_GARAGE, settings());
+    expect(html).toContain("RCT-00004");
+    expect(html).toContain("Allocated to");
+    expect(html).toContain("INV-00009");
+    expect(html).toContain("Kept as credit: AED 32.50");
+    expect(html).toContain("TT 4471");
+  });
+
+  it("a statement shows balances brought and carried forward, and aging", () => {
+    const html = renderStatementHtml({
+      openingFils: 7500,
+      rows: [{ date: "2026-11-05", kind: "invoice", number: "INV-00010", description: "Tax invoice, due 2026-12-05", debitFils: 21000, creditFils: 0, balanceFils: 28500 }],
+      closingFils: 28500,
+      aging: { current: 21000, "1-30": 7500, "31-60": 0, "61-90": 0, "90+": 0 },
+    }, { name: "Emirates Logistics", trn: null, address: "Dubai", phone: null, email: null }, SAMPLE_GARAGE, settings(), { from: "2026-11-01", to: "2026-11-30" });
+    expect(html).toContain("STATEMENT OF ACCOUNT");
+    expect(html).toContain("Balance brought forward");
+    expect(html).toContain("285.00");
+    for (const label of ["Current", "1–30 days", "31–60 days", "61–90 days", "Over 90 days"]) expect(html).toContain(label);
+  });
+});
+

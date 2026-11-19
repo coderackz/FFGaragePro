@@ -1,5 +1,5 @@
 import { formatAED, lineTotals, type Settings } from "@ffgp/shared";
-import type { DocumentFull, Garage, PurchaseOrder } from "../lib/types";
+import type { AgingBucket, DocumentFull, Garage, PurchaseOrder, Receipt, Statement } from "../lib/types";
 
 const esc = (v: unknown) =>
   String(v ?? "").replace(/[&<>"']/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" })[c]!);
@@ -110,8 +110,9 @@ export function renderDocumentHtml(doc: DocumentFull, garage: Garage, settings: 
   const gs = settings.garage;
   const isJob = doc.type === "jobcard";
   const isInvoice = doc.type === "invoice";
+  const isCredit = doc.type === "credit_note";
   const draftInvoice = isInvoice && doc.status === "draft";
-  const docDate = isInvoice ? doc.issuedAt ?? doc.createdAt : doc.createdAt;
+  const docDate = isInvoice || isCredit ? doc.issuedAt ?? doc.createdAt : doc.createdAt;
   const vatPct = garage.vatRateBp / 100;
   const c = doc.customer;
   const v = doc.vehicle;
@@ -139,13 +140,15 @@ export function renderDocumentHtml(doc: DocumentFull, garage: Garage, settings: 
     : `<table class="totals">
         <tr><td>Subtotal (excl. VAT)</td><td class="r">${money(doc.totals.netFils)}</td></tr>
         <tr><td>VAT ${vatPct}%</td><td class="r">${money(doc.totals.vatFils)}</td></tr>
-        <tr class="grand"><td>Total (AED, incl. VAT)</td><td class="r">${money(doc.totals.grossFils)}</td></tr>
-        ${isInvoice && !draftInvoice && doc.paidFils > 0 ? `<tr><td>Paid</td><td class="r">${money(doc.paidFils)}</td></tr><tr class="due"><td>Balance due</td><td class="r">${money(doc.balanceFils)}</td></tr>` : ""}
+        <tr class="grand"><td>${isCredit ? "Total credit (AED, incl. VAT)" : "Total (AED, incl. VAT)"}</td><td class="r">${money(doc.totals.grossFils)}</td></tr>
+        ${isInvoice && !draftInvoice && (doc.creditedFils ?? 0) > 0 ? `<tr><td>Credited</td><td class="r">${money(doc.creditedFils ?? 0)}</td></tr>` : ""}
+        ${isInvoice && !draftInvoice && doc.paidFils > 0 ? `<tr><td>Paid</td><td class="r">${money(doc.paidFils)}</td></tr>` : ""}
+        ${isInvoice && !draftInvoice && (doc.paidFils > 0 || (doc.creditedFils ?? 0) > 0) ? `<tr class="due"><td>Balance due</td><td class="r">${money(Math.max(doc.balanceFils, 0))}</td></tr>` : ""}
       </table>`;
 
   const signatures = isJob
     ? `${ds.jobCardSignature ? `<div class="auth"><b>I authorise the work above</b> and agree to pay for it on collection.</div>` : ""}<div class="sigs"><div><span></span>Service advisor</div><div><span></span>Technician</div><div><span></span>Customer</div></div>`
-    : isInvoice
+    : isInvoice || isCredit
       ? `<div class="sigs two"><div><span></span>Received by (customer)</div>${garageSignature(garage, settings)}</div>`
       : `<div class="sigs two"><div><span></span>Customer approval</div>${garageSignature(garage, settings)}</div>`;
   const bank = [gs.bankName, gs.accountName, gs.iban ? `IBAN ${gs.iban}` : null].filter(Boolean).join("  ·  ");
@@ -160,7 +163,9 @@ export function renderDocumentHtml(doc: DocumentFull, garage: Garage, settings: 
       <div class="ar">${title.ar}</div>
       <div class="num">${esc(doc.number)}</div>
       <div class="meta">Date: ${date(docDate)}</div>
-      ${doc.source ? `<div class="meta">Ref: ${esc(doc.source.number)}</div>` : ""}
+      ${isCredit && doc.source ? `<div class="meta">Credit for ${esc(doc.source.number)}${doc.source.issuedAt ? ` of ${date(doc.source.issuedAt)}` : ""}</div>` : doc.source ? `<div class="meta">Ref: ${esc(doc.source.number)}</div>` : ""}
+      ${isInvoice && doc.dueDate ? `<div class="meta">Due: ${date(`${doc.dueDate}T00:00:00.000Z`)}</div>` : ""}
+      ${isInvoice && doc.lpoNumber ? `<div class="meta">LPO: ${esc(doc.lpoNumber)}</div>` : ""}
       ${draftInvoice ? `<div class="draft">DRAFT — NOT A TAX INVOICE</div>` : ""}
     </div>`;
 
@@ -182,7 +187,7 @@ export function renderDocumentHtml(doc: DocumentFull, garage: Garage, settings: 
   </div>
   <table class="items"><thead>${head}</thead><tbody>${rows || `<tr><td colspan="8" style="color:#a1a1aa">No items</td></tr>`}</tbody></table>
   <div class="bottom">
-    <div class="notes">${doc.notes ? `<h3>Notes</h3>${esc(doc.notes)}` : ""}${doc.type === "estimate" ? `<div style="margin-top:3mm;color:#71717a">Prices in AED. Estimate valid for ${ds.estimateValidDays} days. Additional work found during repair will be quoted separately.</div>` : ""}${isInvoice && ds.warranty ? `<div class="warranty"><b>Warranty:</b> ${esc(ds.warranty)}</div>` : ""}</div>
+    <div class="notes">${isCredit && doc.reason ? `<h3>Reason</h3>${esc(doc.reason)}` : ""}${doc.notes ? `<h3>Notes</h3>${esc(doc.notes)}` : ""}${doc.type === "estimate" ? `<div style="margin-top:3mm;color:#71717a">Prices in AED. Estimate valid for ${ds.estimateValidDays} days. Additional work found during repair will be quoted separately.</div>` : ""}${isInvoice && ds.warranty ? `<div class="warranty"><b>Warranty:</b> ${esc(ds.warranty)}</div>` : ""}</div>
     ${totals}
   </div>
   ${terms}
@@ -239,4 +244,62 @@ export function renderPurchaseOrderHtml(po: PurchaseOrder, garage: Garage, setti
   <div class="sigs two"><div><span></span>Ordered by</div>${garageSignature(garage, settings)}</div>
   <footer><span>${esc(po.number)} · printed ${date(new Date().toISOString())}</span><span>Powered by Fleetfix Garage Pro</span></footer>
 </div></body></html>`;
+}
+
+
+const METHOD: Record<string, string> = { cash: "Cash", card: "Card", bank_transfer: "Bank transfer", cheque: "Cheque" };
+const ymdDate = (ymd: string) => date(`${ymd}T00:00:00.000Z`);
+const bankLine = (s: Settings) => [s.garage.bankName, s.garage.accountName, s.garage.iban ? `IBAN ${s.garage.iban}` : null].filter(Boolean).join("  ·  ");
+
+function shell(title: string, body: string): string {
+  return `<!doctype html><html lang="en"><head><meta charset="utf-8"><title>${esc(title)}</title><style>${PAGE_CSS}
+    table.ledger td.d { white-space: nowrap; color: #52525b; } .aging { display: grid; grid-template-columns: repeat(6, 1fr); gap: 2mm; margin-top: 6mm; }
+    .aging div { border: 1px solid #e4e4e7; border-radius: 2mm; padding: 2.5mm; font-size: 8.5pt; color: #52525b; } .aging b { display: block; font-size: 10.5pt; color: #18181b; margin-top: 1mm; }
+    .amount { font-size: 20pt; font-weight: 800; margin: 2mm 0 4mm; }</style></head><body><div class="page">${body}</div></body></html>`;
+}
+
+/** A printed receipt (RCT-…): the amount, how it was paid, which invoices it went against, and any credit kept. */
+export function renderReceiptHtml(r: Receipt, garage: Garage, settings: Settings): string {
+  const refund = r.amountFils < 0;
+  const title = `<div class="title"><div class="en">${refund ? "REFUND" : "RECEIPT"}</div><div class="ar">${refund ? "استرداد" : "إيصال استلام"}</div>
+    <div class="num">${esc(r.number)}</div><div class="meta">Date: ${date(r.receivedAt)}</div></div>`;
+  const rows = r.allocations.map((a, i) => `<tr><td class="n">${i + 1}</td><td>${esc(a.number)}</td><td class="r b">${money(a.amountFils)}</td></tr>`).join("");
+  const how = [METHOD[r.method] ?? r.method, r.reference, r.chequeDate ? `cheque dated ${ymdDate(r.chequeDate)}` : null].filter(Boolean).join(" · ");
+  return shell(r.number, `
+  ${garageHeader(garage, settings, title)}
+  <div class="parties"><div class="party"><h3>${refund ? "Paid to" : "Received from"}</h3><div class="main">${esc(r.customerName)}</div></div>
+    <div class="party"><h3>Amount</h3><div class="amount">AED ${money(Math.abs(r.amountFils))}</div><div class="line">${esc(how)}</div></div></div>
+  ${r.allocations.length ? `<h3 style="font-size:8pt;letter-spacing:.1em;color:#71717a;text-transform:uppercase;margin:4mm 0 2mm">Allocated to</h3>
+  <table class="items"><thead><tr><th class="n">#</th><th>Invoice</th><th class="r">Amount</th></tr></thead><tbody>${rows}</tbody></table>` : ""}
+  ${r.unallocatedFils > 0 ? `<div class="warranty"><b>Kept as credit: ${formatAED(r.unallocatedFils)}</b> — set against future invoices.</div>` : ""}
+  <div class="sigs two"><div><span></span>${refund ? "Received by (customer)" : "Paid by (customer)"}</div>${garageSignature(garage, settings)}</div>
+  <footer><span>${esc(r.number)} · printed ${date(new Date().toISOString())}</span><span>Powered by Fleetfix Garage Pro</span></footer>`);
+}
+
+const AGING_LABELS: Record<AgingBucket, string> = { current: "Current", "1-30": "1–30 days", "31-60": "31–60 days", "61-90": "61–90 days", "90+": "Over 90 days" };
+
+/** Statement of account for a date range: brought forward, each entry with a running balance, carried forward, aging. */
+export function renderStatementHtml(
+  s: Statement,
+  customer: { name: string; trn: string | null; address: string | null; phone: string | null; email: string | null },
+  garage: Garage,
+  settings: Settings,
+  range: { from: string; to: string },
+): string {
+  const title = `<div class="title"><div class="en">STATEMENT OF ACCOUNT</div><div class="ar">كشف حساب</div>
+    <div class="meta">${ymdDate(range.from)} – ${ymdDate(range.to)}</div></div>`;
+  const rows = s.rows.map((r) => `<tr><td class="d">${ymdDate(r.date)}</td><td>${esc(r.number)}</td><td>${esc(r.description)}</td>
+    <td class="r">${r.debitFils ? money(r.debitFils) : ""}</td><td class="r">${r.creditFils ? money(r.creditFils) : ""}</td><td class="r b">${money(r.balanceFils)}</td></tr>`).join("");
+  const bank = bankLine(settings);
+  return shell(`Statement - ${customer.name}`, `
+  ${garageHeader(garage, settings, title)}
+  <div class="parties"><div class="party"><h3>Customer</h3><div class="main">${esc(customer.name)}</div>
+    <div class="line">${esc([customer.phone, customer.email, customer.address].filter(Boolean).join("\n"))}</div>${customer.trn ? `<div class="line"><b>TRN:</b> ${esc(customer.trn)}</div>` : ""}</div>
+    <div class="party"><h3>Balance due</h3><div class="amount">AED ${money(s.closingFils)}</div><div class="line">as of ${ymdDate(range.to)}</div></div></div>
+  <table class="items ledger"><thead><tr><th>Date</th><th>Number</th><th>Details</th><th class="r">Debit</th><th class="r">Credit</th><th class="r">Balance</th></tr></thead>
+    <tbody><tr><td class="d">${ymdDate(range.from)}</td><td></td><td>Balance brought forward</td><td></td><td></td><td class="r b">${money(s.openingFils)}</td></tr>${rows}
+    <tr><td class="d">${ymdDate(range.to)}</td><td></td><td><b>Balance carried forward</b></td><td></td><td></td><td class="r b">${money(s.closingFils)}</td></tr></tbody></table>
+  <div class="aging">${(Object.keys(AGING_LABELS) as AgingBucket[]).map((b) => `<div>${AGING_LABELS[b]}<b>${money(s.aging[b])}</b></div>`).join("")}<div>Total due<b>${money(s.closingFils)}</b></div></div>
+  ${bank ? `<div class="terms"><div class="bank">${esc(bank)}</div></div>` : ""}
+  <footer><span>Statement · printed ${date(new Date().toISOString())}</span><span>Powered by Fleetfix Garage Pro</span></footer>`);
 }
