@@ -1,13 +1,14 @@
 import type { FastifyInstance } from "fastify";
 import {
   can, CONVERTS_TO, DOC_STATUSES, DOC_TYPES, documentCreateSchema, documentUpdateSchema, formatDocNumber, lineSchema, lineTotals,
-  approvalSchema, paymentSchema, prefixOf, type ApprovalInput, type DocType, type LineInput,
+  approvalSchema, formatNumberOf, paymentSchema, prefixOf, type ApprovalInput, type DocType, type LineInput,
 } from "@ffgp/shared";
 import { z } from "zod";
 import { audit } from "../audit";
 import { LoginThrottle, requireAction, sessionUser, verifyPassword, type SessionUser } from "../auth";
 import { newId, now, type Db } from "../db";
 import { badRequest, conflict, HttpError, notFound, tooManyRequests } from "../errors";
+import { recomputeInvoiceMoney } from "../invoice-money";
 import { checkStockAvailable, documentCost, reconcileDocumentStock } from "../stock";
 import { reserveNumber, takeNumber, type NumberSource, type Reserved } from "../numbering";
 import { getSettings } from "../settings";
@@ -17,7 +18,7 @@ interface DocRow {
   id: string; type: DocType; seq: number; number: string; status: string; customer_id: string; vehicle_id: string | null;
   odometer: number | null; notes: string | null; source_id: string | null; issued_at: string | null; net_fils: number;
   vat_fils: number; gross_fils: number; paid_fils: number; created_by: string | null; created_at: string; updated_at: string;
-  prices_include_vat: number;
+  prices_include_vat: number; credited_fils: number; due_date: string | null; lpo_number: string | null; reason: string | null;
 }
 interface LineRow {
   id: string; position: number; kind: string; description: string; qty: number; unit_price_fils: number;
@@ -202,8 +203,11 @@ export function documentRoutes(
       [id],
     );
     const cost = can(user.role, "costs.view") ? documentCost(db, id) : null;
-    const payments = db.all<{ id: string; amount_fils: number; method: string; reference: string | null; paid_at: string; created_by_name: string | null }>(
-      "SELECT p.*, u.name AS created_by_name FROM payments p LEFT JOIN users u ON u.id = p.created_by WHERE p.document_id = ? ORDER BY p.paid_at",
+    // Payments on this invoice: its receipt allocations (an undone allocation shows as a negative line).
+    const payments = db.all<{ id: string; amount_fils: number; method: string; reference: string | null; paid_at: string; created_by_name: string | null; receipt_number: string }>(
+      `SELECT a.id, a.amount_fils, r.method, r.reference, r.received_at AS paid_at, r.number AS receipt_number, u.name AS created_by_name
+       FROM receipt_allocations a JOIN receipts r ON r.id = a.receipt_id LEFT JOIN users u ON u.id = a.created_by
+       WHERE a.document_id = ? ORDER BY r.received_at, a.created_at`,
       [id],
     );
     const customer = db.get<Record<string, unknown>>("SELECT id, kind, name, phone, email, trn, address FROM customers WHERE id = ?", [d.customer_id]);
@@ -235,7 +239,9 @@ export function documentRoutes(
         : {}),
       paidFils: d.paid_fils,
       balanceFils: d.type === "invoice" ? d.gross_fils - d.paid_fils : 0,
-      payments: payments.map((p) => ({ id: p.id, amountFils: p.amount_fils, method: p.method, reference: p.reference, paidAt: p.paid_at, createdBy: p.created_by_name })),
+      payments: payments.map((p) => ({
+        id: p.id, amountFils: p.amount_fils, method: p.method, reference: p.reference, paidAt: p.paid_at, createdBy: p.created_by_name, receiptNumber: p.receipt_number,
+      })),
     };
   }
 
@@ -403,18 +409,32 @@ export function documentRoutes(
     const user = sessionUser(db, req);
     requireAction(user, "payments.record");
     const input = paymentSchema.parse(req.body);
-    db.tx(() => {
+    // The invoice screen's "Record payment": a receipt allocated wholly to this invoice.
+    const check = () => {
       const d = getDoc(req.params.id);
       if (!d) throw notFound("Document not found");
       if (d.type !== "invoice" || !["issued", "part_paid"].includes(d.status)) throw badRequest("Payments can only be taken on issued, unpaid invoices");
-      const balance = d.gross_fils - d.paid_fils;
-      if (input.amountFils > balance) throw badRequest("Payment is more than the balance due");
+      if (input.amountFils > d.gross_fils - d.credited_fils - d.paid_fils) throw badRequest("Payment is more than the balance due");
+      return d;
+    };
+    check();
+    const reserved = await reserveNumber(numbers, "receipt");
+    db.tx(() => {
+      const d = check();
+      const { series, seq } = takeNumber(db, "receipt", reserved, numbers);
       const t = now();
-      db.run("INSERT INTO payments (id, document_id, amount_fils, method, reference, paid_at, created_by, created_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?)", [
-        newId(), d.id, input.amountFils, input.method, input.reference, input.paidAt ?? t, user.id, t,
+      const receiptId = newId();
+      db.run(
+        `INSERT INTO receipts (id, series, seq, number, customer_id, amount_fils, method, reference, cheque_date, received_at, created_by, created_at)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, NULL, ?, ?, ?)`,
+        [receiptId, series, seq, formatNumberOf("receipt", seq, series, prefixOf(getSettings(db), "receipt")), d.customer_id, input.amountFils,
+          input.method, input.reference, input.paidAt ?? t, user.id, t],
+      );
+      db.run("INSERT INTO receipt_allocations (id, receipt_id, document_id, amount_fils, created_by, created_at) VALUES (?, ?, ?, ?, ?, ?)", [
+        newId(), receiptId, d.id, input.amountFils, user.id, t,
       ]);
-      const paid = d.paid_fils + input.amountFils;
-      db.run("UPDATE documents SET paid_fils = ?, status = ?, updated_at = ? WHERE id = ?", [paid, paid >= d.gross_fils ? "paid" : "part_paid", t, d.id]);
+      recomputeInvoiceMoney(db, d.id);
+      db.run("UPDATE documents SET updated_at = ? WHERE id = ?", [t, d.id]);
     });
     return { document: full(req.params.id, user) };
   });

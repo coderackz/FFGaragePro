@@ -4,7 +4,7 @@ import { DatabaseSync } from "node:sqlite";
 import type { FastifyInstance, FastifyRequest } from "fastify";
 import { z, ZodError } from "zod";
 import { HttpError, LoginThrottle, newId, SCHEMA_VERSION, takeNumber, verifyPassword } from "@ffgp/server";
-import { GARAGE_HEADER, normalizeGarageCode } from "@ffgp/shared";
+import { NUMBER_KINDS, GARAGE_HEADER, normalizeGarageCode } from "@ffgp/shared";
 import { applyAtCloud, changesFor, issuesFor, maxSeq, SYNC_TABLES } from "@ffgp/sync";
 import type { AdminDb, DeviceRow, GarageRow } from "./admin-db";
 import type { GarageApp, GarageHost } from "./garages";
@@ -37,7 +37,7 @@ const entrySchema = z
   .refine((e) => e.originSeq === e.seq, "originSeq must equal seq");
 const pushSchema = z.object({ schema: z.number().int(), entries: z.array(entrySchema).max(2000) });
 const pullSchema = z.object({ since: z.coerce.number().int().min(0), issuesSince: z.coerce.number().int().min(0).default(0), limit: z.coerce.number().int().min(1).max(500).default(500), schema: z.coerce.number().int() });
-const numbersSchema = z.object({ kind: z.enum(["estimate", "jobcard", "invoice", "purchase_order"]) });
+const numbersSchema = z.object({ kind: z.enum(NUMBER_KINDS) });
 
 /** Changes only move between the same schema version; the side that's behind has to update first. */
 function checkSchema(schema: number): void {
