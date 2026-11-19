@@ -7,7 +7,10 @@ import { renderDocumentHtml, renderPurchaseOrderHtml } from "./templates";
 /** Prints or saves a document. An issued invoice's prints are counted: the second and later ones say COPY. */
 export async function printDocument(doc: DocumentFull, garage: Garage, settings: Settings, mode: "pdf" | "print"): Promise<void> {
   const counted = doc.type === "invoice" && doc.status !== "draft";
-  const copy = counted ? (await post<{ count: number }>(`/api/documents/${doc.id}/prints`)).count > 1 : false;
+  // If the print can't be counted (offline main computer, an old server), still print; COPY if printed before.
+  const copy = counted
+    ? await post<{ count: number }>(`/api/documents/${doc.id}/prints`).then((r) => r.count > 1, () => (doc.printCount ?? 0) > 0)
+    : false;
   return printHtml(renderDocumentHtml(doc, garage, settings, { copy }), `${doc.number} - ${doc.customer.name}`, mode);
 }
 

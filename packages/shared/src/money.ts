@@ -77,3 +77,11 @@ export function averageCost(onHand: number, avgFils: number, qtyIn: number, cost
   if (onHand <= 0) return costFils;
   return roundFils((onHand * avgFils + qtyIn * costFils) / (onHand + qtyIn));
 }
+
+/**
+ * A catalogue price (parts are priced before VAT) as the price to type on a document's line: on a document whose
+ * prices include VAT, the VAT is added so the customer is charged the same.
+ */
+export function catalogueLinePrice(sellPriceFils: number, vatRateBp: number = VAT_RATE_BP, includeVat = false): number {
+  return includeVat ? roundFils((sellPriceFils * (10000 + vatRateBp)) / 10000) : sellPriceFils;
+}

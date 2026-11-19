@@ -83,4 +83,17 @@ describe("numbering from settings", () => {
     const po = (await call(app, "POST", "/api/purchase-orders", owner, { supplierId: supplier.id, lines: [{ description: "Filter", qty: 1 }] })).body.purchaseOrder;
     expect(po.number).toBe("LPO-00020");
   });
+
+  it("a prefix already on another type's documents can't be reused", async () => {
+    const { app, owner, numbering } = await garage();
+    const customer = (await call(app, "POST", "/api/customers", owner, { name: "Ahmed" })).body.customer;
+    await call(app, "POST", "/api/documents", owner, { type: "estimate", customerId: customer.id, lines: [LINE] });
+    const res = await numbering({ estimatePrefix: "QT", invoicePrefix: "EST" });
+    expect(res.status).toBe(400);
+    expect(res.body.error).toBe("EST is already on estimates. Choose another prefix for invoices.");
+    // Going back to a type's own earlier prefix is fine.
+    expect((await numbering({ estimatePrefix: "QT" })).status).toBe(200);
+    expect((await numbering({ estimatePrefix: "EST" })).status).toBe(200);
+  });
 });
+

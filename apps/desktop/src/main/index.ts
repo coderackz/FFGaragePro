@@ -6,7 +6,7 @@ import { basename, join } from "node:path";
 import { app, BrowserWindow, dialog, ipcMain, Menu, shell } from "electron";
 import { audit, discoverMainComputers, NETWORK_PORT, SCHEMA_VERSION, startGarageServer, type GarageServer } from "@ffgp/server";
 import { CloudError, installCapture, linkDownload, linkUpload, readOnlyGuard, removeCapture, trustedLink, type CloudLink } from "@ffgp/sync";
-import { backupNow, backupStatus, checkRestoreFile, pruneBackups, restoreFile, scheduleBackups, type BackupStatus } from "./backups";
+import { backupNow, backupStatus, checkRestoreFile, pruneBackups, restoreFile, scheduleBackups, undoRestore, type BackupStatus } from "./backups";
 import { CloudSync, type CloudStatus } from "./cloud";
 import { PINNED_LICENCE_KEYS } from "./trusted-keys";
 
@@ -134,11 +134,27 @@ function createWindow(): void {
     void mainWindow.loadFile(join(__dirname, "../renderer/index.html"));
   }
   mainWindow.on("closed", () => (mainWindow = null));
+  // A Settings section with unsaved changes holds the window (beforeunload); Electron cancels silently unless
+  // asked here, so ask the same question the app asks inside.
+  mainWindow.webContents.on("will-prevent-unload", (event) => {
+    const options = {
+      type: "question" as const,
+      buttons: ["Leave without saving", "Stay"],
+      defaultId: 1,
+      cancelId: 1,
+      title: "Unsaved changes",
+      message: "Leave without saving?",
+      detail: "Your changes in Settings will be lost.",
+    };
+    const choice = mainWindow ? dialog.showMessageBoxSync(mainWindow, options) : dialog.showMessageBoxSync(options);
+    if (choice === 0) event.preventDefault();
+  });
 }
 
 app.on("window-all-closed", () => app.quit());
 
-app.on("before-quit", () => {
+// Only once quitting is certain (windows closed): a quit cancelled by "Stay" must leave the garage running.
+app.on("will-quit", () => {
   cloud?.stop();
   void server?.close();
 });
@@ -333,7 +349,6 @@ ipcMain.handle("ffgp:backupSetKeepDays", (_event, days: number) => {
 ipcMain.handle("ffgp:restore", async () => {
   if (connection.mode === "client") return { error: "This PC works through a main computer. Restore on the main computer." };
   if (cloud) return { error: "This PC is linked to Fleetfix cloud. To get the garage back, disconnect and download it again." };
-  if (!server) return { error: "The garage isn't open. Restart Fleetfix Garage Pro and try again." };
   const options = { title: "Choose a backup", defaultPath: backupFolder(), properties: ["openFile"] as "openFile"[], filters: [{ name: "Fleetfix backups", extensions: ["db"] }] };
   const picked = mainWindow ? await dialog.showOpenDialog(mainWindow, options) : await dialog.showOpenDialog(options);
   const file = picked.filePaths[0];
@@ -355,21 +370,34 @@ ipcMain.handle("ffgp:restore", async () => {
   };
   const answer = mainWindow ? await dialog.showMessageBox(mainWindow, confirm) : await dialog.showMessageBox(confirm);
   if (answer.response !== 0) return { cancelled: true };
-  try {
-    runBackup(true);
-  } catch (error) {
-    return { error: `Today's data couldn't be backed up first, so nothing was changed: ${(error as Error).message}` };
+  // Today's data is copied to the backup folder first (when the garage is open; either way the file being
+  // replaced is kept as garage.db.before-restore).
+  if (server) {
+    try {
+      runBackup(true);
+    } catch (error) {
+      return { error: `Today's data couldn't be backed up first, so nothing was changed: ${(error as Error).message}` };
+    }
+    await server.close();
+    server = null;
   }
-  await server.close();
-  server = null;
   try {
     restoreFile(file, dataDir(), SCHEMA_VERSION, () => undefined);
   } catch (error) {
-    await startLocal();
+    await startLocal().catch(() => undefined);
     return { error: (error as Error).message };
   }
-  await startLocal();
-  if (server) audit((server as GarageServer).db, { action: "backup.restore", entity: "garage", after: { file: basename(file) }, userId: null });
+  try {
+    await startLocal();
+  } catch (error) {
+    // The restored garage won't open: put the previous one back so the PC keeps working.
+    undoRestore(dataDir());
+    await startLocal().catch(() => undefined);
+    reloadSoon();
+    return { error: `That backup couldn't be opened, so the garage was put back as it was: ${(error as Error).message}` };
+  }
+  const restored = server as GarageServer | null;
+  if (restored) audit(restored.db, { action: "backup.restore", entity: "garage", after: { file: basename(file) }, userId: null });
   reloadSoon();
   return { ok: true };
 });

@@ -3,7 +3,8 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { Db, SCHEMA_VERSION } from "@ffgp/server";
 import { afterEach, describe, expect, it } from "vitest";
-import { backupNow, backupStatus, checkRestoreFile, pruneBackups, restoreFile } from "../src/main/backups";
+import { openSync, statSync, writeSync, closeSync } from "node:fs";
+import { backupNow, backupStatus, checkRestoreFile, pruneBackups, restoreFile, undoRestore } from "../src/main/backups";
 
 const dirs: string[] = [];
 const temp = () => {
@@ -102,4 +103,34 @@ describe("PC backups", () => {
     expect(reopened.get<{ name: string }>("SELECT name FROM garage")?.name).toBe("Restored Garage");
     reopened.close();
   });
+
+  it("refuses a damaged copy (e.g. a copy that broke on a USB drive)", () => {
+    const db = garageDb(temp());
+    for (let i = 0; i < 400; i++) db.run("INSERT INTO settings (key, value) VALUES (?, ?)", [`local.filler.${i}`, JSON.stringify("x".repeat(400))]);
+    const file = backupNow(db, temp(), "G");
+    db.close();
+    // Garble the middle of the file: the tables and the garage row still read, the rest doesn't.
+    const size = statSync(file).size;
+    const fd = openSync(file, "r+");
+    writeSync(fd, Buffer.alloc(16384, 0xa5), 0, 16384, Math.floor(size / 2));
+    closeSync(fd);
+    expect(() => checkRestoreFile(file, SCHEMA_VERSION)).toThrow("This backup file is damaged and can't be restored");
+  });
+
+  it("keeps the garage it replaced, and can put it back", () => {
+    const dataDir = temp();
+    const current = garageDb(dataDir, "Current Garage");
+    current.close();
+    const other = garageDb(temp(), "Restored Garage");
+    const file = backupNow(other, temp(), "Restored Garage");
+    other.close();
+    restoreFile(file, dataDir, SCHEMA_VERSION, () => undefined);
+    expect(existsSync(join(dataDir, "garage.db.before-restore"))).toBe(true);
+    expect(undoRestore(dataDir)).toBe(true);
+    const back = Db.open(dataDir);
+    expect(back.get<{ name: string }>("SELECT name FROM garage")?.name).toBe("Current Garage");
+    back.close();
+    expect(undoRestore(dataDir)).toBe(false);
+  });
 });
+

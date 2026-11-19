@@ -98,6 +98,31 @@ export function reconcileDocumentStock(db: Db, docId: string, userId: string, op
   }
 }
 
+/**
+ * Settings → Inventory "block", checked before a job card is created or converted (and before a document number is
+ * taken for it): throws when `lines` would take a stocked part below zero, counting what `chainDocIds` already took.
+ */
+export function checkStockAvailable(
+  db: Db,
+  lines: { kind: string; partId?: string | null; qty: number; suppliedBy?: string }[],
+  chainDocIds: string[],
+): void {
+  const wanted = new Map<string, number>();
+  for (const l of lines) {
+    if (l.kind !== "part" || !l.partId || (l.suppliedBy ?? "garage") !== "garage") continue;
+    wanted.set(l.partId, round3((wanted.get(l.partId) ?? 0) + l.qty));
+  }
+  const taken = chainDocIds.length ? takenByPart(db, chainDocIds) : new Map<string, { qty: number }>();
+  for (const [partId, qty] of wanted) {
+    const p = db.get<{ on_hand: number; unit: string; part_no: string; stocked: number }>("SELECT on_hand, unit, part_no, stocked FROM parts WHERE id = ?", [partId]);
+    if (!p?.stocked) continue;
+    const diff = round3(qty - (taken.get(partId)?.qty ?? 0));
+    if (diff > 0 && round3(p.on_hand - diff) < 0) {
+      throw new HttpError(409, `Only ${Math.max(0, p.on_hand)} ${p.unit} of ${p.part_no} in stock`, "out_of_stock");
+    }
+  }
+}
+
 export interface DocumentCost {
   /** Cost per line id; null while a bought-for-the-job part hasn't been received. */
   lineCosts: Map<string, number | null>;

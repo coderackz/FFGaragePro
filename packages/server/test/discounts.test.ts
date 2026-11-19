@@ -50,4 +50,15 @@ describe("discount limits", () => {
     expect((await call(app, "POST", "/api/documents", owner, { type: "estimate", customerId: customer.id, lines: [line("Service", 50)] })).status).toBe(200);
     expect(await audits()).toHaveLength(0);
   });
+
+  it("an approval covers that line only, not a different line put in its place", async () => {
+    const { app, advisor, customer } = await garage();
+    const wiper = { kind: "part", description: "Wiper blade", qty: 1, unitPriceFils: 2000, discountPct: 50 };
+    const doc = (await call(app, "POST", "/api/documents", advisor, { type: "estimate", customerId: customer.id, lines: [wiper], approval: OWNER_OK })).body.document;
+    const overhaul = { kind: "labour", description: "Engine overhaul", qty: 1, unitPriceFils: 800000, discountPct: 50 };
+    expect((await call(app, "PUT", `/api/documents/${doc.id}/lines`, advisor, { lines: [overhaul] })).body.code).toBe("discount_approval");
+    expect((await call(app, "PUT", `/api/documents/${doc.id}/lines`, advisor, { lines: [{ ...wiper, qty: 10 }] })).body.code).toBe("discount_approval");
+    expect((await call(app, "PUT", `/api/documents/${doc.id}/lines`, advisor, { lines: [{ ...wiper, discountPct: 40 }] })).status).toBe(200);
+  });
 });
+

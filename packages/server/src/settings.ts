@@ -70,6 +70,25 @@ export function nextNumbers(db: Db): Record<NumberKind, string> {
 export function checkNumbering(db: Db, next: Settings["numbering"]): void {
   const current = getSettings(db);
   const proposed: Settings = { ...current, numbering: next };
+  // A prefix already printed on another type's documents would give two documents the same number.
+  const PLURAL: Record<NumberKind, string> = { estimate: "estimates", jobcard: "job cards", invoice: "invoices", purchase_order: "purchase orders" };
+  const usedBy = (prefix: string, kind: NumberKind): NumberKind | null => {
+    const like = `${prefix}-%`;
+    for (const other of NUMBER_KINDS) {
+      if (other === kind) continue;
+      const found = other === "purchase_order"
+        ? db.get("SELECT 1 FROM purchase_orders WHERE number LIKE ? LIMIT 1", [like])
+        : db.get("SELECT 1 FROM documents WHERE type = ? AND number LIKE ? LIMIT 1", [other, like]);
+      if (found) return other;
+    }
+    return null;
+  };
+  for (const kind of NUMBER_KINDS) {
+    const prefix = prefixOf(proposed, kind);
+    if (prefix === prefixOf(current, kind)) continue;
+    const other = usedBy(prefix, kind);
+    if (other) throw badRequest(`${prefix} is already on ${PLURAL[other]}. Choose another prefix for ${PLURAL[kind]}.`);
+  }
   for (const kind of NUMBER_KINDS) {
     if (startOf(proposed, kind) === startOf(current, kind)) continue;
     const upcoming = previewNumber(db, kind);

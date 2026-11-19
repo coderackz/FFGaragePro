@@ -25,7 +25,8 @@ export interface CloudServer {
 }
 
 const DAY = 86_400_000;
-const WRITE_ALLOWED_WHEN_READ_ONLY = new Set(["/api/auth/login", "/api/auth/logout"]);
+/** Signing in and out, and counting a print (read-only garages can still view and print). */
+const WRITE_ALLOWED_WHEN_READ_ONLY = new Set(["/api/auth/login", "/api/auth/logout", "/api/documents/:id/prints"]);
 const READ_METHODS = new Set(["GET", "HEAD", "OPTIONS"]);
 
 export const garageLicence = (g: GarageRow, now: number) =>

@@ -8,7 +8,7 @@ import { audit } from "../audit";
 import { LoginThrottle, requireAction, sessionUser, verifyPassword, type SessionUser } from "../auth";
 import { newId, now, type Db } from "../db";
 import { badRequest, conflict, HttpError, notFound, tooManyRequests } from "../errors";
-import { documentCost, reconcileDocumentStock } from "../stock";
+import { checkStockAvailable, documentCost, reconcileDocumentStock } from "../stock";
 import { reserveNumber, takeNumber, type NumberSource, type Reserved } from "../numbering";
 import { getSettings } from "../settings";
 import { garage } from "./setup";
@@ -58,11 +58,19 @@ export function documentRoutes(
     if (user.role === "owner") return null;
     const pricing = getSettings(db).pricing;
     const limit = user.role === "accountant" ? pricing.maxDiscountAccountantPct : pricing.maxDiscountAdvisorPct;
+    // Already approved: the very same line (same work or part, quantity and price) at the same place, with the
+    // same or a smaller discount. Any other line over the limit, even in an approved line's place, needs approval.
+    type Saved = { position: number; kind: string; description: string; qty: number; unit_price_fils: number; part_id: string | null; discount_pct: number };
     const before = docId
-      ? new Map(db.all<{ position: number; discount_pct: number }>("SELECT position, discount_pct FROM document_lines WHERE document_id = ?", [docId])
-          .map((l) => [l.position, l.discount_pct]))
-      : new Map<number, number>();
-    const over = lines.filter((l, i) => l.discountPct > limit && !((before.get(i) ?? -1) >= l.discountPct));
+      ? new Map(db.all<Saved>("SELECT position, kind, description, qty, unit_price_fils, part_id, discount_pct FROM document_lines WHERE document_id = ?", [docId])
+          .map((l) => [l.position, l]))
+      : new Map<number, Saved>();
+    const approvedBefore = (l: LineInput, i: number) => {
+      const b = before.get(i);
+      return !!b && b.kind === l.kind && b.description === l.description.trim() && b.qty === l.qty && b.unit_price_fils === l.unitPriceFils &&
+        (b.part_id ?? null) === (l.partId ?? null) && b.discount_pct >= l.discountPct;
+    };
+    const over = lines.filter((l, i) => l.discountPct > limit && !approvedBefore(l, i));
     if (!over.length) return null;
     const refuse = () => new HttpError(403, `A discount over ${limit}% needs the Owner's approval`, "discount_approval");
     if (!approval) throw refuse();
@@ -262,10 +270,13 @@ export function documentRoutes(
     const user = sessionUser(db, req);
     requireAction(user, "documents.edit");
     const input = documentCreateSchema.parse(req.body);
+    // Everything that can refuse the save runs before a number is taken (on a linked PC, from the cloud's series).
+    checkVehicle(input.customerId, input.vehicleId);
+    const approved = checkDiscounts(user, null, input.lines, input.approval);
+    if (input.type === "jobcard" && blockStock()) checkStockAvailable(db, input.lines, []);
     const reserved = await reserveNumber(numbers, input.type);
     const id = db.tx(() => {
       checkVehicle(input.customerId, input.vehicleId);
-      const approved = checkDiscounts(user, null, input.lines, input.approval);
       const docId = insertDoc(user, {
         type: input.type, customerId: input.customerId, vehicleId: input.vehicleId ?? null, odometer: input.odometer ?? null, notes: input.notes,
         sourceId: null, pricesIncludeVat: getSettings(db).tax.pricesIncludeVat,
@@ -330,6 +341,12 @@ export function documentRoutes(
     requireAction(user, "documents.edit");
     const before = getDoc(req.params.id);
     const convertsTo = before && CONVERTS_TO[before.type as DocType];
+    if (before && convertsTo === "jobcard" && blockStock()) {
+      const lines = db.all<{ kind: string; part_id: string | null; qty: number; supplied_by: string }>(
+        "SELECT kind, part_id, qty, supplied_by FROM document_lines WHERE document_id = ?", [before.id],
+      ).map((l) => ({ kind: l.kind, partId: l.part_id, qty: l.qty, suppliedBy: l.supplied_by }));
+      checkStockAvailable(db, lines, [before.id]);
+    }
     const reserved = convertsTo ? await reserveNumber(numbers, convertsTo) : null;
     const id = db.tx(() => {
       const d = getDoc(req.params.id);

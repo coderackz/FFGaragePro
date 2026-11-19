@@ -3,7 +3,7 @@ import { useEffect, useMemo, useState } from "react";
 import { Link, useNavigate, useParams, useSearchParams } from "react-router";
 import { toast } from "sonner";
 import {
-  CONVERTS_TO, DEFAULT_SETTINGS, DOC_LABELS, DOC_STATUSES, LINE_KINDS, PAYMENT_METHODS, STATUS_LABELS, docTotals, lineTotals, type DocType, type LineKind,
+  catalogueLinePrice, CONVERTS_TO, DEFAULT_SETTINGS, DOC_LABELS, DOC_STATUSES, LINE_KINDS, PAYMENT_METHODS, STATUS_LABELS, docTotals, lineTotals, type DocType, type LineKind,
 } from "@ffgp/shared";
 import { CustomerPicker } from "../components/CustomerPicker";
 import { CustomerFormModal } from "../components/forms";
@@ -421,7 +421,7 @@ function LinesTable({ lines, editable, vatRate, includeVat, onChange, onRemove, 
               </td>
               <td className="px-2 py-1.5 break-words">
                 {editable && line.kind === "part" ? (
-                  <PartPicker line={line} onChange={(p) => onChange(i, p)} />
+                  <PartPicker line={line} onChange={(p) => onChange(i, p)} priceOf={(p) => catalogueLinePrice(p.sellPriceFils, vatRate, includeVat)} />
                 ) : editable ? (
                   <Input value={line.description} onChange={(e) => onChange(i, { description: e.target.value })} placeholder={line.kind === "labour" ? "e.g. Replace front brake pads" : "Description"} className="h-8" />
                 ) : (

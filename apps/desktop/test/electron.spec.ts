@@ -3,7 +3,7 @@ import { mkdirSync, mkdtempSync, readFileSync, statSync, writeFileSync } from "n
 import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
 import { launchApp, screenPrefix as prefix } from "./electron-app";
-import { garageDay, OWNER, shooter, stockDay } from "./flow";
+import { garageDay, OWNER, setUpGarage, shooter, stockDay } from "./flow";
 
 // The real desktop app, end to end (built app, or the installed one when FFGP_EXE is set).
 const launch = (dataDir: string) => launchApp({ FFGP_USER_DATA: dataDir });
@@ -64,4 +64,34 @@ test("desktop app: garage day, PDF tax invoice, data kept after restart", async 
   await win.getByRole("navigation").getByRole("link", { name: "Invoices", exact: true }).click();
   await expect(win.getByRole("cell", { name: "INV-00001" })).toBeVisible();
   await app.close();
+});
+
+test("closing with unsaved Settings changes asks first", async () => {
+  test.setTimeout(120_000);
+  const dataDir = mkdtempSync(join(tmpdir(), "ffgp-electron-close-"));
+  const app = await launch(dataDir);
+  const win = await app.firstWindow();
+  await setUpGarage(win);
+  await win.getByRole("navigation").getByRole("link", { name: "Settings", exact: true }).click();
+  await win.getByTestId("tile-garage").click();
+  await win.getByLabel("Bank").fill("Emirates NBD");
+  await expect(win.getByText("Unsaved changes")).toBeVisible();
+
+  // The native "Leave without saving?" question: answer Stay, the window stays and nothing is lost.
+  const answer = (choice: number) =>
+    app.evaluate(({ dialog }, c) => {
+      const g = globalThis as unknown as { asked?: number };
+      g.asked = g.asked ?? 0;
+      dialog.showMessageBoxSync = ((..._args: unknown[]) => (g.asked! += 1, c)) as typeof dialog.showMessageBoxSync;
+    }, choice);
+  await answer(1);
+  await app.evaluate(({ BrowserWindow }) => BrowserWindow.getAllWindows()[0]?.close());
+  await expect.poll(() => app.evaluate(() => (globalThis as unknown as { asked?: number }).asked ?? 0)).toBe(1);
+  await expect(win.getByLabel("Bank")).toHaveValue("Emirates NBD");
+
+  // Answer Leave: the app closes.
+  await answer(0);
+  const closed = app.waitForEvent("close", { timeout: 15_000 });
+  await app.evaluate(({ BrowserWindow }) => BrowserWindow.getAllWindows()[0]?.close());
+  await closed;
 });

@@ -82,6 +82,14 @@ export function checkRestoreFile(file: string, schemaVersion: number): { garageN
       throw new Error(NOT_A_BACKUP);
     }
     if (!tables.includes("garage") || !tables.includes("schema_migrations")) throw new Error(NOT_A_BACKUP);
+    // A copy that broke on the way (USB drive pulled out, disk error) opens but is damaged further in.
+    let check: string;
+    try {
+      check = (db.prepare("PRAGMA quick_check").get() as Record<string, string>)?.quick_check ?? "";
+    } catch {
+      check = "error";
+    }
+    if (check !== "ok") throw new Error("This backup file is damaged and can't be restored. Try an older backup.");
     const version = (db.prepare("SELECT MAX(id) AS v FROM schema_migrations").get() as { v: number | null }).v ?? 0;
     if (version > schemaVersion) throw new Error("This backup is from a newer version of the app. Update the app first.");
     const garage = db.prepare("SELECT name FROM garage WHERE id = 1").get() as { name: string } | undefined;
@@ -102,9 +110,25 @@ export function restoreFile(file: string, dataDir: string, schemaVersion: number
   const target = join(dataDir, "garage.db");
   const staging = `${target}.restoring`;
   copyFileSync(file, staging);
-  for (const extra of ["-wal", "-shm"]) if (existsSync(target + extra)) rmSync(target + extra, { force: true });
+  // The garage being replaced is kept beside it (garage.db.before-restore) until the next restore, so a restore that
+  // doesn't start can be undone (undoRestore).
+  const kept = `${target}${BEFORE_RESTORE}`;
+  for (const extra of ["", "-wal", "-shm"]) rmSync(kept + extra, { force: true });
+  for (const extra of ["", "-wal", "-shm"]) if (existsSync(target + extra)) renameSync(target + extra, kept + extra);
   renameSync(staging, target);
   return checked;
+}
+
+const BEFORE_RESTORE = ".before-restore";
+
+/** Puts back the garage a restore replaced. False when there is nothing to put back. */
+export function undoRestore(dataDir: string): boolean {
+  const target = join(dataDir, "garage.db");
+  const kept = `${target}${BEFORE_RESTORE}`;
+  if (!existsSync(kept)) return false;
+  for (const extra of ["", "-wal", "-shm"]) rmSync(target + extra, { force: true });
+  for (const extra of ["", "-wal", "-shm"]) if (existsSync(kept + extra)) renameSync(kept + extra, target + extra);
+  return true;
 }
 
 /** Runs `run` now and then every `everyMs`; returns a stop function. */

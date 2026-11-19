@@ -132,12 +132,15 @@ test.describe.serial("settings", () => {
     await page.clock.fastForward("05:10");
     const lock = page.getByRole("dialog", { name: "Locked" });
     await expect(lock).toBeVisible();
+    // Nothing behind the lock can be reached with Tab or typed into.
+    expect(await page.evaluate(() => document.getElementById("root")?.inert)).toBe(true);
     await lock.getByLabel("Password").fill("wrong-password");
     await lock.getByRole("button", { name: "Unlock" }).click();
     await expect(lock).toContainText("That password isn't right");
     await lock.getByLabel("Password").fill(OWNER.password);
     await lock.getByRole("button", { name: "Unlock" }).click();
     await expect(lock).toHaveCount(0);
+    expect(await page.evaluate(() => document.getElementById("root")?.inert)).toBe(false);
     await expect(page.getByLabel("Name").first()).toHaveValue("Half-typed customer");
   });
 });

@@ -1,5 +1,6 @@
 import { Lock } from "lucide-react";
 import { useCallback, useEffect, useRef, useState, type FormEvent } from "react";
+import { createPortal } from "react-dom";
 import { ApiError, post, setToken } from "../lib/api";
 import { useAuth } from "../lib/auth";
 import { Button, Field, Input } from "./ui";
@@ -58,8 +59,21 @@ export function IdleLock({ minutes }: { minutes: number }) {
     writeLocked(false);
     setLocked(false);
   };
-  if (!locked || !user) return null;
-  return <LockScreen name={user.name} username={user.username} onUnlock={unlock} onSwitch={() => { writeLocked(false); void signOut(); }} />;
+  // While locked, the app underneath is inert: Tab can't reach it and keys don't act on it.
+  const shown = locked && !!user;
+  useEffect(() => {
+    const root = document.getElementById("root");
+    if (!root) return;
+    root.inert = shown;
+    return () => {
+      root.inert = false;
+    };
+  }, [shown]);
+  if (!shown) return null;
+  return createPortal(
+    <LockScreen name={user.name} username={user.username} onUnlock={unlock} onSwitch={() => { writeLocked(false); void signOut(); }} />,
+    document.body,
+  );
 }
 
 function LockScreen({ name, username, onUnlock, onSwitch }: { name: string; username: string; onUnlock: () => void; onSwitch: () => void }) {
