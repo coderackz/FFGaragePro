@@ -1,4 +1,4 @@
-import { ArrowLeft, ArrowRight, Banknote, CircleCheck, FileDown, FileMinus, PackagePlus, Plus, Printer, Save, Trash2, TriangleAlert } from "lucide-react";
+import { ArrowLeft, ArrowRight, Banknote, CircleCheck, FileDown, FileMinus, PackagePlus, Plus, Printer, Save, Send, Trash2, TriangleAlert } from "lucide-react";
 import { useEffect, useMemo, useState } from "react";
 import { Link, useNavigate, useParams, useSearchParams } from "react-router";
 import { toast } from "sonner";
@@ -18,6 +18,10 @@ import { useApi } from "../lib/useApi";
 import { CreditNoteDialog } from "../components/CreditNoteDialog";
 import { useOwnerApproval } from "../components/OwnerApproval";
 import { printDocument } from "../print/print";
+import { MessageLog } from "../components/MessageLog";
+import { afterAction, askToSend, documentRequest, receiptRequest } from "../messages/triggers";
+import type { MessageEvent } from "@ffgp/shared";
+import type { Message, Receipt } from "../lib/types";
 
 const LIST_PATH: Record<DocType, string> = { estimate: "/estimates", jobcard: "/jobcards", invoice: "/invoices", credit_note: "/credit-notes" };
 const KIND_LABELS: Record<LineKind, string> = { labour: "Labour", part: "Part", other: "Other" };
@@ -133,6 +137,7 @@ export function DocumentPage() {
       if (res.warning) toast.warning(res.warning);
       setDirty(false);
       navigate(`/documents/${res.document.id}`, { replace: true });
+      if (res.document.type === "jobcard") message("vehicle_received", res.document);
       return res.document.id;
     }
     if (dirty && editable) {
@@ -142,6 +147,36 @@ export function DocumentPage() {
     setDirty(false);
     return doc!.id;
   };
+
+  /** The event's message, if it's on (Settings → Messages): sent automatically or the Send dialog opens. */
+  const message = (event: MessageEvent, d: DocumentFull) => {
+    if (garage) void afterAction(documentRequest(event, d, garage, settings ?? DEFAULT_SETTINGS), settings ?? DEFAULT_SETTINGS);
+  };
+
+  /** A payment was just recorded: its receipt's message. */
+  const paymentMessage = async (d: DocumentFull) => {
+    const receiptId = d.payments.at(-1)?.receiptId;
+    if (!receiptId || !garage) return;
+    const { receipt } = await get<{ receipt: Receipt }>(`/api/receipts/${receiptId}`);
+    await afterAction(receiptRequest(receipt, garage, settings ?? DEFAULT_SETTINGS), settings ?? DEFAULT_SETTINGS);
+  };
+
+  /** Send on the page: the message that fits the document now (an estimate sent before becomes "extra work"). */
+  const onSend = () => run("send", async () => {
+    const id = dirty ? await save() : doc?.id;
+    if (!id || !garage) return;
+    const { document } = await get<{ document: DocumentFull }>(`/api/documents/${id}`);
+    docQuery.setData({ document });
+    let event: MessageEvent = "invoice_issued";
+    if (document.type === "estimate") {
+      const { messages } = await get<{ messages: Message[] }>(`/api/messages?documentId=${id}`);
+      const before = messages.some((m) => (m.event === "estimate_ready" || m.event === "estimate_resent") && m.status !== "failed");
+      event = before ? "estimate_resent" : "estimate_ready";
+    } else if (document.type === "jobcard") {
+      event = document.status === "completed" ? "vehicle_ready" : "vehicle_received";
+    }
+    askToSend(documentRequest(event, document, garage, settings ?? DEFAULT_SETTINGS, true));
+  });
 
   const run = async (name: string, fn: () => Promise<void>) => {
     setBusy(name);
@@ -163,6 +198,7 @@ export function DocumentPage() {
     const res = await patch<{ document: DocumentFull }>(`/api/documents/${doc!.id}`, { status });
     docQuery.setData(res);
     toast.success(`Marked as ${STATUS_LABELS[status]}`);
+    if (res.document.type === "jobcard" && status === "completed" && doc!.status !== "completed") message("vehicle_ready", res.document);
   });
 
   const onConvert = () => run("convert", async () => {
@@ -172,6 +208,7 @@ export function DocumentPage() {
     toast.success(`${res.document.number} created`);
     if (res.warning) toast.warning(res.warning);
     navigate(`/documents/${res.document.id}`);
+    if (res.document.type === "jobcard") message("vehicle_received", res.document);
   });
 
   const onIssue = () => run("issue", async () => {
@@ -183,6 +220,7 @@ export function DocumentPage() {
     docQuery.setData({ document: res.document });
     toast.success(`${res.document.number} issued`);
     if (res.warning) toast.warning(res.warning);
+    message("invoice_issued", res.document);
   });
 
   /** A payment put against this invoice by mistake: taken back off, so it becomes the customer's credit again. */
@@ -246,6 +284,9 @@ export function DocumentPage() {
               <>
                 <Button icon={<Printer className="size-4" />} busy={busy === "print"} onClick={() => onPrint("print")}>Print</Button>
                 <Button icon={<FileDown className="size-4" />} busy={busy === "pdf"} onClick={() => onPrint("pdf")}>PDF</Button>
+                {type !== "credit_note" && !(isInvoice && doc.status === "draft") && (
+                  <Button icon={<Send className="size-4" />} busy={busy === "send"} onClick={onSend}>Send</Button>
+                )}
               </>
             )}
             {doc && MANUAL[type].includes(doc.status) && (
@@ -467,7 +508,12 @@ export function DocumentPage() {
         onSaved={(c) => update({ customer: c, vehicleId: null })}
       />
       <RequestPartDialog request={requesting} onClose={() => setRequesting(null)} onDone={(d) => docQuery.setData({ document: d })} />
-      {doc && <PaymentModal open={paying} doc={doc} onClose={() => setPaying(false)} onPaid={(d) => docQuery.setData({ document: d })} />}
+      {doc && (
+        <Card title="Messages" className="mt-5" padded={false}>
+          <MessageLog documentId={doc.id} />
+        </Card>
+      )}
+      {doc && <PaymentModal open={paying} doc={doc} onClose={() => setPaying(false)} onPaid={(d) => { docQuery.setData({ document: d }); void paymentMessage(d); }} />}
       {doc && isInvoice && <CreditNoteDialog invoice={doc} open={crediting} onClose={() => setCrediting(false)} onDone={(cn) => navigate(`/documents/${cn.id}`)} />}
     </>
   );

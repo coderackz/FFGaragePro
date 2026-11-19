@@ -4,6 +4,7 @@ import { Link, useNavigate, useParams } from "react-router";
 import { DOC_LABELS } from "@ffgp/shared";
 import { AccountCard } from "../components/AccountCard";
 import { ContactsPanel } from "../components/ContactsPanel";
+import { MessageLog } from "../components/MessageLog";
 import { CustomerFormModal, VehicleFormModal } from "../components/forms";
 import { Badge, Button, Card, Empty, PageHeader, Spinner, StatusBadge, Table } from "../components/ui";
 import { formatAED, formatDate, formatKm, vehicleLabel } from "../lib/format";
@@ -65,6 +66,7 @@ export function CustomerPage() {
         <AccountCard customer={customer} onChanged={() => { void reload(); void docs.reload(); }} />
         <Card title={<Tabs value={tab} onChange={setTab} />} className="col-span-3" padded={false}>
           {tab === "contacts" && <ContactsPanel customerId={customer.id} />}
+          {tab === "messages" && <MessageLog customerId={customer.id} />}
           {tab === "history" && <Table
             rows={docs.data?.documents ?? []}
             rowKey={(d) => d.id}
@@ -87,10 +89,11 @@ export function CustomerPage() {
   );
 }
 
-type Tab = "history" | "contacts";
+type Tab = "history" | "contacts" | "messages";
 const TABS: { value: Tab; label: string }[] = [
   { value: "history", label: "History" },
   { value: "contacts", label: "Contacts" },
+  { value: "messages", label: "Messages" },
 ];
 
 function Tabs({ value, onChange }: { value: Tab; onChange: (t: Tab) => void }) {

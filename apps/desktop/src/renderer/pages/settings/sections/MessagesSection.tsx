@@ -8,18 +8,7 @@ import type { Message } from "../../../lib/types";
 import { Toggle } from "../fields";
 import { SectionShell } from "../SectionShell";
 import { useSectionForm } from "../useSectionForm";
-
-export const EVENT_LABELS: Record<MessageEvent, string> = {
-  vehicle_received: "Vehicle received",
-  estimate_ready: "Estimate ready",
-  estimate_resent: "Extra work needs approval",
-  vehicle_ready: "Vehicle ready",
-  invoice_issued: "Invoice issued",
-  payment_received: "Payment received",
-  payment_due: "Payment due soon",
-  payment_overdue: "Payment overdue",
-  statement: "Monthly statement",
-};
+import { EVENT_LABELS } from "../../../messages/labels";
 
 const EVENT_HINTS: Record<MessageEvent, string> = {
   vehicle_received: "When a job card is opened · to the driver, or the vehicle-ready contacts",

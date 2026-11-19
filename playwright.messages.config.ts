@@ -14,7 +14,7 @@ export default defineConfig({
   workers: 1,
   use: { baseURL: "http://localhost:5180", viewport: { width: 1440, height: 900 }, colorScheme: "light" },
   webServer: [
-    { command: "npm run dev:server -w @ffgp/server", url: "http://127.0.0.1:4780/api/health", env: { FFGP_DATA: dataDir, PORT: "4780" }, reuseExistingServer: false },
+    { command: "npm run dev:server -w @ffgp/server", url: "http://127.0.0.1:4780/api/health", env: { FFGP_DATA: dataDir, PORT: "4780", FFGP_OUTBOX_FAST: "1" }, reuseExistingServer: false },
     { command: "npm run web -w @ffgp/desktop", url: "http://localhost:5180", reuseExistingServer: false },
   ],
 });

@@ -1,6 +1,7 @@
 import { FileText, Package, Plus, Receipt, Wrench } from "lucide-react";
 import { useEffect, useMemo, useState } from "react";
 import { Link, useNavigate } from "react-router";
+import { FailedMessagesCard, StatementsDueCard } from "../components/MessageCards";
 import { Button, Card, Empty, PageHeader, StatusBadge, Table } from "../components/ui";
 import { useAuth } from "../lib/auth";
 import { formatAED, formatDate } from "../lib/format";
@@ -69,6 +70,8 @@ export function DashboardPage() {
         }
       />
       <BackupWarning />
+      <FailedMessagesCard />
+      <StatementsDueCard />
       <div className="mb-5 grid grid-cols-4 gap-4">
         <Stat to="/estimates" label="Estimates awaiting reply" value={stats.pendingEstimates} note={`${stats.approvedEstimates} approved, not started`} />
         <Stat to="/jobcards" label="Jobs in the workshop" value={stats.openJobs.length} note={`${stats.readyToInvoice} ready to invoice`} accent />

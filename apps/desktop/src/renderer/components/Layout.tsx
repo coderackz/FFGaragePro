@@ -7,6 +7,7 @@ import logo from "../assets/fleetfix-logo.png";
 import { useAuth } from "../lib/auth";
 import { UnsavedProvider, useUnsaved } from "../lib/unsaved";
 import { IdleLock } from "./IdleLock";
+import { SendDialogHost } from "../messages/SendDialog";
 
 export function Layout({ children }: { children: ReactNode }) {
   return (
@@ -43,6 +44,7 @@ function Frame({ children }: { children: ReactNode }) {
   return (
     <div className="flex h-full">
       <IdleLock minutes={settings?.security.idleLockMinutes ?? 0} />
+      <SendDialogHost />
       {/* Tablets (< 1024 px): icons only, so the work area keeps its width. */}
       <aside className="flex w-60 shrink-0 flex-col bg-ink text-zinc-300 max-lg:w-16">
         <div className="px-5 pt-5 pb-4 max-lg:px-2">

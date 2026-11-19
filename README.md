@@ -111,8 +111,27 @@ set. Each tile opens its section with its own Save; every change goes to the Act
 - The Arabic font (Noto Naskh Arabic, OFL) is built in, so PDFs look the same on every PC and offline. Screens stay
   English; numbers stay 0–9.
 
-Next: Settings Part 3b (messages: contacts, WhatsApp, email from the garage's own address), then Accounting.
-See `docs/superpowers/specs/`.
+**Messages: WhatsApp and email (Settings Part 3b):**
+- **Contacts** on the customer page say who gets approvals, invoices and receipts, "vehicle ready" and statements, in
+  English or Arabic. A job card can name its **driver**, who gets "vehicle received/ready".
+- **Email goes out from the garage's own mailbox** (Settings → Messages: mail server, port, security, username, a
+  password that is never shown again, and from name and address). "Send test email" sends a real message the normal
+  way.
+- **Each message** (vehicle received, estimate ready, extra work, vehicle ready, invoice issued, payment received,
+  payment due/overdue, monthly statement) can be on or off, automatic or ask first, by WhatsApp, email or both, with its
+  text in English and Arabic. Unknown `{placeholders}` are refused.
+- **WhatsApp is click-to-send:** the chat opens with the message typed in, and the PDF is saved (on a PC, to
+  Documents/Fleetfix Garage Pro/Sent) ready to drag in. Nothing goes on WhatsApp without someone pressing Send.
+- **One sender per garage:** the cloud when the garage is linked to it, otherwise the PC that holds the garage (or the
+  main computer). Emails wait in an outbox and are retried after 1, 5 and 30 minutes. A message that still fails shows
+  on the dashboard with "Try again". PDFs are made on the PC or browser where the message starts. In the browser app
+  they are page images.
+- **The log:** every message is listed on its customer (Messages tab) and its document. The dashboard lists this
+  month's **statements to send**.
+
+    npm run e2e:messages                            # email set-up and test, contacts, invoice emailed with PDF, WhatsApp, retry
+
+Next: Accounting. See `docs/superpowers/specs/`.
 
 ## Layout
 | Path | What |

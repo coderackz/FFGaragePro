@@ -25,9 +25,9 @@ async function browserPdf(html: string): Promise<string> {
     const body = doc.body;
     const height = Math.max(body.scrollHeight, A4_HEIGHT_PX);
     const jpeg = await toJpeg(body, { width: A4_WIDTH_PX, height, pixelRatio: 2, backgroundColor: "#ffffff", quality: 0.92 });
-    const image = await fetch(jpeg).then((r) => r.arrayBuffer());
     const pdf = await PDFDocument.create();
-    const img = await pdf.embedJpg(image);
+    // pdf-lib reads the data URL itself (the page's security policy doesn't allow fetching data: URLs).
+    const img = await pdf.embedJpg(jpeg);
     // A4 in PDF points; the image is cut into page-tall slices by drawing it shifted up on each page.
     const pageW = 595.28;
     const pageH = 841.89;
