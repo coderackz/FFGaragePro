@@ -272,11 +272,46 @@ invoices → statement shows zero; credit note on a paid invoice → customer cr
 Arabic; restore a backup. Sync e2e: allocation made on two PCs at once adds up on both; a message queued on a PC is
 sent once by the cloud.
 
+## Part 2 decisions (2026-11-19)
+**User:** one tax invoice per job, plus a monthly statement (no combined monthly invoice). Arabic fields,
+contacts, reminders and statement e-mails stay in Part 3. Everything else below is *my call*, for checking.
+
+- **Customers & credit settings:** default payment terms (days, default 30) and the over-limit rule (warn /
+  block / block unless the Owner approves). Reminder days and the statement day wait for Messages (Part 3).
+- **Cash customers** (credit not allowed): an invoice is due the day it's issued; an unpaid one still counts in
+  their balance. Credit limit 0 = no limit.
+- **Due date** is set when the invoice is issued (issue date + the customer's terms, or the default), and printed.
+- **Over the limit** is checked when an invoice is issued and when a job card is created; the Owner's approval
+  uses the same password step as discounts and is logged.
+- **Receipts:** one receipt (RCT-00001, numbered like invoices: the cloud's series online, the PC's own offline)
+  with allocations to invoices. The invoice page's "Record payment" becomes a receipt allocated to that invoice.
+  Amounts not allocated are the customer's **credit**, usable later ("Allocate credit"). A **refund** is a receipt
+  with a negative amount, paid out of credit.
+- **Invoice money:** `paid_fils` = its allocations; `credited_fils` (new) = its issued credit notes. Owed =
+  gross − credited − paid. Status: paid when owed ≤ 0, part paid when something is paid or credited. All
+  recalculated from rows, on the PC and in the cloud alike.
+- **Credit notes** are a document type (`credit_note`, CN-00001) created *and issued* in one step from an issued
+  invoice (whole invoice or chosen lines and quantities, never more than is left uncredited), with a reason. They
+  are frozen like issued invoices. If the invoice was already paid beyond what's now owed, the excess is
+  de-allocated (a negative allocation) and becomes the customer's credit. "Return parts to stock" (default on)
+  puts stocked parts back.
+- **Customer balance** = opening balance + issued invoices − issued credit notes − receipts; one function feeds
+  the customer page, the picker, the statement and aging.
+- **Statement** (A4, English; Arabic in Part 3): any date range; opening balance at the start date, then
+  invoices, credit notes and receipts with a running balance, and an aging summary. Printed and saved as PDF like
+  documents.
+- **Aging** (Owner, Accountant): per customer, owed amounts by days past the due date: current, 1–30, 31–60,
+  61–90, 90+; unallocated credit shown separately.
+- **Existing payments** move to receipts in migration 8: receipt id = payment id, allocation id = payment id +
+  "-a", number RCT-… in date order; the `payments` table stays, read-only, for one release.
+- **Numbering:** two new kinds, credit notes ("CN") and receipts ("RCT"), with prefixes and next numbers in
+  Settings → Numbering.
+
 ## Open questions
 1. ~~**Insurance and accident repairs** — do any garages do them?~~ **Answered (user, 2026-11-19):** most garages
    do; it becomes a separate paid add-on later. See *Ready for the insurance add-on*.
-2. **Monthly combined invoice for fleets** — wanted, or is one invoice per job plus a monthly statement enough?
-   (Assumed enough for now.)
+2. ~~**Monthly combined invoice for fleets**~~ **Answered (user, 2026-11-19):** one invoice per job plus a monthly
+   statement.
 3. **WhatsApp phase 2** — the garage's own business number, or a shared Fleetfix number? (Click-to-send uses the
    garage's own WhatsApp, so this only matters for phase 2.)
 4. **E-invoicing deadline** — our understanding is that businesses under AED 50m revenue must appoint an accredited
