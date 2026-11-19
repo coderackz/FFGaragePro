@@ -51,6 +51,8 @@ const todo = (text: string): TileStatus => ({ tone: "todo", text });
 const alert = (text: string): TileStatus => ({ tone: "alert", text });
 const muted = (text: string): TileStatus => ({ tone: "muted", text });
 const always = () => true;
+const dayLabel = (ymd: string) =>
+  new Intl.DateTimeFormat("en-GB", { day: "2-digit", month: "short", year: "numeric", timeZone: "UTC" }).format(new Date(`${ymd}T00:00:00Z`));
 const plural = (n: number, word: string) => `${n} ${word}${n === 1 ? "" : "s"}`;
 
 /** "2 hours ago", "4 days ago", "just now". */
@@ -101,6 +103,15 @@ export const TILES: Tile[] = [
   {
     id: "customers-credit", group: "money", title: "Customers & credit", blurb: "Payment terms and what happens over a credit limit", show: always,
     status: (c) => ok(`Terms ${c.settings.credit.defaultTermsDays} days · ${OVER_LIMIT[c.settings.credit.overLimit]} over limit`),
+  },
+  {
+    id: "books", group: "money", title: "Books", blurb: "Start date, lock, year end", show: always,
+    status: (c) => {
+      const b = c.settings.books;
+      if (!b.startDate) return todo("Not started");
+      const from = `Books from ${dayLabel(b.startDate)}`;
+      return ok(b.lockDate ? `${from} · locked to ${dayLabel(b.lockDate)}` : from);
+    },
   },
   {
     id: "inventory", group: "running", title: "Inventory", blurb: "Stock below zero, default reorder level", show: always,

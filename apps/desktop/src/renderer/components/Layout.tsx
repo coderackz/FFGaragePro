@@ -1,5 +1,5 @@
 import clsx from "clsx";
-import { Banknote, Car, ChartBar, FileMinus, FileText, LayoutDashboard, LogOut, Package, Receipt, Settings, ShoppingCart, Truck, Users, Wrench } from "lucide-react";
+import { Banknote, BookOpen, Car, ChartBar, FileMinus, FileText, LayoutDashboard, LogOut, Package, Receipt, Settings, ShoppingCart, Truck, Users, Wrench } from "lucide-react";
 import type { ReactNode } from "react";
 import { NavLink } from "react-router";
 import { ROLE_LABELS } from "@ffgp/shared";
@@ -30,6 +30,7 @@ function Frame({ children }: { children: ReactNode }) {
     { to: "/receipts", label: "Receipts", icon: Banknote },
     { to: "/credit-notes", label: "Credit Notes", icon: FileMinus },
     ...(can("reports.view") ? [{ to: "/reports/aging", label: "Aging", icon: ChartBar }] : []),
+    ...(can("books.view") ? [{ to: "/books", label: "Books", icon: BookOpen }] : []),
     { section: "Records" },
     { to: "/customers", label: "Customers", icon: Users },
     { to: "/vehicles", label: "Vehicles", icon: Car },

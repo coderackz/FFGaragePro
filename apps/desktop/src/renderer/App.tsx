@@ -20,6 +20,12 @@ import { PartsPage } from "./pages/PartsPage";
 import { PurchaseOrderPage } from "./pages/PurchaseOrderPage";
 import { PurchaseOrdersPage } from "./pages/PurchaseOrdersPage";
 import { SuppliersPage } from "./pages/SuppliersPage";
+import { AccountsPage } from "./pages/books/AccountsPage";
+import { BooksHome } from "./pages/books/BooksHome";
+import { HealthPage } from "./pages/books/HealthPage";
+import { JournalEditor } from "./pages/books/JournalEditor";
+import { JournalsPage, JournalView } from "./pages/books/JournalsPage";
+import { ReportPage } from "./pages/books/ReportPage";
 import { AgingPage } from "./pages/AgingPage";
 import { ReceiptsPage } from "./pages/ReceiptsPage";
 
@@ -73,6 +79,22 @@ export function App() {
         <Route path="/credit-notes" element={<DocumentsPage type="credit_note" />} />
         <Route path="/receipts" element={<ReceiptsPage />} />
         {canSee("reports.view") && <Route path="/reports/aging" element={<AgingPage />} />}
+        {canSee("books.view") && (
+          <>
+            <Route path="/books" element={<BooksHome />} />
+            <Route path="/books/trial-balance" element={<ReportPage key="tb" kind="trial-balance" />} />
+            <Route path="/books/profit-loss" element={<ReportPage key="pl" kind="profit-loss" />} />
+            <Route path="/books/balance-sheet" element={<ReportPage key="bs" kind="balance-sheet" />} />
+            <Route path="/books/ledger" element={<ReportPage key="gl" kind="ledger" />} />
+            <Route path="/books/journals" element={<JournalsPage />} />
+            <Route path="/books/journals/new" element={<JournalEditor key="new" />} />
+            <Route path="/books/journals/:id" element={<JournalView />} />
+            <Route path="/books/drafts/:id" element={<JournalEditor key="draft" />} />
+            <Route path="/books/opening" element={<JournalEditor key="opening" opening />} />
+            <Route path="/books/accounts" element={<AccountsPage />} />
+            <Route path="/books/health" element={<HealthPage />} />
+          </>
+        )}
         <Route path="/documents/new/:type" element={<DocumentPage />} />
         <Route path="/documents/:id" element={<DocumentPage />} />
         <Route path="/customers" element={<CustomersPage />} />

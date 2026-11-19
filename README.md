@@ -131,7 +131,26 @@ set. Each tile opens its section with its own Save; every change goes to the Act
 
     npm run e2e:messages                            # email set-up and test, contacts, invoice emailed with PDF, WhatsApp, retry
 
-Next: Accounting. See `docs/superpowers/specs/`.
+**Books (Accounting Part 1):**
+- The garage's double-entry books, for the accountant and auditors. The **Books** menu is for the Owner and the
+  Accountant only.
+- **Starting the books:** set the **start date** in Settings → Books. From that day, issued invoices, credit notes,
+  payments, refunds, parts received and stock used post journal entries by themselves. Parts fitted on a job sit in
+  work in progress until the job is invoiced. Then enter the **opening balances**: the app fills in what customers owe,
+  stock and parts on open jobs, and the accountant adds the rest.
+- **Journals:** posted entries never change. The accountant posts manual journals (draft, then post) and reverses them
+  when needed. The Owner **locks** finished months and **closes the year**, which moves its profit to retained
+  earnings.
+- **Reports:** trial balance, profit and loss (with the previous period), balance sheet and general ledger, each
+  clickable down to the journal and its document, and each exports to **Excel** or **PDF**.
+- **Books health:** checks that the books agree with customer balances, stock value and VAT on invoices, and offers
+  a stock revaluation when stock and the books differ.
+- **Who posts:** only one place posts, as for messages: the cloud when the garage is linked, otherwise the PC that
+  holds the garage. Linked PCs get the entries by sync.
+
+    npm run e2e:books                               # start the books, sale → trial balance → P&L, journal and reversal, health, Excel
+
+Next: Accounting Part 2 (suppliers, expenses and bank). See `docs/superpowers/specs/2026-11-19-accounting-design.md`.
 
 ## Layout
 | Path | What |
