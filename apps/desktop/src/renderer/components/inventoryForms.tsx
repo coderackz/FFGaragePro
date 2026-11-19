@@ -7,7 +7,7 @@ import type { Part, Supplier } from "../lib/types";
 import { Button, Field, Input, Modal, MoneyInput, NumberInput, Select, Textarea } from "./ui";
 
 const emptyPart = {
-  partNo: "", name: "", brand: "", unit: "each", stocked: true, sellPriceFils: 0, reorderLevel: 0, location: "", fits: "", active: true,
+  partNo: "", name: "", nameAr: "", brand: "", unit: "each", stocked: true, sellPriceFils: 0, reorderLevel: 0, location: "", fits: "", active: true,
 };
 
 export function PartFormModal({ open, part, onClose, onSaved }: { open: boolean; part?: Part | null; onClose: () => void; onSaved: (p: Part) => void }) {
@@ -17,7 +17,7 @@ export function PartFormModal({ open, part, onClose, onSaved }: { open: boolean;
   useEffect(() => {
     if (!open) return;
     setForm(part
-      ? { partNo: part.partNo, name: part.name, brand: part.brand ?? "", unit: part.unit, stocked: part.stocked, sellPriceFils: part.sellPriceFils, reorderLevel: part.reorderLevel, location: part.location ?? "", fits: part.fits ?? "", active: part.active }
+      ? { partNo: part.partNo, name: part.name, nameAr: part.nameAr ?? "", brand: part.brand ?? "", unit: part.unit, stocked: part.stocked, sellPriceFils: part.sellPriceFils, reorderLevel: part.reorderLevel, location: part.location ?? "", fits: part.fits ?? "", active: part.active }
       : { ...emptyPart, reorderLevel: settings?.inventory.defaultReorderLevel ?? 0 });
   }, [open, part]); // eslint-disable-line react-hooks/exhaustive-deps
   // Settings → Pricing markup: a suggested selling price from what the part costs on average.
@@ -47,6 +47,9 @@ export function PartFormModal({ open, part, onClose, onSaved }: { open: boolean;
         <Field label="Part number"><Input value={form.partNo} onChange={(e) => set("partNo", e.target.value)} required autoFocus /></Field>
         <Field label="Brand"><Input value={form.brand} onChange={(e) => set("brand", e.target.value)} /></Field>
         <Field label="Name" className="col-span-2"><Input value={form.name} onChange={(e) => set("name", e.target.value)} required /></Field>
+        <Field label="Arabic name" hint="Printed under the name on English + Arabic documents" className="col-span-2">
+          <Input value={form.nameAr} onChange={(e) => set("nameAr", e.target.value)} dir="rtl" lang="ar" />
+        </Field>
         <Field label="Selling price (AED, before VAT)">
           <MoneyInput fils={form.sellPriceFils} onChange={(v) => set("sellPriceFils", v)} />
           {suggested != null && suggested !== form.sellPriceFils && (

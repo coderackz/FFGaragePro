@@ -2,6 +2,11 @@ import { amountInWords, DEFAULT_SETTINGS, type Settings } from "@ffgp/shared";
 import { describe, expect, it } from "vitest";
 import { SAMPLE_DOCUMENTS, SAMPLE_GARAGE } from "../src/renderer/print/sample";
 import { renderDocumentHtml, renderReceiptHtml, renderStatementHtml } from "../src/renderer/print/templates";
+import * as T from "../src/renderer/print/templates";
+import "../src/renderer/print/arabic-font";
+const renderDoc = T.renderDocumentHtml;
+const renderReceipt = T.renderReceiptHtml;
+const renderStatement = T.renderStatementHtml;
 
 const PNG =
   "data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mNkYPhfDwAChwGA60e6kgAAAABJRU5ErkJggg==";
@@ -126,6 +131,11 @@ describe("receipts and statements", () => {
 
 
 describe("English + Arabic documents", () => {
+  // Arabic labels are wrapped in <bdi> (so numbers after them stay in order); compare the text without it.
+  const plain = (html: string) => html.replace(/<\/?bdi[^>]*>/g, "");
+  const renderDocumentHtml = (...a: Parameters<typeof renderDoc>) => plain(renderDoc(...a));
+  const renderReceiptHtml = (...a: Parameters<typeof renderReceipt>) => plain(renderReceipt(...a));
+  const renderStatementHtml = (...a: Parameters<typeof renderStatement>) => plain(renderStatement(...a));
   const bi = (patch: Partial<typeof SAMPLE_DOCUMENTS.invoice> = {}) => ({ ...SAMPLE_DOCUMENTS.invoice, language: "en_ar" as const, ...patch });
   const gross = SAMPLE_DOCUMENTS.invoice.totals.grossFils;
 
@@ -210,4 +220,9 @@ describe("English + Arabic documents", () => {
     expect(html.indexOf("3 أشهر")).toBeGreaterThan(html.indexOf("3 months"));
     expect(renderDocumentHtml({ ...SAMPLE_DOCUMENTS.invoice, language: "en" }, SAMPLE_GARAGE, settings({ documents: { termsAr: "الدفع خلال 30 يوماً." } }))).not.toContain("الدفع خلال");
   });
+});
+
+it("a date after an Arabic label stays in English order", () => {
+  const html = renderDoc({ ...SAMPLE_DOCUMENTS.invoice, language: "en_ar" }, SAMPLE_GARAGE, settings());
+  expect(html).toContain('Date / <bdi lang="ar">التاريخ</bdi>: ');
 });

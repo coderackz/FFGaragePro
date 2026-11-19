@@ -1,14 +1,16 @@
 import type { DocLanguage } from "@ffgp/shared";
-import regular from "@fontsource/noto-naskh-arabic/files/noto-naskh-arabic-arabic-400-normal.woff2?inline";
-import bold from "@fontsource/noto-naskh-arabic/files/noto-naskh-arabic-arabic-700-normal.woff2?inline";
+
+let fontFaces = "";
+/** Called once by `arabic-font.ts` (loaded at app start) with the embedded font's @font-face rules. */
+export function registerArabicFont(css: string): void {
+  fontFaces = css;
+}
 
 /**
- * Noto Naskh Arabic (SIL Open Font License 1.1), embedded so printing, PDFs and the Settings preview draw Arabic the
- * same way on every PC and browser, offline. Only English + Arabic pages include it.
+ * Styles for English + Arabic pages: the embedded Noto Naskh Arabic font (see `arabic-font.ts`) and Arabic layout.
+ * Only bilingual pages include it.
  */
-export const ARABIC_FONT_CSS = `
-  @font-face { font-family: "Noto Naskh Arabic"; font-weight: 400; font-style: normal; src: url(${regular}) format("woff2"); }
-  @font-face { font-family: "Noto Naskh Arabic"; font-weight: 700; font-style: normal; src: url(${bold}) format("woff2"); }
+export const arabicCss = () => `${fontFaces}
   body { font-family: "Segoe UI", -apple-system, Arial, "Noto Naskh Arabic", sans-serif; }
   [lang="ar"] { font-family: "Noto Naskh Arabic", "Segoe UI", Arial, sans-serif; }
   .ar-block { direction: rtl; text-align: right; margin-top: 1.5mm; }
@@ -16,6 +18,8 @@ export const ARABIC_FONT_CSS = `
   .arl { direction: rtl; text-align: right; color: #3f3f46; font-size: 9.5pt; margin-top: 0.5mm; }
   .words { margin-top: 3mm; font-size: 9pt; color: #3f3f46; }
   .words[dir="rtl"] { margin-top: 1mm; font-size: 10pt; }
+  table.items th { white-space: normal; vertical-align: bottom; line-height: 1.25; }
+  table.items th [lang="ar"] { text-transform: none; letter-spacing: 0; font-size: 8.5pt; font-weight: 400; }
 `;
 
 /** Arabic for every printed label. Labels with no entry print in English only. */
@@ -74,13 +78,22 @@ const AR: Record<string, string> = {
   "Over 90 days": "أكثر من 90 يوماً",
 };
 
-/** A label in the document's language: "Total" or "Total / المجموع". Plain text; the caller escapes if needed. */
+/**
+ * A label in the document's language: "Total" or "Total / المجموع". The Arabic is isolated (<bdi>) so a colon or
+ * number after the label stays in English order. Constant labels only; nothing here comes from the user.
+ */
 export function L(en: string, lang: DocLanguage): string {
   const ar = lang === "en_ar" ? AR[en] : undefined;
-  return ar ? `${en} / ${ar}` : en;
+  return ar ? `${en} / <bdi lang="ar">${ar}</bdi>` : en;
+}
+
+/** A table heading: English, with the Arabic on a second line on English + Arabic documents (keeps columns narrow). */
+export function H(en: string, lang: DocLanguage): string {
+  const ar = lang === "en_ar" ? AR[en] : undefined;
+  return ar ? `${en}<br><span lang="ar">${ar}</span>` : en;
 }
 
 /** "VAT 5%" or "VAT 5% / الضريبة 5%". */
 export function vatLabel(pct: number, lang: DocLanguage): string {
-  return lang === "en_ar" ? `VAT ${pct}% / الضريبة ${pct}%` : `VAT ${pct}%`;
+  return lang === "en_ar" ? `VAT ${pct}% / <bdi lang="ar">الضريبة ${pct}%</bdi>` : `VAT ${pct}%`;
 }

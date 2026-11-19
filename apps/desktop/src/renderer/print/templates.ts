@@ -1,6 +1,6 @@
 import { amountInWords, formatAED, lineTotals, type DocLanguage, type Settings } from "@ffgp/shared";
 import type { AgingBucket, DocumentFull, Garage, PurchaseOrder, Receipt, Statement } from "../lib/types";
-import { ARABIC_FONT_CSS, L, vatLabel } from "./arabic";
+import { arabicCss, H, L, vatLabel } from "./arabic";
 
 const esc = (v: unknown) =>
   String(v ?? "").replace(/[&<>"']/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" })[c]!);
@@ -100,7 +100,7 @@ function garageSignature(garage: Garage, settings: Settings, lang: DocLanguage =
   const images = stamp || signature
     ? `<div class="sigimg">${signature ? `<img class="signature" src="${esc(signature)}" alt="">` : ""}${stamp ? `<img class="stamp" src="${esc(stamp)}" alt="">` : ""}</div>`
     : "";
-  const ar = lang === "en_ar" ? ` / عن ${esc(settings.garage.nameAr || garage.name)}` : "";
+  const ar = lang === "en_ar" ? ` / <bdi lang="ar">عن ${esc(settings.garage.nameAr || garage.name)}</bdi>` : "";
   return `<div>${images}<span></span>For ${esc(garage.name)}${ar}</div>`;
 }
 
@@ -113,7 +113,7 @@ function wordsBlock(fils: number, lang: DocLanguage): string {
 }
 
 /** The page head: shared styles, plus the Arabic font on English + Arabic pages. */
-const headCss = (lang: DocLanguage, extra = "") => `<style>${PAGE_CSS}${lang === "en_ar" ? ARABIC_FONT_CSS : ""}${extra}</style>`;
+const headCss = (lang: DocLanguage, extra = "") => `<style>${PAGE_CSS}${lang === "en_ar" ? arabicCss() : ""}${extra}</style>`;
 
 const KIND = { labour: "Labour", part: "Part", other: "Other" } as Record<string, string>;
 
@@ -132,6 +132,7 @@ export function renderDocumentHtml(doc: DocumentFull, garage: Garage, settings: 
   const v = doc.vehicle;
   const lang: DocLanguage = doc.language ?? "en";
   const t = (en: string) => L(en, lang);
+  const h = (en: string) => H(en, lang);
   const bi = lang === "en_ar";
 
   const partNo = (l: DocumentFull["lines"][number]) => (ds.showPartNumbers && l.partNo ? `Part no. ${esc(l.partNo)}` : "");
@@ -149,8 +150,8 @@ export function renderDocumentHtml(doc: DocumentFull, garage: Garage, settings: 
     .join("");
 
   const head = isJob
-    ? `<tr><th class="n">#</th><th>${t("Work / part")}</th><th>${t("Type")}</th><th class="r">${t("Qty")}</th><th class="c">${t("Done")}</th></tr>`
-    : `<tr><th class="n">#</th><th>${t("Description")}</th><th class="r">${t("Qty")}</th><th class="r">${t(doc.pricesIncludeVat ? "Unit price (incl. VAT)" : "Unit price")}</th><th class="r">${t("Disc.")}</th><th class="r">${t("Amount")}</th><th class="r">${vatLabel(vatPct, lang)}</th><th class="r">${t("Total")}</th></tr>`;
+    ? `<tr><th class="n">#</th><th>${h("Work / part")}</th><th>${h("Type")}</th><th class="r">${h("Qty")}</th><th class="c">${h("Done")}</th></tr>`
+    : `<tr><th class="n">#</th><th>${h("Description")}</th><th class="r">${h("Qty")}</th><th class="r">${h(doc.pricesIncludeVat ? "Unit price (incl. VAT)" : "Unit price")}</th><th class="r">${h("Disc.")}</th><th class="r">${h("Amount")}</th><th class="r">${bi ? `VAT ${vatPct}%<br><span lang="ar">الضريبة ${vatPct}%</span>` : `VAT ${vatPct}%`}</th><th class="r">${h("Total")}</th></tr>`;
 
   const totals = isJob
     ? ""
@@ -277,7 +278,7 @@ const ymdDate = (ymd: string) => date(`${ymd}T00:00:00.000Z`);
 const bankLine = (s: Settings) => [s.garage.bankName, s.garage.accountName, s.garage.iban ? `IBAN ${s.garage.iban}` : null].filter(Boolean).join("  ·  ");
 
 function shell(title: string, body: string, lang: DocLanguage = "en"): string {
-  return `<!doctype html><html lang="en"><head><meta charset="utf-8"><title>${esc(title)}</title><style>${PAGE_CSS}${lang === "en_ar" ? ARABIC_FONT_CSS : ""}
+  return `<!doctype html><html lang="en"><head><meta charset="utf-8"><title>${esc(title)}</title><style>${PAGE_CSS}${lang === "en_ar" ? arabicCss() : ""}
     table.ledger td.d { white-space: nowrap; color: #52525b; } .aging { display: grid; grid-template-columns: repeat(6, 1fr); gap: 2mm; margin-top: 6mm; }
     .aging div { border: 1px solid #e4e4e7; border-radius: 2mm; padding: 2.5mm; font-size: 8.5pt; color: #52525b; } .aging b { display: block; font-size: 10.5pt; color: #18181b; margin-top: 1mm; }
     .aging { grid-template-columns: repeat(auto-fit, minmax(24mm, 1fr)); }
@@ -299,7 +300,7 @@ export function renderReceiptHtml(r: Receipt, garage: Garage, settings: Settings
     <div class="party"><h3>${t("Amount")}</h3><div class="amount">AED ${money(Math.abs(r.amountFils))}</div><div class="line">${esc(how)}</div></div></div>
   ${wordsBlock(r.amountFils, lang)}
   ${r.allocations.length ? `<h3 style="font-size:8pt;letter-spacing:.1em;color:#71717a;text-transform:uppercase;margin:4mm 0 2mm">${t("Allocated to")}</h3>
-  <table class="items"><thead><tr><th class="n">#</th><th>${t("Invoice")}</th><th class="r">${t("Amount")}</th></tr></thead><tbody>${rows}</tbody></table>` : ""}
+  <table class="items"><thead><tr><th class="n">#</th><th>${H("Invoice", lang)}</th><th class="r">${H("Amount", lang)}</th></tr></thead><tbody>${rows}</tbody></table>` : ""}
   ${r.unallocatedFils > 0 ? `<div class="warranty"><b>On account: ${formatAED(r.unallocatedFils)}</b> — not against an invoice; it pays any earlier balance first, then is kept as credit.</div>` : ""}
   <div class="sigs two"><div><span></span>${t(refund ? "Received by (customer)" : "Paid by (customer)")}</div>${garageSignature(garage, settings, lang)}</div>
   <footer><span>${esc(r.number)} · printed ${date(new Date().toISOString())}</span><span>Powered by Fleetfix Garage Pro</span></footer>`, lang);
@@ -331,7 +332,7 @@ export function renderStatementHtml(
   <div class="parties"><div class="party"><h3>${t("Customer")}</h3><div class="main">${esc(customer.name)}</div>${bi ? arLine(customer.nameAr, "arl main") : ""}
     <div class="line">${esc([customer.phone, customer.email, customer.address].filter(Boolean).join("\n"))}</div>${bi ? arLine(customer.addressAr) : ""}${customer.trn ? `<div class="line"><b>${t("TRN")}:</b> ${esc(customer.trn)}</div>` : ""}</div>
     <div class="party"><h3>${t("Balance due")}</h3><div class="amount">AED ${money(s.closingFils)}</div><div class="line">as of ${ymdDate(range.to)}</div></div></div>
-  <table class="items ledger"><thead><tr><th>${t("Date")}</th><th>${t("Number")}</th><th>${t("Details")}</th><th class="r">${t("Debit")}</th><th class="r">${t("Credit")}</th><th class="r">${t("Balance")}</th></tr></thead>
+  <table class="items ledger"><thead><tr><th>${H("Date", lang)}</th><th>${H("Number", lang)}</th><th>${H("Details", lang)}</th><th class="r">${H("Debit", lang)}</th><th class="r">${H("Credit", lang)}</th><th class="r">${H("Balance", lang)}</th></tr></thead>
     <tbody><tr><td class="d">${ymdDate(range.from)}</td><td></td><td>${t("Balance brought forward")}</td><td></td><td></td><td class="r b">${money(s.openingFils)}</td></tr>${rows}
     <tr><td class="d">${ymdDate(range.to)}</td><td></td><td><b>${t("Balance carried forward")}</b></td><td></td><td></td><td class="r b">${money(s.closingFils)}</td></tr></tbody></table>
   <div class="aging">${(Object.keys(AGING_LABELS) as AgingBucket[]).map((b) => `<div>${t(AGING_LABELS[b])}<b>${money(s.aging[b])}</b></div>`).join("")}${s.creditFils ? `<div>${t("Less credit")}<b>−${money(s.creditFils)}</b></div>` : ""}<div>${t("Total due")}<b>${money(s.closingFils)}</b></div></div>

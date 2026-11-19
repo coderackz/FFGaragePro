@@ -93,4 +93,54 @@ test.describe.serial("credit customers", () => {
     await page.goto(`/#/customers/${customerId}`);
     await expect(page.getByTestId("account")).toContainText("Unused payments (credit)");
   });
+
+  test("bilingual invoice renders Arabic", async ({ page }) => {
+    page.on("dialog", (d) => void d.accept());
+    const shot = shooter(page, "arabic-");
+    await page.goto("/");
+    await page.getByLabel("Username").fill(OWNER.username);
+    await page.getByLabel("Password").fill(OWNER.password);
+    await page.getByRole("button", { name: "Sign in" }).click();
+
+    // The garage's Arabic name.
+    await nav(page, "Settings");
+    await page.getByTestId("tile-garage").click();
+    await page.getByLabel("Arabic name").fill("العناية بالسيارات");
+    const saved = page.waitForResponse((r) => r.url().includes("/api/settings/garage") && r.request().method() === "PUT");
+    await page.getByRole("button", { name: "Save" }).click();
+    expect((await saved).ok()).toBe(true);
+
+    // The preview in Documents & printing switches to English + Arabic and draws it with the Arabic font.
+    await page.getByRole("link", { name: "All settings" }).click();
+    await page.getByTestId("tile-documents").click();
+    await page.getByRole("button", { name: "English + Arabic" }).click();
+    const preview = page.frameLocator('[data-testid="print-preview"]');
+    await expect(preview.getByText("الإجمالي شامل الضريبة", { exact: false })).toBeVisible();
+    await expect(preview.locator(".ar-block .name")).toHaveText("العناية بالسيارات");
+    const fontReady = await preview.locator("body").evaluate(async (body) => {
+      const doc = body.ownerDocument;
+      await doc.fonts.ready;
+      await doc.fonts.load('16px "Noto Naskh Arabic"', "عربي");
+      return doc.fonts.check('16px "Noto Naskh Arabic"', "عربي");
+    });
+    expect(fontReady).toBe(true);
+    await shot("01-preview");
+
+    // A customer who wants English + Arabic documents; their invoice says so.
+    await nav(page, "Customers");
+    await page.getByRole("button", { name: "New customer" }).click();
+    await page.getByLabel("Full name").fill("Mohammed Al Marri");
+    await page.getByLabel("Arabic name").fill("محمد المري");
+    await page.getByLabel("Document language").selectOption("en_ar");
+    await page.getByRole("button", { name: "Save customer" }).click();
+    await expect(page.getByRole("heading", { name: "Mohammed Al Marri" })).toBeVisible();
+    const id = page.url().split("/customers/")[1]!;
+    const headers = { authorization: `Bearer ${await token(page)}` };
+    const doc = (await (await page.request.post(`${API}/api/documents`, { headers, data: { type: "invoice", customerId: id, lines: [LINE(10000)] } })).json()).document;
+    await page.goto(`/#/documents/${doc.id}`);
+    await expect(page.getByLabel("Document language")).toHaveValue("en_ar");
+    await page.getByRole("button", { name: "Issue invoice" }).click();
+    await expect(page.getByTestId("doc-language")).toHaveText("English + Arabic");
+    await shot("02-invoice");
+  });
 });

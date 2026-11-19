@@ -99,9 +99,20 @@ set. Each tile opens its section with its own Save; every change goes to the Act
 - **Statements of account** (any range, print or PDF) and the **Aging** report come from one ledger, so they agree with
   the balance on screen. Existing payments became receipts in the upgrade (migration 8).
 
-    npm run e2e:credit                              # credit customer, one transfer across invoices, credit note, refund
+    npm run e2e:credit                              # credit customer, one transfer across invoices, credit note, refund, English + Arabic invoice
 
-Next: Settings Part 3 (messages and Arabic documents), then Accounting. See `docs/superpowers/specs/`.
+**English + Arabic documents (Settings Part 3a):**
+- A customer's **Document language** is English or English + Arabic. A document copies it when it's made (a credit note
+  copies its invoice), so a reprint never changes; it can be switched while the document is still editable.
+- English + Arabic documents, receipts and statements show every label in both languages, the garage's Arabic name,
+  address, terms and warranty (Settings → Garage details / Documents & printing), customers' Arabic names and
+  addresses, and parts' Arabic names under the English. Lines typed by hand print as typed.
+- Invoices, credit notes and receipts print the total in words (English; Arabic too on bilingual ones).
+- The Arabic font (Noto Naskh Arabic, OFL) is built in, so PDFs look the same on every PC and offline. Screens stay
+  English; numbers stay 0–9.
+
+Next: Settings Part 3b (messages: contacts, WhatsApp, email from the garage's own address), then Accounting.
+See `docs/superpowers/specs/`.
 
 ## Layout
 | Path | What |
