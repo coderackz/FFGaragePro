@@ -49,7 +49,9 @@ const allowedOrigin = (origin: string | undefined) =>
 export async function buildApp(options: AppOptions): Promise<FastifyInstance & { db: Db }> {
   const db = Db.open(options.dataDir);
   db.device = options.cloud ? "Fleetfix cloud" : hostname();
-  const app = Fastify({ logger: options.logger ?? false, bodyLimit: 5 * 1024 * 1024 });
+  // Closing drops every connection, including spare ones a browser opened ahead of time without a request yet;
+  // otherwise a restart (sharing on/off, linking to the cloud) waits for them to time out (~1 minute).
+  const app = Fastify({ logger: options.logger ?? false, bodyLimit: 5 * 1024 * 1024, forceCloseConnections: true });
   const now = options.now ?? Date.now;
   if (!options.cloud) {
     // The screens load from file:// (Electron) or a dev server; web pages from anywhere else get no access.
