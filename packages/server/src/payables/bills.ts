@@ -5,7 +5,7 @@ import { newId, now, type Db } from "../db";
 import { badRequest, conflict, notFound } from "../errors";
 
 /** Accounts a bill line can't use: the ones the app keeps in step with documents, and the bill's own payable and VAT. */
-const NOT_ON_BILLS = new Set([A.receivables.id, A.payables.id, A.inventory.id, A.wip.id, A.vat_output.id, A.vat_input.id, A.opening_clearing.id]);
+export const NOT_ON_BILLS = new Set([A.receivables.id, A.payables.id, A.inventory.id, A.wip.id, A.vat_output.id, A.vat_input.id, A.opening_clearing.id]);
 
 interface BillRow {
   id: string; supplier_id: string; supplier_name: string; supplier_invoice_no: string; bill_date: string; due_date: string | null; notes: string | null;

@@ -4,8 +4,12 @@ import { requireAction, sessionUser } from "../auth";
 import type { Db } from "../db";
 import { badRequest, notFound } from "../errors";
 import { cancelBill, createBill, getBill, listBills } from "../payables/bills";
+import { postPending } from "../books/pending";
 import { payablesAging, supplierBalance, supplierOpenItems, supplierStatement } from "../payables/ledger";
 import { allocatePayment, createPayment, listPayments } from "../payables/payments";
+import {
+  chequesInHand, chequesIssued, clearCheques, createExpense, createTransfer, depositCheques, expensePhoto, listExpenses, moneyAccounts,
+} from "../payables/money";
 import type { NumberSource } from "../numbering";
 import { supplierOut } from "./parts";
 
@@ -85,5 +89,48 @@ export function payablesRoutes(app: FastifyInstance, db: Db, o: PayablesRouteOpt
     const user = sessionUser(db, req);
     requireAction(user, "payables.manage");
     return { payment: allocatePayment(db, req.params.id, req.body, user.id) };
+  });
+
+  // ── Expenses, transfers, cheques, money accounts ──
+  app.get<{ Querystring: { from?: string; to?: string } }>("/api/expenses", async (req) => {
+    requireAction(sessionUser(db, req), "payables.manage");
+    return { expenses: listExpenses(db, req.query) };
+  });
+  app.get<{ Params: { id: string } }>("/api/expenses/:id/photo", async (req) => {
+    requireAction(sessionUser(db, req), "payables.manage");
+    return { photo: expensePhoto(db, req.params.id) };
+  });
+  app.post("/api/expenses", async (req) => {
+    const user = sessionUser(db, req);
+    requireAction(user, "payables.manage");
+    return { expense: await createExpense(db, req.body, user.id, o.numbers) };
+  });
+  app.post("/api/transfers", async (req) => {
+    const user = sessionUser(db, req);
+    requireAction(user, "payables.manage");
+    return { transfer: createTransfer(db, req.body, user.id) };
+  });
+  app.get("/api/cheques/in-hand", async (req) => {
+    requireAction(sessionUser(db, req), "payables.manage");
+    return { cheques: chequesInHand(db) };
+  });
+  app.post("/api/cheques/deposits", async (req) => {
+    const user = sessionUser(db, req);
+    requireAction(user, "payables.manage");
+    return { deposits: depositCheques(db, req.body, user.id) };
+  });
+  app.get("/api/cheques/issued", async (req) => {
+    requireAction(sessionUser(db, req), "payables.manage");
+    return { cheques: chequesIssued(db) };
+  });
+  app.post("/api/cheques/clearances", async (req) => {
+    const user = sessionUser(db, req);
+    requireAction(user, "payables.manage");
+    return { clearances: clearCheques(db, req.body, user.id) };
+  });
+  app.get("/api/money-accounts", async (req) => {
+    requireAction(sessionUser(db, req), "payables.manage");
+    if (o.posts) postPending(db);
+    return { accounts: moneyAccounts(db) };
   });
 }

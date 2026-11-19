@@ -320,3 +320,62 @@ export function postSupplierPayments(c: PostCtx): number {
   return n;
 }
 
+/** Expenses paid on the spot: Dr the expense (net), input VAT / Cr the account paid from. */
+export function postExpenses(c: PostCtx): number {
+  let n = 0;
+  for (const e of c.db.all<{ id: string; number: string; date: string; account_id: string; description: string; net_fils: number; vat_fils: number; gross_fils: number; paid_from: string }>(
+    `SELECT id, number, date, account_id, description, net_fils, vat_fils, gross_fils, paid_from_account_id AS paid_from FROM expenses
+     WHERE date >= ? AND ${unposted("'expense:' || expenses.id")} ORDER BY created_at`,
+    [c.start],
+  )) {
+    if (c.full()) break;
+    if (c.post({
+      date: e.date, narration: `${e.number}: ${e.description}`, sourceType: "expense", sourceId: e.id, postKey: `expense:${e.id}`, userId: null,
+      lines: [debit(e.account_id, e.net_fils), debit(A.vat_input.id, e.vat_fils), credit(e.paid_from, e.gross_fils)],
+    })) n++;
+  }
+  return n;
+}
+
+/** Money moved between bank and cash accounts; customer cheques paid into the bank; our cheques cleared by the bank. */
+export function postMoneyMovements(c: PostCtx): number {
+  let n = 0;
+  for (const t of c.db.all<{ id: string; date: string; from_id: string; to_id: string; amount_fils: number; reference: string | null; from_name: string; to_name: string }>(
+    `SELECT t.id, t.date, t.from_account_id AS from_id, t.to_account_id AS to_id, t.amount_fils, t.reference, f.name AS from_name, a.name AS to_name
+     FROM money_transfers t JOIN accounts f ON f.id = t.from_account_id JOIN accounts a ON a.id = t.to_account_id
+     WHERE t.date >= ? AND ${unposted("'transfer:' || t.id")} ORDER BY t.created_at`,
+    [c.start],
+  )) {
+    if (c.full()) break;
+    if (c.post({
+      date: t.date, narration: `Transfer from ${t.from_name} to ${t.to_name}${t.reference ? ` (${t.reference})` : ""}`, sourceType: "transfer", sourceId: t.id,
+      postKey: `transfer:${t.id}`, userId: null, lines: [debit(t.to_id, t.amount_fils), credit(t.from_id, t.amount_fils)],
+    })) n++;
+  }
+  for (const d of c.db.all<{ id: string; date: string; bank: string; amount_fils: number; number: string; customer: string }>(
+    `SELECT d.id, d.date, d.bank_account_id AS bank, r.amount_fils, r.number, cu.name AS customer
+     FROM cheque_deposits d JOIN receipts r ON r.id = d.receipt_id JOIN customers cu ON cu.id = r.customer_id
+     WHERE d.date >= ? AND ${unposted("'cheque_deposit:' || d.id")} ORDER BY d.created_at`,
+    [c.start],
+  )) {
+    if (c.full()) break;
+    if (c.post({
+      date: d.date, narration: `Cheque ${d.number} from ${d.customer} deposited`, sourceType: "cheque_deposit", sourceId: d.id, postKey: `cheque_deposit:${d.id}`,
+      userId: null, lines: [debit(d.bank, d.amount_fils), credit(A.cheques_in_hand.id, d.amount_fils)],
+    })) n++;
+  }
+  for (const x of c.db.all<{ id: string; date: string; bank: string; amount_fils: number; number: string; supplier: string }>(
+    `SELECT x.id, x.date, p.paid_from_account_id AS bank, p.amount_fils, p.number, s.name AS supplier
+     FROM cheque_clearances x JOIN supplier_payments p ON p.id = x.payment_id JOIN suppliers s ON s.id = p.supplier_id
+     WHERE x.date >= ? AND ${unposted("'cheque_clear:' || x.id")} ORDER BY x.created_at`,
+    [c.start],
+  )) {
+    if (c.full()) break;
+    if (c.post({
+      date: x.date, narration: `Cheque ${x.number} to ${x.supplier} cleared`, sourceType: "cheque_clear", sourceId: x.id, postKey: `cheque_clear:${x.id}`,
+      userId: null, lines: [debit(A.cheques_issued.id, x.amount_fils), credit(x.bank, x.amount_fils)],
+    })) n++;
+  }
+  return n;
+}
+

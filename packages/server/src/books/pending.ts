@@ -2,7 +2,7 @@ import { now, type Db } from "../db";
 import { getSettings } from "../settings";
 import { postEntry, type PostInput } from "./post";
 import {
-  postCogs, postCustomerOpenings, postGoodsReceipts, postReceipts, postSalesDocuments, postStock, postStockCorrection, postSupplierBills, postSupplierOpenings, postSupplierPayments, type PostCtx,
+  postCogs, postCustomerOpenings, postGoodsReceipts, postReceipts, postSalesDocuments, postStock, postExpenses, postMoneyMovements, postStockCorrection, postSupplierBills, postSupplierOpenings, postSupplierPayments, type PostCtx,
 } from "./rules";
 
 /** Changes on this database connection when it last had nothing left to post: nothing changed since, nothing to do. */
@@ -57,6 +57,8 @@ export function postPending(db: Db, o: { limit?: number } = {}): number {
     postSupplierOpenings(ctx);
     postSupplierBills(ctx);
     postSupplierPayments(ctx);
+    postExpenses(ctx);
+    postMoneyMovements(ctx);
     postStockCorrection(ctx);
   });
   if (posted < limit) settled.set(db, changes(db));
