@@ -44,3 +44,13 @@ describe("AED formatting", () => {
     expect(parseAED("abc")).toBeNull();
   });
 });
+
+describe("including VAT", () => {
+  it("including VAT: the typed price is the total", () => {
+    expect(lineTotals({ qty: 1, unitPriceFils: 10500, discountPct: 0 }, 500, true)).toEqual({ netFils: 10000, vatFils: 500, grossFils: 10500 });
+    expect(lineTotals({ qty: 1, unitPriceFils: 999, discountPct: 0 }, 500, true)).toEqual({ netFils: 951, vatFils: 48, grossFils: 999 });
+    expect(lineTotals({ qty: 3, unitPriceFils: 1000, discountPct: 10 }, 500, true)).toEqual({ netFils: 2571, vatFils: 129, grossFils: 2700 });
+    expect(docTotals([{ qty: 1, unitPriceFils: 10500, discountPct: 0 }, { qty: 1, unitPriceFils: 999, discountPct: 0 }], 500, true))
+      .toEqual({ netFils: 10951, vatFils: 548, grossFils: 11499 });
+  });
+});

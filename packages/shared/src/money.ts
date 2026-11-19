@@ -25,19 +25,28 @@ function safe(n: number): number {
   return Number.isFinite(n) ? n : 0;
 }
 
-export function lineTotals(line: LineAmounts, vatRateBp: number = VAT_RATE_BP): Totals {
+/**
+ * A line's amounts. `includeVat`: the typed price already includes VAT, so the line's total is what was typed and
+ * VAT is taken out of it (net = total × 100 / 105), and the printed total equals what was typed.
+ */
+export function lineTotals(line: LineAmounts, vatRateBp: number = VAT_RATE_BP, includeVat = false): Totals {
   const qty = Math.max(0, safe(line.qty));
   const price = safe(line.unitPriceFils);
   const discount = Math.min(100, Math.max(0, safe(line.discountPct)));
+  if (includeVat) {
+    const grossFils = roundFils(qty * price * (1 - discount / 100)) || 0;
+    const netFils = roundFils((grossFils * 10000) / (10000 + vatRateBp)) || 0;
+    return { netFils, vatFils: grossFils - netFils, grossFils };
+  }
   const netFils = roundFils(qty * price * (1 - discount / 100)) || 0;
   const vatFils = roundFils((netFils * vatRateBp) / 10000) || 0;
   return { netFils, vatFils, grossFils: netFils + vatFils };
 }
 
-export function docTotals(lines: LineAmounts[], vatRateBp: number = VAT_RATE_BP): Totals {
+export function docTotals(lines: LineAmounts[], vatRateBp: number = VAT_RATE_BP, includeVat = false): Totals {
   return lines.reduce<Totals>(
     (sum, line) => {
-      const t = lineTotals(line, vatRateBp);
+      const t = lineTotals(line, vatRateBp, includeVat);
       return { netFils: sum.netFils + t.netFils, vatFils: sum.vatFils + t.vatFils, grossFils: sum.grossFils + t.grossFils };
     },
     { netFils: 0, vatFils: 0, grossFils: 0 },

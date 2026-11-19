@@ -16,6 +16,7 @@ interface DocRow {
   id: string; type: DocType; seq: number; number: string; status: string; customer_id: string; vehicle_id: string | null;
   odometer: number | null; notes: string | null; source_id: string | null; issued_at: string | null; net_fils: number;
   vat_fils: number; gross_fils: number; paid_fils: number; created_by: string | null; created_at: string; updated_at: string;
+  prices_include_vat: number;
 }
 interface LineRow {
   id: string; position: number; kind: string; description: string; qty: number; unit_price_fils: number;
@@ -81,11 +82,13 @@ export function documentRoutes(app: FastifyInstance, db: Db, numbers?: NumberSou
     const lines = resolvePoLinks(docId, input);
     db.run("DELETE FROM document_lines WHERE document_id = ?", [docId]);
     const rate = vatRate();
+    // Fixed when the document was created, so changing the Tax setting never changes a document's totals.
+    const includeVat = !!getDoc(docId)?.prices_include_vat;
     let net = 0, vat = 0, gross = 0;
     lines.forEach((input, i) => {
       // Parts Fleet Fix supplies are never charged to the customer.
       const line = input.suppliedBy === "fleetfix" ? { ...input, unitPriceFils: 0, discountPct: 0 } : input;
-      const t = lineTotals(line, rate);
+      const t = lineTotals(line, rate, includeVat);
       net += t.netFils; vat += t.vatFils; gross += t.grossFils;
       db.run(
         `INSERT INTO document_lines (id, document_id, position, kind, description, qty, unit_price_fils, discount_pct, net_fils, vat_fils, gross_fils,
@@ -110,7 +113,10 @@ export function documentRoutes(app: FastifyInstance, db: Db, numbers?: NumberSou
 
   function insertDoc(
     user: SessionUser,
-    d: { type: DocType; customerId: string; vehicleId: string | null; odometer: number | null; notes: string | null; sourceId: string | null },
+    d: {
+      type: DocType; customerId: string; vehicleId: string | null; odometer: number | null; notes: string | null; sourceId: string | null;
+      pricesIncludeVat: boolean;
+    },
     lines: LineInput[],
     reserved: Reserved | null,
   ): string {
@@ -118,9 +124,10 @@ export function documentRoutes(app: FastifyInstance, db: Db, numbers?: NumberSou
     const { series, seq, number } = nextNumber(d.type, reserved);
     const t = now();
     db.run(
-      `INSERT INTO documents (id, type, series, seq, number, status, customer_id, vehicle_id, odometer, notes, source_id, created_by, created_at, updated_at)
-       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
-      [id, d.type, series, seq, number, DOC_STATUSES[d.type][0], d.customerId, d.vehicleId, d.odometer, d.notes, d.sourceId, user.id, t, t],
+      `INSERT INTO documents (id, type, series, seq, number, status, customer_id, vehicle_id, odometer, notes, source_id, prices_include_vat,
+         created_by, created_at, updated_at)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+      [id, d.type, series, seq, number, DOC_STATUSES[d.type][0], d.customerId, d.vehicleId, d.odometer, d.notes, d.sourceId, d.pricesIncludeVat ? 1 : 0, user.id, t, t],
     );
     writeLines(id, lines, user.id);
     if (d.vehicleId && d.odometer) {
@@ -157,6 +164,7 @@ export function documentRoutes(app: FastifyInstance, db: Db, numbers?: NumberSou
       id: d.id, type: d.type, number: d.number, status: d.status, odometer: d.odometer, notes: d.notes,
       issuedAt: d.issued_at, createdAt: d.created_at, updatedAt: d.updated_at, createdBy,
       editable: linesEditable(d),
+      pricesIncludeVat: !!d.prices_include_vat,
       customer, vehicle, source, derived,
       lines: lines.map((l) => ({
         id: l.id, kind: l.kind, description: l.description, qty: l.qty, unitPriceFils: l.unit_price_fils,
@@ -212,7 +220,10 @@ export function documentRoutes(app: FastifyInstance, db: Db, numbers?: NumberSou
     const reserved = await reserveNumber(numbers, input.type);
     const id = db.tx(() => {
       checkVehicle(input.customerId, input.vehicleId);
-      return insertDoc(user, { type: input.type, customerId: input.customerId, vehicleId: input.vehicleId ?? null, odometer: input.odometer ?? null, notes: input.notes, sourceId: null }, input.lines, reserved);
+      return insertDoc(user, {
+        type: input.type, customerId: input.customerId, vehicleId: input.vehicleId ?? null, odometer: input.odometer ?? null, notes: input.notes,
+        sourceId: null, pricesIncludeVat: getSettings(db).tax.pricesIncludeVat,
+      }, input.lines, reserved);
     });
     return { document: full(id, user) };
   });
@@ -278,7 +289,7 @@ export function documentRoutes(app: FastifyInstance, db: Db, numbers?: NumberSou
         kind: l.kind as LineInput["kind"], description: l.description, qty: l.qty, unitPriceFils: l.unit_price_fils, discountPct: l.discount_pct,
         partId: l.part_id, suppliedBy: l.supplied_by as LineInput["suppliedBy"], poLineId: l.po_line_id,
       }));
-      const newDocId = insertDoc(user, { type: target, customerId: d.customer_id, vehicleId: d.vehicle_id, odometer: d.odometer, notes: d.notes, sourceId: d.id }, lines, target === convertsTo ? reserved : null);
+      const newDocId = insertDoc(user, { type: target, customerId: d.customer_id, vehicleId: d.vehicle_id, odometer: d.odometer, notes: d.notes, sourceId: d.id, pricesIncludeVat: !!d.prices_include_vat }, lines, target === convertsTo ? reserved : null);
       db.run("UPDATE documents SET status = 'converted', updated_at = ? WHERE id = ?", [now(), d.id]);
       return newDocId;
     });

@@ -74,7 +74,7 @@ export function renderDocumentHtml(doc: DocumentFull, garage: Garage): string {
       if (isJob) {
         return `<tr><td class="n">${i + 1}</td><td>${esc(l.description)}${l.suppliedBy === "fleetfix" ? `<div class="k">Supplied by Fleet Fix</div>` : ""}</td><td>${KIND[l.kind] ?? ""}</td><td class="r">${l.qty}</td><td class="c"><span class="box"></span></td></tr>`;
       }
-      const t = lineTotals(l, garage.vatRateBp);
+      const t = lineTotals(l, garage.vatRateBp, doc.pricesIncludeVat);
       return `<tr><td class="n">${i + 1}</td><td>${esc(l.description)}<div class="k">${KIND[l.kind] ?? ""}${l.suppliedBy === "fleetfix" ? " · Supplied by Fleet Fix" : ""}</div></td><td class="r">${l.qty}</td><td class="r">${money(l.unitPriceFils)}</td><td class="r">${l.discountPct ? `${l.discountPct}%` : "—"}</td><td class="r">${money(t.netFils)}</td><td class="r">${money(t.vatFils)}</td><td class="r b">${money(t.grossFils)}</td></tr>`;
     })
     .join("");

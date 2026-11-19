@@ -27,6 +27,8 @@ export interface DocRef { id: string; number: string; type: DocType }
 export interface DocumentFull {
   id: string; type: DocType; number: string; status: string; odometer: number | null; notes: string | null; issuedAt: string | null;
   createdAt: string; updatedAt: string; createdBy: string | null; editable: boolean;
+  /** Prices were typed including VAT (fixed when the document was created). */
+  pricesIncludeVat: boolean;
   customer: Customer; vehicle: Vehicle | null; source: DocRef | null; derived: DocRef | null;
   lines: DocLine[]; totals: { netFils: number; vatFils: number; grossFils: number }; paidFils: number; balanceFils: number; payments: Payment[];
   partsCostFils?: number; marginFils?: number; costPending?: boolean; uncostedLines?: number;

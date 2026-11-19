@@ -75,7 +75,10 @@ export function DocumentPage() {
 
   const editable = !readOnly && (isNew || (doc?.editable ?? false));
   const vatRate = garage?.vatRateBp ?? 500;
-  const totals = useMemo(() => docTotals(draft.lines, vatRate), [draft.lines, vatRate]);
+  // A saved document keeps the VAT choice it was created with; a new one follows Settings → Tax.
+  const taxSettings = useApi<{ settings: { tax: { pricesIncludeVat: boolean } } }>(doc ? null : "/api/settings");
+  const includeVat = doc ? doc.pricesIncludeVat : (taxSettings.data?.settings.tax.pricesIncludeVat ?? false);
+  const totals = useMemo(() => docTotals(draft.lines, vatRate, includeVat), [draft.lines, vatRate, includeVat]);
 
   const update = (patchDraft: Partial<Draft>) => {
     setDraft((d) => ({ ...d, ...patchDraft }));
@@ -277,7 +280,7 @@ export function DocumentPage() {
             ))}
           >
             <LinesTable
-              lines={draft.lines} editable={editable} vatRate={vatRate} onChange={updateLine}
+              lines={draft.lines} editable={editable} vatRate={vatRate} includeVat={includeVat} onChange={updateLine}
               onRemove={(i) => update({ lines: draft.lines.filter((_, j) => j !== i) })}
               onRequest={type === "jobcard" && !isNew && editable && can("documents.edit") ? onRequest : undefined}
               showCost={can("costs.view")}
@@ -377,8 +380,8 @@ function Row({ label, value, strong }: { label: string; value: string; strong?: 
   );
 }
 
-function LinesTable({ lines, editable, vatRate, onChange, onRemove, onRequest, showCost }: {
-  lines: DocLine[]; editable: boolean; vatRate: number; onChange: (i: number, l: Partial<DocLine>) => void; onRemove: (i: number) => void;
+function LinesTable({ lines, editable, vatRate, includeVat, onChange, onRemove, onRequest, showCost }: {
+  lines: DocLine[]; editable: boolean; vatRate: number; includeVat: boolean; onChange: (i: number, l: Partial<DocLine>) => void; onRemove: (i: number) => void;
   onRequest?: (i: number) => void; showCost: boolean;
 }) {
   if (lines.length === 0) return <Empty title="No items" />;
@@ -390,7 +393,7 @@ function LinesTable({ lines, editable, vatRate, onChange, onRemove, onRequest, s
           <th className="w-[124px] px-3 py-2 font-medium">Type</th>
           <th className="px-2 py-2 font-medium">Description</th>
           <th className="w-[64px] px-2 py-2 text-right font-medium">Qty</th>
-          <th className="w-[96px] px-2 py-2 text-right font-medium">Unit price</th>
+          <th className="w-[96px] px-2 py-2 text-right font-medium">{includeVat ? "Price incl. VAT" : "Unit price"}</th>
           <th className="w-[64px] px-2 py-2 text-right font-medium">Disc %</th>
           <th className="w-[70px] px-2 py-2 text-right font-medium">VAT</th>
           <th className="w-[96px] px-3 py-2 text-right font-medium">Total</th>
@@ -399,7 +402,7 @@ function LinesTable({ lines, editable, vatRate, onChange, onRemove, onRequest, s
       </thead>
       <tbody className="divide-y divide-zinc-100">
         {lines.map((line, i) => {
-          const t = lineTotals(line, vatRate);
+          const t = lineTotals(line, vatRate, includeVat);
           return (
             <tr key={i} className="align-top">
               <td className="px-3 py-1.5">
