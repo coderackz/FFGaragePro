@@ -317,3 +317,19 @@ contacts, reminders and statement e-mails stay in Part 3. Everything else below 
 4. **E-invoicing deadline** — our understanding is that businesses under AED 50m revenue must appoint an accredited
    provider by about March 2027 and go live by about July 2027. Confirm with the Ministry of Finance before planning
    that project.
+
+## Part 3 decisions (2026-11-19)
+Part 3 is built in two halves: **3a English + Arabic documents**, then **3b messages**.
+
+**User (3b):** emails go out **from the garage's own email address** (its own mail server, SMTP) — no Fleetfix
+mailbox, so "Fleetfix mail" above is dropped. PDF attachments are made on the PC or browser where the message
+starts and travel with it; the cloud only sends (it can't draw PDFs).
+
+**3a, my calls, for checking:**
+- A new estimate, job card or invoice (converted ones too) takes the customer's language at that moment; a credit
+  note takes its invoice's. An editable document's language can be changed; an issued one's can't.
+- Receipts and statements aren't stored documents, so they print in the customer's current language.
+- Arabic part names print live from the part (like part numbers).
+- English-only invoices, credit notes and receipts also print the total in words (English).
+- Amount in words, Arabic: "فقط … لا غير", with the counted-noun rules (درهم واحد، درهمان، ثلاثة دراهم، أحد عشر
+  درهماً، مائتا درهم) and the same for fils.

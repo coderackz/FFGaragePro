@@ -42,6 +42,9 @@ const start = z.number().int().min(1).max(99_999_999).default(1);
 export const settingsSchemas = {
   garage: z.object({
     tradeLicence: optText(40),
+    /** Arabic name and address, printed on English + Arabic documents. */
+    nameAr: optText(120),
+    addressAr: optText(500),
     bankName: optText(80),
     accountName: optText(120),
     iban,
@@ -53,7 +56,9 @@ export const settingsSchemas = {
     paper: z.enum(["plain", "letterhead"]).default("plain"),
     letterheadTopMm: z.number().int().min(10).max(120).default(45),
     terms: optText(1000),
+    termsAr: optText(1000),
     warranty: optText(300),
+    warrantyAr: optText(300),
     estimateValidDays: z.number().int().min(1).max(365).default(14),
     showPartNumbers: z.boolean().default(true),
     showLabourHours: z.boolean().default(true),

@@ -44,6 +44,10 @@ export const userUpdateSchema = z.object({
 
 const ymd = z.string().regex(/^\d{4}-\d{2}-\d{2}$/, "Use a date like 2026-01-31");
 
+/** What a customer's documents are printed in: English, or English and Arabic side by side. */
+export const DOC_LANGUAGES = ["en", "en_ar"] as const;
+export type DocLanguage = (typeof DOC_LANGUAGES)[number];
+
 export const customerSchema = z.object({
   kind: z.enum(["individual", "company"]).default("individual"),
   name: text().min(1, "Name is required"),
@@ -52,6 +56,9 @@ export const customerSchema = z.object({
   trn: optionalText(20),
   address: optionalText(500),
   notes: optionalText(2000),
+  nameAr: optionalText(200),
+  addressAr: optionalText(500),
+  docLanguage: z.enum(DOC_LANGUAGES).default("en"),
   // Credit (Part 2): cash customers by default.
   creditAllowed: z.boolean().default(false),
   creditLimitFils: z.number().int().min(0).max(10_000_000_00).default(0),
@@ -119,6 +126,7 @@ export const documentUpdateSchema = z.object({
   lines: z.array(lineSchema).max(500).optional(),
   approval: approvalSchema.optional(),
   lpoNumber: patchText(60),
+  language: z.enum(DOC_LANGUAGES).optional(),
 });
 
 /** Issuing an invoice: the customer's LPO number, and the Owner's approval when over the credit limit. */
@@ -166,6 +174,7 @@ const money = z.number().int().min(0).max(10_000_000_00);
 export const partSchema = z.object({
   partNo: text(60).min(1, "Part number is required"),
   name: text().min(1, "Name is required"),
+  nameAr: optionalText(200),
   brand: optionalText(80),
   unit: text(20).min(1).default("each"),
   stocked: z.boolean(),
