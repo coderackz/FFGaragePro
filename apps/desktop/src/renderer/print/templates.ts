@@ -1,4 +1,4 @@
-import { formatAED, lineTotals } from "@ffgp/shared";
+import { formatAED, lineTotals, type Settings } from "@ffgp/shared";
 import type { DocumentFull, Garage, PurchaseOrder } from "../lib/types";
 
 const esc = (v: unknown) =>
@@ -54,13 +54,59 @@ const PAGE_CSS = `
   .sigs.two { grid-template-columns: 1fr 1fr; }
   .sigs span { display: block; border-bottom: 1px solid #a1a1aa; height: 12mm; margin-bottom: 1.5mm; }
   footer { margin-top: 6mm; padding-top: 3mm; border-top: 1px solid #e4e4e7; display: flex; justify-content: space-between; font-size: 8pt; color: #a1a1aa; }
+  .brand { display: flex; gap: 5mm; align-items: flex-start; }
+  img.logo { max-height: 22mm; max-width: 45mm; object-fit: contain; }
+  header.lh { justify-content: flex-end; border-bottom: 0; padding-bottom: 2mm; }
+  .terms { margin-top: 5mm; font-size: 8.5pt; color: #3f3f46; white-space: pre-line; }
+  .terms .bank { font-weight: 600; color: #18181b; margin-bottom: 1mm; }
+  .warranty { margin-top: 3mm; font-size: 9pt; color: #3f3f46; }
+  .sigimg { height: 12mm; display: flex; align-items: flex-end; gap: 3mm; margin-bottom: -12mm; }
+  .sigimg + span { border-bottom: 1px solid #a1a1aa; }
+  img.stamp { max-height: 26mm; max-width: 30mm; object-fit: contain; opacity: 0.9; transform: translateY(-8mm); }
+  img.signature { max-height: 13mm; max-width: 40mm; object-fit: contain; }
+  .auth { margin-top: auto; padding-top: 10mm; font-size: 9.5pt; color: #18181b; }
+  .auth + .sigs { margin-top: 0; padding-top: 8mm; }
+  .wm { position: fixed; top: 42%; left: 0; right: 0; text-align: center; transform: rotate(-24deg); pointer-events: none; }
+  .wm span { display: block; font-size: 72pt; font-weight: 800; letter-spacing: 0.1em; color: rgba(185, 28, 28, 0.13); line-height: 1.1; }
 `;
+
+/** Garage block for the top of a page: logo and details, or a blank space on letterhead paper. */
+function garageHeader(garage: Garage, settings: Settings, title: string): string {
+  const d = settings.documents;
+  const g = settings.garage;
+  if (d.paper === "letterhead") {
+    return `<div class="letterhead" style="height:${d.letterheadTopMm}mm"></div><header class="lh">${title}</header>`;
+  }
+  return `<header>
+    <div class="brand">
+      ${d.logo ? `<img class="logo" src="${esc(d.logo)}" alt="">` : ""}
+      <div class="garage">
+        <h1>${esc(garage.name)}</h1>
+        <div>${esc([garage.address, [garage.phone, garage.email].filter(Boolean).join("  ·  ")].filter(Boolean).join("\n"))}</div>
+        ${garage.trn ? `<div><b>TRN:</b> ${esc(garage.trn)}</div>` : ""}
+        ${g.tradeLicence ? `<div><b>Trade licence:</b> ${esc(g.tradeLicence)}</div>` : ""}
+      </div>
+    </div>
+    ${title}
+  </header>`;
+}
+
+/** "For {garage}" signature cell, with the stamp and signature images above the line when set. */
+function garageSignature(garage: Garage, settings: Settings): string {
+  const { stamp, signature } = settings.documents;
+  const images = stamp || signature
+    ? `<div class="sigimg">${signature ? `<img class="signature" src="${esc(signature)}" alt="">` : ""}${stamp ? `<img class="stamp" src="${esc(stamp)}" alt="">` : ""}</div>`
+    : "";
+  return `<div>${images}<span></span>For ${esc(garage.name)}</div>`;
+}
 
 const KIND = { labour: "Labour", part: "Part", other: "Other" } as Record<string, string>;
 
 /** Self-contained A4 HTML for one document. The garage is the seller, so its details lead the page. */
-export function renderDocumentHtml(doc: DocumentFull, garage: Garage): string {
+export function renderDocumentHtml(doc: DocumentFull, garage: Garage, settings: Settings, opts: { copy?: boolean } = {}): string {
   const title = TITLES[doc.type];
+  const ds = settings.documents;
+  const gs = settings.garage;
   const isJob = doc.type === "jobcard";
   const isInvoice = doc.type === "invoice";
   const draftInvoice = isInvoice && doc.status === "draft";
@@ -69,19 +115,23 @@ export function renderDocumentHtml(doc: DocumentFull, garage: Garage): string {
   const c = doc.customer;
   const v = doc.vehicle;
 
+  const partNo = (l: DocumentFull["lines"][number]) => (ds.showPartNumbers && l.partNo ? `Part no. ${esc(l.partNo)}` : "");
+  const qty = (l: DocumentFull["lines"][number]) => (ds.showLabourHours && l.kind === "labour" ? `${l.qty} h` : `${l.qty}`);
   const rows = doc.lines
     .map((l, i) => {
       if (isJob) {
-        return `<tr><td class="n">${i + 1}</td><td>${esc(l.description)}${l.suppliedBy === "fleetfix" ? `<div class="k">Supplied by Fleet Fix</div>` : ""}</td><td>${KIND[l.kind] ?? ""}</td><td class="r">${l.qty}</td><td class="c"><span class="box"></span></td></tr>`;
+        const notes = [partNo(l), l.suppliedBy === "fleetfix" ? "Supplied by Fleet Fix" : ""].filter(Boolean).join(" · ");
+        return `<tr><td class="n">${i + 1}</td><td>${esc(l.description)}${notes ? `<div class="k">${notes}</div>` : ""}</td><td>${KIND[l.kind] ?? ""}</td><td class="r">${qty(l)}</td><td class="c"><span class="box"></span></td></tr>`;
       }
       const t = lineTotals(l, garage.vatRateBp, doc.pricesIncludeVat);
-      return `<tr><td class="n">${i + 1}</td><td>${esc(l.description)}<div class="k">${KIND[l.kind] ?? ""}${l.suppliedBy === "fleetfix" ? " · Supplied by Fleet Fix" : ""}</div></td><td class="r">${l.qty}</td><td class="r">${money(l.unitPriceFils)}</td><td class="r">${l.discountPct ? `${l.discountPct}%` : "—"}</td><td class="r">${money(t.netFils)}</td><td class="r">${money(t.vatFils)}</td><td class="r b">${money(t.grossFils)}</td></tr>`;
+      const notes = [KIND[l.kind] ?? "", partNo(l), l.suppliedBy === "fleetfix" ? "Supplied by Fleet Fix" : ""].filter(Boolean).join(" · ");
+      return `<tr><td class="n">${i + 1}</td><td>${esc(l.description)}<div class="k">${notes}</div></td><td class="r">${qty(l)}</td><td class="r">${money(l.unitPriceFils)}</td><td class="r">${l.discountPct ? `${l.discountPct}%` : "—"}</td><td class="r">${money(t.netFils)}</td><td class="r">${money(t.vatFils)}</td><td class="r b">${money(t.grossFils)}</td></tr>`;
     })
     .join("");
 
   const head = isJob
     ? `<tr><th class="n">#</th><th>Work / part</th><th>Type</th><th class="r">Qty</th><th class="c">Done</th></tr>`
-    : `<tr><th class="n">#</th><th>Description</th><th class="r">Qty</th><th class="r">Unit price</th><th class="r">Disc.</th><th class="r">Amount</th><th class="r">VAT ${vatPct}%</th><th class="r">Total</th></tr>`;
+    : `<tr><th class="n">#</th><th>Description</th><th class="r">Qty</th><th class="r">${doc.pricesIncludeVat ? "Unit price (incl. VAT)" : "Unit price"}</th><th class="r">Disc.</th><th class="r">Amount</th><th class="r">VAT ${vatPct}%</th><th class="r">Total</th></tr>`;
 
   const totals = isJob
     ? ""
@@ -93,27 +143,29 @@ export function renderDocumentHtml(doc: DocumentFull, garage: Garage): string {
       </table>`;
 
   const signatures = isJob
-    ? `<div class="sigs"><div><span></span>Service advisor</div><div><span></span>Technician</div><div><span></span>Customer</div></div>`
+    ? `${ds.jobCardSignature ? `<div class="auth"><b>I authorise the work above</b> and agree to pay for it on collection.</div>` : ""}<div class="sigs"><div><span></span>Service advisor</div><div><span></span>Technician</div><div><span></span>Customer</div></div>`
     : isInvoice
-      ? `<div class="sigs two"><div><span></span>Received by (customer)</div><div><span></span>For ${esc(garage.name)}</div></div>`
-      : `<div class="sigs two"><div><span></span>Customer approval</div><div><span></span>For ${esc(garage.name)}</div></div>`;
-
-  return `<!doctype html><html lang="en"><head><meta charset="utf-8"><title>${esc(doc.number)}</title><style>${PAGE_CSS}</style></head><body><div class="page">
-  <header>
-    <div class="garage">
-      <h1>${esc(garage.name)}</h1>
-      <div>${esc([garage.address, [garage.phone, garage.email].filter(Boolean).join("  ·  ")].filter(Boolean).join("\n"))}</div>
-      ${garage.trn ? `<div><b>TRN:</b> ${esc(garage.trn)}</div>` : ""}
-    </div>
-    <div class="title">
+      ? `<div class="sigs two"><div><span></span>Received by (customer)</div>${garageSignature(garage, settings)}</div>`
+      : `<div class="sigs two"><div><span></span>Customer approval</div>${garageSignature(garage, settings)}</div>`;
+  const bank = [gs.bankName, gs.accountName, gs.iban ? `IBAN ${gs.iban}` : null].filter(Boolean).join("  ·  ");
+  const terms = isInvoice && (bank || ds.terms)
+    ? `<div class="terms">${bank ? `<div class="bank">${esc(bank)}</div>` : ""}${ds.terms ? esc(ds.terms) : ""}</div>`
+    : "";
+  const issued = isInvoice && !draftInvoice;
+  const marks = [doc.status === "paid" && issued ? "PAID" : null, opts.copy && issued ? "COPY" : null].filter(Boolean);
+  const watermark = marks.length ? `<div class="wm">${marks.map((m) => `<span>${m}</span>`).join("")}</div>` : "";
+  const titleHtml = `<div class="title">
       <div class="en">${title.en}</div>
       <div class="ar">${title.ar}</div>
       <div class="num">${esc(doc.number)}</div>
       <div class="meta">Date: ${date(docDate)}</div>
       ${doc.source ? `<div class="meta">Ref: ${esc(doc.source.number)}</div>` : ""}
       ${draftInvoice ? `<div class="draft">DRAFT — NOT A TAX INVOICE</div>` : ""}
-    </div>
-  </header>
+    </div>`;
+
+  return `<!doctype html><html lang="en"><head><meta charset="utf-8"><title>${esc(doc.number)}</title><style>${PAGE_CSS}</style></head><body><div class="page">
+  ${watermark}
+  ${garageHeader(garage, settings, titleHtml)}
   <div class="parties">
     <div class="party">
       <h3>${isInvoice ? "Bill to" : "Customer"}</h3>
@@ -129,16 +181,17 @@ export function renderDocumentHtml(doc: DocumentFull, garage: Garage): string {
   </div>
   <table class="items"><thead>${head}</thead><tbody>${rows || `<tr><td colspan="8" style="color:#a1a1aa">No items</td></tr>`}</tbody></table>
   <div class="bottom">
-    <div class="notes">${doc.notes ? `<h3>Notes</h3>${esc(doc.notes)}` : ""}${doc.type === "estimate" ? `<div style="margin-top:3mm;color:#71717a">Prices in AED. Estimate valid for 14 days. Additional work found during repair will be quoted separately.</div>` : ""}</div>
+    <div class="notes">${doc.notes ? `<h3>Notes</h3>${esc(doc.notes)}` : ""}${doc.type === "estimate" ? `<div style="margin-top:3mm;color:#71717a">Prices in AED. Estimate valid for ${ds.estimateValidDays} days. Additional work found during repair will be quoted separately.</div>` : ""}${isInvoice && ds.warranty ? `<div class="warranty"><b>Warranty:</b> ${esc(ds.warranty)}</div>` : ""}</div>
     ${totals}
   </div>
+  ${terms}
   ${signatures}
   <footer><span>${esc(doc.number)} · printed ${date(new Date().toISOString())}</span><span>Powered by Fleetfix Garage Pro</span></footer>
 </div></body></html>`;
 }
 
 /** A4 purchase order to a supplier. Amounts are shown only when the viewer may see costs. */
-export function renderPurchaseOrderHtml(po: PurchaseOrder, garage: Garage): string {
+export function renderPurchaseOrderHtml(po: PurchaseOrder, garage: Garage, settings: Settings): string {
   const s = po.supplier;
   const showCost = po.netFils !== undefined;
   const vatPct = garage.vatRateBp / 100;
@@ -156,20 +209,14 @@ export function renderPurchaseOrderHtml(po: PurchaseOrder, garage: Garage): stri
         <tr class="grand"><td>Total (AED)</td><td class="r">${money((po.netFils ?? 0) + vat)}</td></tr>
       </table>`
     : "";
-  return `<!doctype html><html lang="en"><head><meta charset="utf-8"><title>${esc(po.number)}</title><style>${PAGE_CSS} .mono { font-family: Consolas, "SF Mono", monospace; font-size: 9pt; }</style></head><body><div class="page">
-  <header>
-    <div class="garage">
-      <h1>${esc(garage.name)}</h1>
-      <div>${esc([garage.address, [garage.phone, garage.email].filter(Boolean).join("  ·  ")].filter(Boolean).join("\n"))}</div>
-      ${garage.trn ? `<div><b>TRN:</b> ${esc(garage.trn)}</div>` : ""}
-    </div>
-    <div class="title">
+  const titleHtml = `<div class="title">
       <div class="en">PURCHASE ORDER</div>
       <div class="ar">أمر شراء</div>
       <div class="num">${esc(po.number)}</div>
       <div class="meta">Date: ${date(po.createdAt)}</div>
-    </div>
-  </header>
+    </div>`;
+  return `<!doctype html><html lang="en"><head><meta charset="utf-8"><title>${esc(po.number)}</title><style>${PAGE_CSS} .mono { font-family: Consolas, "SF Mono", monospace; font-size: 9pt; }</style></head><body><div class="page">
+  ${garageHeader(garage, settings, titleHtml)}
   <div class="parties">
     <div class="party">
       <h3>Supplier</h3>
@@ -188,7 +235,7 @@ export function renderPurchaseOrderHtml(po: PurchaseOrder, garage: Garage): stri
     <div class="notes">${po.notes ? `<h3>Notes</h3>${esc(po.notes)}` : ""}<div style="margin-top:3mm;color:#71717a">Please quote ${esc(po.number)} on your delivery note and invoice.</div></div>
     ${totals}
   </div>
-  <div class="sigs two"><div><span></span>Ordered by</div><div><span></span>For ${esc(garage.name)}</div></div>
+  <div class="sigs two"><div><span></span>Ordered by</div>${garageSignature(garage, settings)}</div>
   <footer><span>${esc(po.number)} · printed ${date(new Date().toISOString())}</span><span>Powered by Fleetfix Garage Pro</span></footer>
 </div></body></html>`;
 }

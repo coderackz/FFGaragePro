@@ -3,7 +3,8 @@ import { useEffect, useMemo, useState } from "react";
 import { Link, useNavigate, useParams, useSearchParams } from "react-router";
 import { toast } from "sonner";
 import {
-  CONVERTS_TO, DOC_LABELS, DOC_STATUSES, LINE_KINDS, PAYMENT_METHODS, STATUS_LABELS, docTotals, lineTotals, type DocType, type LineKind,
+  CONVERTS_TO, DEFAULT_SETTINGS, DOC_LABELS, DOC_STATUSES, LINE_KINDS, PAYMENT_METHODS, STATUS_LABELS, docTotals, lineTotals, type DocType, type LineKind,
+  type Settings,
 } from "@ffgp/shared";
 import { CustomerPicker } from "../components/CustomerPicker";
 import { CustomerFormModal } from "../components/forms";
@@ -76,8 +77,9 @@ export function DocumentPage() {
   const editable = !readOnly && (isNew || (doc?.editable ?? false));
   const vatRate = garage?.vatRateBp ?? 500;
   // A saved document keeps the VAT choice it was created with; a new one follows Settings → Tax.
-  const taxSettings = useApi<{ settings: { tax: { pricesIncludeVat: boolean } } }>(doc ? null : "/api/settings");
-  const includeVat = doc ? doc.pricesIncludeVat : (taxSettings.data?.settings.tax.pricesIncludeVat ?? false);
+  const settingsQuery = useApi<{ settings: Settings }>("/api/settings");
+  const settings = settingsQuery.data?.settings ?? null;
+  const includeVat = doc ? doc.pricesIncludeVat : (settings?.tax.pricesIncludeVat ?? false);
   const totals = useMemo(() => docTotals(draft.lines, vatRate, includeVat), [draft.lines, vatRate, includeVat]);
 
   const update = (patchDraft: Partial<Draft>) => {
@@ -174,7 +176,7 @@ export function DocumentPage() {
     if (!id || !garage) return;
     const { document } = await get<{ document: DocumentFull }>(`/api/documents/${id}`);
     docQuery.setData({ document });
-    await printDocument(document, garage, mode);
+    await printDocument(document, garage, settings ?? DEFAULT_SETTINGS, mode);
   });
 
   if (!isNew && docQuery.error) return <Empty title="Document not found">{docQuery.error}</Empty>;

@@ -209,6 +209,7 @@ export function documentRoutes(
       issuedAt: d.issued_at, createdAt: d.created_at, updatedAt: d.updated_at, createdBy,
       editable: linesEditable(d),
       pricesIncludeVat: !!d.prices_include_vat,
+      printCount: db.get<{ n: number }>("SELECT COUNT(*) AS n FROM document_prints WHERE document_id = ?", [id])!.n,
       customer, vehicle, source, derived,
       lines: lines.map((l) => ({
         id: l.id, kind: l.kind, description: l.description, qty: l.qty, unitPriceFils: l.unit_price_fils,
@@ -363,6 +364,21 @@ export function documentRoutes(
       db.run("UPDATE documents SET status = 'issued', issued_at = ?, updated_at = ? WHERE id = ?", [t, t, d.id]);
     });
     return { document: full(req.params.id, user) };
+  });
+
+  /**
+   * Records a print of an issued invoice, so the second and later prints say COPY. Prints are rows of their own
+   * (an issued invoice is never changed, and prints on two PCs add up). Anything else isn't counted.
+   */
+  app.post<{ Params: { id: string } }>("/api/documents/:id/prints", async (req) => {
+    const user = sessionUser(db, req);
+    return db.tx(() => {
+      const d = getDoc(req.params.id);
+      if (!d) throw notFound("Document not found");
+      if (d.type !== "invoice" || d.status === "draft") return { count: 0 };
+      db.run("INSERT INTO document_prints (id, document_id, user_id, printed_at) VALUES (?, ?, ?, ?)", [newId(), d.id, user.id, now()]);
+      return { count: db.get<{ n: number }>("SELECT COUNT(*) AS n FROM document_prints WHERE document_id = ?", [d.id])!.n };
+    });
   });
 
   app.post<{ Params: { id: string } }>("/api/documents/:id/payments", async (req) => {

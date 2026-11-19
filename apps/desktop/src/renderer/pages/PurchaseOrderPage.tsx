@@ -2,7 +2,7 @@ import { ArrowLeft, Ban, FileDown, PackageCheck, Plus, Printer, Save, Send, Tras
 import { useEffect, useState } from "react";
 import { Link, useNavigate, useParams } from "react-router";
 import { toast } from "sonner";
-import { FLEETFIX_SUPPLIER_ID, roundFils } from "@ffgp/shared";
+import { FLEETFIX_SUPPLIER_ID, roundFils, type Settings } from "@ffgp/shared";
 import { PartLink, PartPicker } from "../components/PartPicker";
 import { ReceiveDialog } from "../components/ReceiveDialog";
 import { Button, Card, Empty, Field, MoneyInput, NumberInput, PageHeader, Select, Spinner, StatusBadge, Table, Textarea } from "../components/ui";
@@ -82,7 +82,8 @@ export function PurchaseOrderPage() {
     if (!poId || !garage) return;
     const { purchaseOrder } = await get<{ purchaseOrder: PurchaseOrder }>(`/api/purchase-orders/${poId}`);
     poQuery.setData({ purchaseOrder });
-    await printPurchaseOrder(purchaseOrder, garage, mode);
+    const { settings } = await get<{ settings: Settings }>("/api/settings");
+    await printPurchaseOrder(purchaseOrder, garage, settings, mode);
   });
 
   if (!isNew && poQuery.error) return <Empty title="Purchase order not found">{poQuery.error}</Empty>;

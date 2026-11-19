@@ -1,16 +1,21 @@
+import type { Settings } from "@ffgp/shared";
 import { toast } from "sonner";
+import { post } from "../lib/api";
 import type { DocumentFull, Garage, PurchaseOrder } from "../lib/types";
 import { renderDocumentHtml, renderPurchaseOrderHtml } from "./templates";
 
-export function printDocument(doc: DocumentFull, garage: Garage, mode: "pdf" | "print"): Promise<void> {
-  return printHtml(renderDocumentHtml(doc, garage), `${doc.number} - ${doc.customer.name}`, mode);
+/** Prints or saves a document. An issued invoice's prints are counted: the second and later ones say COPY. */
+export async function printDocument(doc: DocumentFull, garage: Garage, settings: Settings, mode: "pdf" | "print"): Promise<void> {
+  const counted = doc.type === "invoice" && doc.status !== "draft";
+  const copy = counted ? (await post<{ count: number }>(`/api/documents/${doc.id}/prints`)).count > 1 : false;
+  return printHtml(renderDocumentHtml(doc, garage, settings, { copy }), `${doc.number} - ${doc.customer.name}`, mode);
 }
 
-export function printPurchaseOrder(po: PurchaseOrder, garage: Garage, mode: "pdf" | "print"): Promise<void> {
-  return printHtml(renderPurchaseOrderHtml(po, garage), `${po.number} - ${po.supplier.name}`, mode);
+export function printPurchaseOrder(po: PurchaseOrder, garage: Garage, settings: Settings, mode: "pdf" | "print"): Promise<void> {
+  return printHtml(renderPurchaseOrderHtml(po, garage, settings), `${po.number} - ${po.supplier.name}`, mode);
 }
 
-async function printHtml(html: string, title: string, mode: "pdf" | "print"): Promise<void> {
+export async function printHtml(html: string, title: string, mode: "pdf" | "print"): Promise<void> {
   const bridge = window.ffgp;
   if (bridge) {
     if (mode === "pdf") {

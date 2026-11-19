@@ -109,4 +109,19 @@ describe("documents", () => {
     expect((await call(app, "GET", "/api/documents?q=4321", owner)).body.documents).toHaveLength(1);
     expect((await call(app, "GET", "/api/documents?q=ahmed", owner)).body.documents).toHaveLength(2);
   });
+
+  it("prints are counted for issued invoices only", async () => {
+    const app = await makeApp();
+    const owner = await setUp(app);
+    const { customer } = await customerWithVehicle(app, owner);
+    const est = (await call(app, "POST", "/api/documents", owner, { type: "estimate", customerId: customer.id, lines: LINES })).body.document;
+    expect((await call(app, "POST", `/api/documents/${est.id}/prints`, owner)).body).toEqual({ count: 0 });
+    const inv = (await call(app, "POST", "/api/documents", owner, { type: "invoice", customerId: customer.id, lines: LINES })).body.document;
+    expect((await call(app, "POST", `/api/documents/${inv.id}/prints`, owner)).body).toEqual({ count: 0 });
+    await call(app, "POST", `/api/documents/${inv.id}/issue`, owner);
+    expect((await call(app, "POST", `/api/documents/${inv.id}/prints`, owner)).body).toEqual({ count: 1 });
+    expect((await call(app, "POST", `/api/documents/${inv.id}/prints`, owner)).body).toEqual({ count: 2 });
+    expect((await call(app, "GET", `/api/documents/${inv.id}`, owner)).body.document.printCount).toBe(2);
+    expect(app.db.get<{ n: number }>("SELECT COUNT(*) AS n FROM document_prints")!.n).toBe(2);
+  });
 });

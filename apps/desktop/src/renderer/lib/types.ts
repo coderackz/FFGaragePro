@@ -29,6 +29,8 @@ export interface DocumentFull {
   createdAt: string; updatedAt: string; createdBy: string | null; editable: boolean;
   /** Prices were typed including VAT (fixed when the document was created). */
   pricesIncludeVat: boolean;
+  /** Times an issued invoice has been printed (the 2nd print onwards says COPY). */
+  printCount?: number;
   customer: Customer; vehicle: Vehicle | null; source: DocRef | null; derived: DocRef | null;
   lines: DocLine[]; totals: { netFils: number; vatFils: number; grossFils: number }; paidFils: number; balanceFils: number; payments: Payment[];
   partsCostFils?: number; marginFils?: number; costPending?: boolean; uncostedLines?: number;
