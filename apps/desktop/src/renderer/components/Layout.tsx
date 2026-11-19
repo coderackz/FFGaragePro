@@ -6,6 +6,7 @@ import { ROLE_LABELS } from "@ffgp/shared";
 import logo from "../assets/fleetfix-logo.png";
 import { useAuth } from "../lib/auth";
 import { UnsavedProvider, useUnsaved } from "../lib/unsaved";
+import { IdleLock } from "./IdleLock";
 
 export function Layout({ children }: { children: ReactNode }) {
   return (
@@ -17,7 +18,7 @@ export function Layout({ children }: { children: ReactNode }) {
 
 function Frame({ children }: { children: ReactNode }) {
   const { confirmLeave } = useUnsaved();
-  const { user, garage, canSee: can, signOut, licence } = useAuth();
+  const { user, garage, settings, canSee: can, signOut, licence } = useAuth();
   const nav = [
     { to: "/", label: "Dashboard", icon: LayoutDashboard, end: true },
     { section: "Workshop" },
@@ -37,6 +38,7 @@ function Frame({ children }: { children: ReactNode }) {
 
   return (
     <div className="flex h-full">
+      <IdleLock minutes={settings?.security.idleLockMinutes ?? 0} />
       {/* Tablets (< 1024 px): icons only, so the work area keeps its width. */}
       <aside className="flex w-60 shrink-0 flex-col bg-ink text-zinc-300 max-lg:w-16">
         <div className="px-5 pt-5 pb-4 max-lg:px-2">
