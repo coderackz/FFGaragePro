@@ -1,5 +1,5 @@
 import {
-  formatNumberOf, LOCAL_SETTING_PREFIXES, NUMBER_KINDS, prefixOf, readSettings, sectionRows, startOf, type NumberKind,
+  dubaiDate, formatNumberOf, LOCAL_SETTING_PREFIXES, NUMBER_KINDS, prefixOf, readSettings, sectionRows, startOf, type NumberKind,
   type Settings, type SettingsSection,
 } from "@ffgp/shared";
 import { audit } from "./audit";
@@ -98,6 +98,18 @@ export function checkNumbering(db: Db, next: Settings["numbering"]): void {
   }
 }
 registerSectionCheck("numbering", checkNumbering);
+
+const dayLabel = (ymd: string) =>
+  new Intl.DateTimeFormat("en-GB", { day: "2-digit", month: "short", year: "numeric", timeZone: "UTC" }).format(new Date(`${ymd}T00:00:00Z`));
+
+/** The books: the lock date is always before today; the start date can't move once anything is posted. */
+registerSectionCheck("books", (db, next) => {
+  const current = getSettings(db).books;
+  if (next.lockDate && next.lockDate >= dubaiDate(new Date().toISOString())) throw badRequest("Lock the books up to a date before today");
+  if (next.startDate !== current.startDate && current.startDate && db.get("SELECT 1 FROM journal_entries LIMIT 1")) {
+    throw badRequest(`The books have started on ${dayLabel(current.startDate)}: the start date can't change`);
+  }
+});
 
 /**
  * Secrets (the SMTP password) live in the settings table as `secret.<name>`, so they sync to the cloud that sends the

@@ -1,8 +1,9 @@
 import type { FastifyInstance } from "fastify";
 import {
-  allocateOldestFirst, allocationSchema, formatAED, formatNumberOf, prefixOf, receiptSchema, type ReceiptInput,
+  allocateOldestFirst, allocationSchema, dubaiDate, formatAED, formatNumberOf, prefixOf, receiptSchema, type ReceiptInput,
 } from "@ffgp/shared";
 import { audit } from "../audit";
+import { checkNotLocked } from "../books/journals";
 import { requireAction, sessionUser } from "../auth";
 import { newId, now, type Db } from "../db";
 import { badRequest, notFound } from "../errors";
@@ -134,6 +135,8 @@ export function receiptRoutes(app: FastifyInstance, db: Db, numbers?: NumberSour
     requireAction(user, "payments.record");
     const input = receiptSchema.parse(req.body);
     if (!db.get("SELECT 1 FROM customers WHERE id = ?", [input.customerId])) throw notFound("Customer not found");
+    // A payment dated back into a locked period of the books is refused (the owner locks finished months).
+    if (input.receivedAt) checkNotLocked(db, dubaiDate(input.receivedAt));
     // Everything that can refuse it runs before a number is taken (on a linked PC, from the cloud's series).
     planAllocations(db, input);
     const reserved = await reserveNumber(numbers, "receipt");

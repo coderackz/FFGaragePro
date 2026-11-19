@@ -30,6 +30,8 @@ export interface PostInput {
   reversesId?: string | null;
   lines: PostLine[];
   userId: string | null;
+  /** Opening balances and year-end closing are dated where they belong, even inside a locked period. */
+  allowLocked?: boolean;
 }
 
 /** The id of a system account (receivables, inventory…): fixed ids, the same in every garage. */
@@ -60,7 +62,7 @@ export function postEntry(db: Db, e: PostInput): string | null {
     if (e.postKey && db.get("SELECT 1 FROM journal_entries WHERE post_key = ?", [e.postKey])) return null;
     const settings = getSettings(db);
     const { lockDate } = settings.books;
-    const late = lockDate !== null && e.date <= lockDate;
+    const late = !e.allowLocked && lockDate !== null && e.date <= lockDate;
     const date = late ? addDays(lockDate, 1) : e.date;
     const narration = late ? `${e.narration} (dated ${formatDay(e.date)}; books locked)` : e.narration;
     const { series, seq } = takeNumber(db, "journal", null, undefined);

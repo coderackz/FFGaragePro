@@ -1,7 +1,13 @@
 import type { FastifyInstance } from "fastify";
 import { requireAction, sessionUser } from "../auth";
 import type { Db } from "../db";
+import { dubaiDate } from "@ffgp/shared";
+import { z } from "zod";
 import { createAccount, listAccounts, updateAccount } from "../books/accounts";
+import { closeYear } from "../books/close";
+import { createDraft, deleteDraft, listDrafts, postDraft, reverseEntry, updateDraft } from "../books/journals";
+import { openingProposal } from "../books/opening";
+import { postPending } from "../books/pending";
 
 export interface BooksRouteOptions {
   /** This server posts the books (the cloud, or a PC/main computer that isn't linked). */
@@ -9,7 +15,15 @@ export interface BooksRouteOptions {
 }
 
 /** The books: chart of accounts (Part 1 grows this file with journals, opening balances and reports). */
-export function bookRoutes(app: FastifyInstance, db: Db, _o: BooksRouteOptions): void {
+const reverseInput = z.object({ date: z.string().regex(/^\d{4}-\d{2}-\d{2}$/).optional() });
+const yearEndInput = z.object({ yearEnd: z.string() });
+
+export function bookRoutes(app: FastifyInstance, db: Db, o: BooksRouteOptions): void {
+  /** Reports and lists read the books after catching up (where this server posts them). */
+  const fresh = () => {
+    if (o.posts) postPending(db);
+  };
+
   app.get("/api/books/accounts", async (req) => {
     requireAction(sessionUser(db, req), "books.view");
     return { accounts: listAccounts(db) };
@@ -25,5 +39,53 @@ export function bookRoutes(app: FastifyInstance, db: Db, _o: BooksRouteOptions):
     const user = sessionUser(db, req);
     requireAction(user, "books.post");
     return { account: db.tx(() => updateAccount(db, req.params.id, req.body, user.id)) };
+  });
+
+  app.get("/api/books/drafts", async (req) => {
+    requireAction(sessionUser(db, req), "books.view");
+    return { drafts: listDrafts(db) };
+  });
+
+  app.post("/api/books/drafts", async (req) => {
+    const user = sessionUser(db, req);
+    requireAction(user, "books.post");
+    return { draft: createDraft(db, req.body, user.id) };
+  });
+
+  app.patch<{ Params: { id: string } }>("/api/books/drafts/:id", async (req) => {
+    requireAction(sessionUser(db, req), "books.post");
+    return { draft: updateDraft(db, req.params.id, req.body) };
+  });
+
+  app.delete<{ Params: { id: string } }>("/api/books/drafts/:id", async (req) => {
+    requireAction(sessionUser(db, req), "books.post");
+    deleteDraft(db, req.params.id);
+    return { ok: true };
+  });
+
+  app.post<{ Params: { id: string } }>("/api/books/drafts/:id/post", async (req) => {
+    const user = sessionUser(db, req);
+    requireAction(user, "books.post");
+    fresh();
+    return { entry: postDraft(db, req.params.id, user.id, o.posts) };
+  });
+
+  app.post<{ Params: { id: string } }>("/api/books/journals/:id/reverse", async (req) => {
+    const user = sessionUser(db, req);
+    requireAction(user, "books.post");
+    const { date } = reverseInput.parse(req.body ?? {});
+    return { entry: reverseEntry(db, req.params.id, date ?? dubaiDate(new Date().toISOString()), user.id, o.posts) };
+  });
+
+  app.get("/api/books/opening/proposal", async (req) => {
+    requireAction(sessionUser(db, req), "books.view");
+    return openingProposal(db);
+  });
+
+  app.post("/api/books/year-end", async (req) => {
+    const user = sessionUser(db, req);
+    requireAction(user, "books.lock");
+    fresh();
+    return { entry: closeYear(db, yearEndInput.parse(req.body).yearEnd, user.id, o.posts) };
   });
 }
