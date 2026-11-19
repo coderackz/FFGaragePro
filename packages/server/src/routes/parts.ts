@@ -10,7 +10,7 @@ import { postMovement } from "../stock";
 export interface PartRow {
   id: string; part_no: string; name: string; brand: string | null; unit: string; stocked: number; sell_price_fils: number;
   avg_cost_fils: number; on_hand: number; reorder_level: number; location: string | null; fits: string | null; active: number;
-  created_at: string; updated_at: string;
+  created_at: string; updated_at: string; name_ar: string | null;
 }
 interface SupplierRow {
   id: string; name: string; trn: string | null; phone: string | null; email: string | null; address: string | null;
@@ -19,7 +19,7 @@ interface SupplierRow {
 
 export function partOut(p: PartRow, showCost: boolean) {
   return {
-    id: p.id, partNo: p.part_no, name: p.name, brand: p.brand, unit: p.unit, stocked: !!p.stocked, sellPriceFils: p.sell_price_fils,
+    id: p.id, partNo: p.part_no, name: p.name, nameAr: p.name_ar, brand: p.brand, unit: p.unit, stocked: !!p.stocked, sellPriceFils: p.sell_price_fils,
     onHand: p.on_hand, reorderLevel: p.reorder_level, location: p.location, fits: p.fits, active: !!p.active,
     lowStock: !!p.stocked && p.on_hand <= p.reorder_level,
     ...(showCost ? { avgCostFils: p.avg_cost_fils, stockValueFils: Math.round(Math.max(0, p.on_hand) * p.avg_cost_fils) } : {}),
@@ -58,20 +58,20 @@ export function partRoutes(app: FastifyInstance, db: Db): void {
     const t = now();
     const values = [
       input.partNo, input.name, input.brand ?? null, input.unit, input.stocked ? 1 : 0, input.sellPriceFils, input.reorderLevel,
-      input.location ?? null, input.fits ?? null, input.active ? 1 : 0, t,
+      input.location ?? null, input.fits ?? null, input.active ? 1 : 0, input.nameAr ?? null, t,
     ];
     if (existing) {
       db.run(
         `UPDATE parts SET part_no = ?, name = ?, brand = ?, unit = ?, stocked = ?, sell_price_fils = ?, reorder_level = ?, location = ?,
-         fits = ?, active = ?, updated_at = ? WHERE id = ?`,
+         fits = ?, active = ?, name_ar = ?, updated_at = ? WHERE id = ?`,
         [...values, existing.id],
       );
       return existing.id;
     }
     const id = newId();
     db.run(
-      `INSERT INTO parts (part_no, name, brand, unit, stocked, sell_price_fils, reorder_level, location, fits, active, updated_at, id, created_at)
-       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+      `INSERT INTO parts (part_no, name, brand, unit, stocked, sell_price_fils, reorder_level, location, fits, active, name_ar, updated_at, id, created_at)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
       [...values, id, t],
     );
     return id;
@@ -164,7 +164,7 @@ export function partRoutes(app: FastifyInstance, db: Db): void {
 
   // ---- CSV import ----
 
-  const COLUMNS = ["part_no", "name", "brand", "unit", "stocked", "sell_price", "cost", "qty", "reorder_level", "location", "fits"] as const;
+  const COLUMNS = ["part_no", "name", "name_ar", "brand", "unit", "stocked", "sell_price", "cost", "qty", "reorder_level", "location", "fits"] as const;
   type Column = (typeof COLUMNS)[number];
   class RollBack extends Error {}
 
@@ -219,6 +219,7 @@ export function partRoutes(app: FastifyInstance, db: Db): void {
               reorderLevel: num("reorder_level") ?? existing?.reorder_level ?? 0,
               location: text("location", existing?.location ?? null),
               fits: text("fits", existing?.fits ?? null),
+              nameAr: text("name_ar", existing?.name_ar ?? null),
               active: true,
             });
             if (!parsed.success) {

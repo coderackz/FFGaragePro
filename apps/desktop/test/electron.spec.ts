@@ -29,6 +29,27 @@ test("desktop app: garage day, PDF tax invoice, data kept after restart", async 
   await expect(win.getByText("PDF saved")).toBeVisible({ timeout: 30_000 });
   expect(readFileSync(pdfPath).subarray(0, 5).toString()).toBe("%PDF-");
   expect(statSync(pdfPath).size).toBeGreaterThan(10_000);
+
+  // An English + Arabic estimate: the PDF carries the bundled Arabic font (drawn with it, not a fallback).
+  const arPdf = resolve(`test-results/screens/${prefix}bilingual.pdf`);
+  await app.evaluate(({ dialog }, filePath) => {
+    dialog.showSaveDialog = (async () => ({ canceled: false, filePath })) as typeof dialog.showSaveDialog;
+  }, arPdf);
+  const estimateId = await win.evaluate(async () => {
+    const base = window.ffgp!.apiBase;
+    const headers = { "content-type": "application/json", authorization: `Bearer ${sessionStorage.getItem("ffgp.token")}` };
+    const post = async (path: string, body: unknown) => (await fetch(`${base}${path}`, { method: "POST", headers, body: JSON.stringify(body) })).json();
+    const { customer } = await post("/api/customers", { name: "Mohammed Al Marri", nameAr: "محمد المري", docLanguage: "en_ar" });
+    const { document } = await post("/api/documents", {
+      type: "estimate", customerId: customer.id, lines: [{ kind: "labour", description: "Service", qty: 1, unitPriceFils: 10000, discountPct: 0 }],
+    });
+    return document.id as string;
+  });
+  await win.evaluate((id) => { location.hash = `#/documents/${id}`; }, estimateId);
+  await expect(win.getByLabel("Document language")).toHaveValue("en_ar");
+  await win.getByRole("button", { name: "PDF", exact: true }).click();
+  await expect(win.getByText(arPdf)).toBeVisible({ timeout: 30_000 }); // the toast names the file once it's written
+  expect(readFileSync(arPdf).toString("latin1")).toContain("NotoNaskhArabic");
   await app.close();
 
   // Restart on the same database: sign in again, the invoice and its balance are still there.

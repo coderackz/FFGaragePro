@@ -7,7 +7,10 @@ import type { Customer, Vehicle } from "../lib/types";
 import { CustomerPicker } from "./CustomerPicker";
 import { Button, Field, Input, Modal, MoneyInput, Select, Textarea } from "./ui";
 
-const emptyCustomer = { kind: "individual" as Customer["kind"], name: "", phone: "", email: "", trn: "", address: "", notes: "" };
+const emptyCustomer = {
+  kind: "individual" as Customer["kind"], name: "", phone: "", email: "", trn: "", address: "", notes: "",
+  nameAr: "", addressAr: "", docLanguage: "en" as NonNullable<Customer["docLanguage"]>,
+};
 const emptyCredit = { creditAllowed: false, creditLimitFils: 0, termsDays: "", discountPct: "", lpoRequired: false, openingBalance: "", openingBalanceDate: "" };
 const creditOf = (c: Customer) => ({
   creditAllowed: !!c.creditAllowed, creditLimitFils: c.creditLimitFils ?? 0, termsDays: c.termsDays == null ? "" : String(c.termsDays),
@@ -24,7 +27,12 @@ export function CustomerFormModal({ open, customer, initialName, onClose, onSave
   const [busy, setBusy] = useState(false);
   useEffect(() => {
     if (!open) return;
-    setForm(customer ? { kind: customer.kind, name: customer.name, phone: customer.phone ?? "", email: customer.email ?? "", trn: customer.trn ?? "", address: customer.address ?? "", notes: customer.notes ?? "" } : { ...emptyCustomer, name: initialName ?? "" });
+    setForm(customer
+      ? {
+          kind: customer.kind, name: customer.name, phone: customer.phone ?? "", email: customer.email ?? "", trn: customer.trn ?? "", address: customer.address ?? "",
+          notes: customer.notes ?? "", nameAr: customer.nameAr ?? "", addressAr: customer.addressAr ?? "", docLanguage: customer.docLanguage ?? "en",
+        }
+      : { ...emptyCustomer, name: initialName ?? "" });
     setCredit(customer ? creditOf(customer) : emptyCredit);
   }, [open, customer, initialName]);
 
@@ -88,6 +96,18 @@ export function CustomerFormModal({ open, customer, initialName, onClose, onSave
         )}
         <Field label="Address" className="col-span-2">
           <Textarea {...f("address")} rows={2} className="min-h-0" />
+        </Field>
+        <Field label="Document language" hint="What their estimates, invoices and statements print in">
+          <Select {...f("docLanguage")}>
+            <option value="en">English</option>
+            <option value="en_ar">English + Arabic</option>
+          </Select>
+        </Field>
+        <Field label="Arabic name" hint="Printed on English + Arabic documents">
+          <Input {...f("nameAr")} dir="rtl" lang="ar" />
+        </Field>
+        <Field label="Arabic address" className="col-span-2">
+          <Textarea {...f("addressAr")} rows={2} className="min-h-0" dir="rtl" lang="ar" />
         </Field>
         <Field label="Notes" className="col-span-2">
           <Textarea {...f("notes")} rows={2} className="min-h-0" />

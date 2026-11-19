@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { DEFAULT_SETTINGS, readSettings, sectionRows, settingsSchemas } from "../src/index";
+import { customerSchema, DEFAULT_SETTINGS, documentUpdateSchema, partSchema, readSettings, sectionRows, settingsSchemas } from "../src/index";
 
 const PNG_1x1 =
   "data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mNkYPhfDwAChwGA60e6kgAAAABJRU5ErkJggg==";
@@ -55,5 +55,21 @@ describe("settings", () => {
     const n = settingsSchemas.numbering;
     expect(() => n.parse({ invoicePrefix: "JC" })).toThrow("Each document type needs its own prefix");
     expect(() => n.parse({ invoicePrefix: "inv" })).toThrow();
+  });
+});
+
+describe("Arabic fields (Part 3a)", () => {
+  it("Arabic settings default to empty", () => {
+    expect(DEFAULT_SETTINGS.garage.nameAr).toBeNull();
+    expect(DEFAULT_SETTINGS.garage.addressAr).toBeNull();
+    expect(DEFAULT_SETTINGS.documents.termsAr).toBeNull();
+    expect(DEFAULT_SETTINGS.documents.warrantyAr).toBeNull();
+  });
+  it("customers default to English documents; only en and en_ar are allowed", () => {
+    expect(customerSchema.parse({ name: "A" }).docLanguage).toBe("en");
+    expect(customerSchema.safeParse({ name: "A", docLanguage: "ar" }).success).toBe(false);
+    expect(customerSchema.parse({ name: "A", nameAr: " محمد ", docLanguage: "en_ar" })).toMatchObject({ nameAr: "محمد", docLanguage: "en_ar" });
+    expect(partSchema.parse({ partNo: "X", name: "Oil filter", stocked: false, sellPriceFils: 0, nameAr: "فلتر زيت" }).nameAr).toBe("فلتر زيت");
+    expect(documentUpdateSchema.parse({ language: "en_ar" }).language).toBe("en_ar");
   });
 });

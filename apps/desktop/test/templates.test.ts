@@ -1,7 +1,12 @@
-import { DEFAULT_SETTINGS, type Settings } from "@ffgp/shared";
+import { amountInWords, DEFAULT_SETTINGS, type Settings } from "@ffgp/shared";
 import { describe, expect, it } from "vitest";
 import { SAMPLE_DOCUMENTS, SAMPLE_GARAGE } from "../src/renderer/print/sample";
 import { renderDocumentHtml, renderReceiptHtml, renderStatementHtml } from "../src/renderer/print/templates";
+import * as T from "../src/renderer/print/templates";
+import "../src/renderer/print/arabic-font";
+const renderDoc = T.renderDocumentHtml;
+const renderReceipt = T.renderReceiptHtml;
+const renderStatement = T.renderStatementHtml;
 
 const PNG =
   "data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mNkYPhfDwAChwGA60e6kgAAAABJRU5ErkJggg==";
@@ -124,3 +129,122 @@ describe("receipts and statements", () => {
   });
 });
 
+
+describe("English + Arabic documents", () => {
+  // Arabic labels are wrapped in <bdi> (so numbers after them stay in order); compare the text without it.
+  const plain = (html: string) => html.replace(/<\/?bdi[^>]*>/g, "");
+  const renderDocumentHtml = (...a: Parameters<typeof renderDoc>) => plain(renderDoc(...a));
+  const renderReceiptHtml = (...a: Parameters<typeof renderReceipt>) => plain(renderReceipt(...a));
+  const renderStatementHtml = (...a: Parameters<typeof renderStatement>) => plain(renderStatement(...a));
+  const bi = (patch: Partial<typeof SAMPLE_DOCUMENTS.invoice> = {}) => ({ ...SAMPLE_DOCUMENTS.invoice, language: "en_ar" as const, ...patch });
+  const gross = SAMPLE_DOCUMENTS.invoice.totals.grossFils;
+
+  it("bilingual invoice shows both labels and the Arabic garage name", () => {
+    const html = renderDocumentHtml(bi(), SAMPLE_GARAGE, settings({ garage: { nameAr: "العناية بالسيارات", addressAr: "القوز الصناعية 3، دبي" } }));
+    expect(html).toContain("Total (AED, incl. VAT) / الإجمالي شامل الضريبة");
+    expect(html).toContain("Bill to / فاتورة إلى");
+    expect(html).toContain("العناية بالسيارات");
+    expect(html).toContain("القوز الصناعية 3، دبي");
+    expect(html).toContain("Noto Naskh Arabic");
+    expect(html).toContain("@font-face");
+    expect(html).toContain(amountInWords(gross, "ar"));
+    expect(html).toContain(amountInWords(gross, "en"));
+    expect(html).toContain("محمد المري");
+  });
+
+  it("English invoice has no Arabic font and shows English words", () => {
+    const html = renderDocumentHtml({ ...SAMPLE_DOCUMENTS.invoice, language: "en" }, SAMPLE_GARAGE, settings({ garage: { nameAr: "العناية بالسيارات" } }));
+    expect(html).toContain(amountInWords(gross, "en"));
+    expect(html).not.toContain("@font-face");
+    expect(html).not.toContain("المبلغ كتابةً");
+    expect(html).not.toContain("العناية بالسيارات");
+    expect(html).not.toContain("فلتر زيت");
+  });
+
+  it("bilingual with no Arabic garage name prints the English name only", () => {
+    const html = renderDocumentHtml(bi({ customer: { ...SAMPLE_DOCUMENTS.invoice.customer, nameAr: null, addressAr: null } }), SAMPLE_GARAGE, settings());
+    expect(html).not.toMatch(/undefined|>null</);
+    expect(html).not.toMatch(/<div[^>]*dir="rtl"[^>]*>\s*<\/div>/);
+    expect(html).toContain(`<h1>${SAMPLE_GARAGE.name}</h1>`);
+  });
+
+  it("escapes Arabic fields", () => {
+    const html = renderDocumentHtml(bi({ customer: { ...SAMPLE_DOCUMENTS.invoice.customer, nameAr: "<b>&" } }), SAMPLE_GARAGE, settings());
+    expect(html).toContain("&lt;b&gt;&amp;");
+    expect(html).not.toContain("<b>&<");
+  });
+
+  it("part line shows the Arabic part name; a typed line prints as typed", () => {
+    const html = renderDocumentHtml(bi(), SAMPLE_GARAGE, settings());
+    expect(html).toContain("فلتر زيت");
+    expect(html).toContain("Minor service");
+  });
+
+  it("job cards and estimates are bilingual too", () => {
+    const job = renderDocumentHtml({ ...SAMPLE_DOCUMENTS.jobcard, language: "en_ar" }, SAMPLE_GARAGE, settings());
+    expect(job).toContain("<b>I authorise the work above</b> and agree to pay for it on collection.");
+    expect(job).toContain("أوافق على الأعمال المذكورة أعلاه وأتعهد بدفع قيمتها عند الاستلام");
+    expect(job).toContain("Technician / الفني");
+    expect(renderDocumentHtml({ ...SAMPLE_DOCUMENTS.estimate, language: "en_ar" }, SAMPLE_GARAGE, settings())).toContain("Customer approval / موافقة العميل");
+  });
+
+  it("bilingual receipt and statement", () => {
+    const receipt = renderReceiptHtml({
+      id: "r1", number: "RCT-00004", customerId: "c1", customerName: "Emirates Logistics", customerNameAr: "الإمارات للخدمات اللوجستية", customerLanguage: "en_ar",
+      amountFils: 30000, method: "cash", reference: null, chequeDate: null, receivedAt: "2026-11-19T08:00:00.000Z", createdBy: null,
+      allocatedFils: 30000, unallocatedFils: 0, allocations: [{ id: "a1", documentId: "d1", number: "INV-00007", amountFils: 30000, createdAt: "" }],
+    }, SAMPLE_GARAGE, settings());
+    expect(receipt).toContain("Received from / استلمنا من");
+    expect(receipt).toContain("الإمارات للخدمات اللوجستية");
+    expect(receipt).toContain(amountInWords(30000, "ar"));
+    const statement = renderStatementHtml({ openingFils: 0, rows: [], closingFils: 0, aging: { current: 0, "1-30": 0, "31-60": 0, "61-90": 0, "90+": 0 }, creditFils: 0 },
+      { name: "Emirates Logistics", trn: null, address: null, phone: null, email: null, nameAr: null, addressAr: null, docLanguage: "en_ar" },
+      SAMPLE_GARAGE, settings(), { from: "2026-11-01", to: "2026-11-30" });
+    expect(statement).toContain("Balance brought forward / رصيد سابق");
+    expect(statement).toContain("Over 90 days / أكثر من 90 يوماً");
+  });
+
+  it("English receipt shows the amount in English words only", () => {
+    const receipt = renderReceiptHtml({
+      id: "r1", number: "RCT-00004", customerId: "c1", customerName: "A", amountFils: 30000, method: "cash", reference: null, chequeDate: null,
+      receivedAt: "2026-11-19T08:00:00.000Z", createdBy: null, allocatedFils: 0, unallocatedFils: 30000, allocations: [],
+    }, SAMPLE_GARAGE, settings());
+    expect(receipt).toContain("Three hundred dirhams only");
+    expect(receipt).not.toContain("@font-face");
+  });
+
+  it("Arabic terms and warranty print under the English ones", () => {
+    const html = renderDocumentHtml(bi(), SAMPLE_GARAGE, settings({
+      documents: { terms: "Payment within 30 days.", termsAr: "الدفع خلال 30 يوماً.", warranty: "3 months", warrantyAr: "3 أشهر" },
+    }));
+    expect(html.indexOf("الدفع خلال 30 يوماً.")).toBeGreaterThan(html.indexOf("Payment within 30 days."));
+    expect(html.indexOf("3 أشهر")).toBeGreaterThan(html.indexOf("3 months"));
+    expect(renderDocumentHtml({ ...SAMPLE_DOCUMENTS.invoice, language: "en" }, SAMPLE_GARAGE, settings({ documents: { termsAr: "الدفع خلال 30 يوماً." } }))).not.toContain("الدفع خلال");
+  });
+});
+
+it("a date after an Arabic label stays in English order", () => {
+  const html = renderDoc({ ...SAMPLE_DOCUMENTS.invoice, language: "en_ar" }, SAMPLE_GARAGE, settings());
+  expect(html).toContain('Date / <bdi lang="ar">التاريخ</bdi>: ');
+});
+
+describe("review fixes (Part 3a)", () => {
+  const plain = (html: string) => html.replace(/<\/?bdi[^>]*>/g, "");
+  it("estimate validity is in Arabic too on bilingual estimates", () => {
+    const est = (days: number) => plain(renderDoc({ ...SAMPLE_DOCUMENTS.estimate, language: "en_ar" }, SAMPLE_GARAGE, settings({ documents: { estimateValidDays: days } })));
+    expect(est(14)).toContain("صالح لمدة 14 يوماً");
+    expect(est(7)).toContain("صالح لمدة 7 أيام");
+    expect(plain(renderDoc({ ...SAMPLE_DOCUMENTS.estimate, language: "en" }, SAMPLE_GARAGE, settings()))).not.toContain("صالح لمدة");
+  });
+  it("signature has no Arabic half without an Arabic garage name", () => {
+    const html = plain(renderDoc({ ...SAMPLE_DOCUMENTS.invoice, language: "en_ar" }, SAMPLE_GARAGE, settings()));
+    expect(html).not.toContain(`عن ${SAMPLE_GARAGE.name}`);
+    expect(plain(renderDoc({ ...SAMPLE_DOCUMENTS.invoice, language: "en_ar" }, SAMPLE_GARAGE, settings({ garage: { nameAr: "العناية بالسيارات" } }))))
+      .toContain("عن العناية بالسيارات");
+  });
+  it("TRN and VAT use the FTA wording", () => {
+    const html = plain(renderDoc({ ...SAMPLE_DOCUMENTS.invoice, language: "en_ar", customer: { ...SAMPLE_DOCUMENTS.invoice.customer, trn: "100000000000003" } }, SAMPLE_GARAGE, settings()));
+    expect(html).toContain("TRN / رقم التسجيل الضريبي");
+    expect(html).toContain("VAT 5% / ضريبة القيمة المضافة 5%");
+  });
+});

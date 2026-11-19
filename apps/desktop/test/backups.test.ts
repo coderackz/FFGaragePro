@@ -109,10 +109,14 @@ describe("PC backups", () => {
     for (let i = 0; i < 400; i++) db.run("INSERT INTO settings (key, value) VALUES (?, ?)", [`local.filler.${i}`, JSON.stringify("x".repeat(400))]);
     const file = backupNow(db, temp(), "G");
     db.close();
-    // Garble the middle of the file: the tables and the garage row still read, the rest doesn't.
-    const size = statSync(file).size;
+    // Garble pages holding the filler rows (found by their content, so it doesn't depend on where SQLite put the
+    // schema): the tables and the garage row still read, the rest doesn't.
+    const bytes = readFileSync(file);
+    const at = bytes.lastIndexOf(Buffer.from("x".repeat(400)));
+    expect(at).toBeGreaterThan(0);
+    const page = Math.floor(at / 4096) * 4096 - 12288;
     const fd = openSync(file, "r+");
-    writeSync(fd, Buffer.alloc(16384, 0xa5), 0, 16384, Math.floor(size / 2));
+    writeSync(fd, Buffer.alloc(16384, 0xa5), 0, 16384, page);
     closeSync(fd);
     expect(() => checkRestoreFile(file, SCHEMA_VERSION)).toThrow("This backup file is damaged and can't be restored");
   });

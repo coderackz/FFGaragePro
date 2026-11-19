@@ -51,6 +51,16 @@ export function GarageSection() {
           <Field label="Address" className="sm:col-span-2"><Textarea {...f("address")} rows={3} /></Field>
         </div>
       </Card>
+      <Card title="Arabic" actions={<span className="text-sm text-zinc-500">Printed on English + Arabic documents</span>}>
+        <div className="grid gap-4 sm:grid-cols-2">
+          <Field label="Arabic name" className="sm:col-span-2">
+            <Input value={e.nameAr ?? ""} onChange={(ev) => extra.set({ nameAr: ev.target.value })} dir="rtl" lang="ar" />
+          </Field>
+          <Field label="Arabic address" className="sm:col-span-2">
+            <Textarea value={e.addressAr ?? ""} onChange={(ev) => extra.set({ addressAr: ev.target.value })} rows={2} dir="rtl" lang="ar" />
+          </Field>
+        </div>
+      </Card>
       <Card title="Bank details" actions={<span className="text-sm text-zinc-500">Printed at the foot of invoices</span>}>
         <div className="grid gap-4 sm:grid-cols-2">
           <Field label="Bank"><Input value={e.bankName ?? ""} onChange={(ev) => extra.set({ bankName: ev.target.value })} placeholder="e.g. Emirates NBD" /></Field>

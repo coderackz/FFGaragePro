@@ -342,3 +342,16 @@ describe("merge engine", () => {
     expect(C.db.all("SELECT 1 FROM document_lines WHERE document_id = ?", [doc.id])).toHaveLength(0);
   });
 });
+
+describe("English + Arabic (Part 3a)", () => {
+  it("sync carries language and Arabic names", async () => {
+    const { A, C, token, sync } = await pair();
+    const c = (await call(A, "POST", "/api/customers", token, { name: "Mohammed", nameAr: "محمد", addressAr: "دبي", docLanguage: "en_ar" })).body.customer;
+    const part = await createPart(A, token, { nameAr: "فلتر زيت", stocked: false });
+    const doc = (await call(A, "POST", "/api/documents", token, { type: "invoice", customerId: c.id, lines: [LINE] })).body.document;
+    sync();
+    expect(C.db.get("SELECT name_ar, address_ar, doc_language FROM customers WHERE id = ?", [c.id])).toEqual({ name_ar: "محمد", address_ar: "دبي", doc_language: "en_ar" });
+    expect(C.db.get("SELECT name_ar FROM parts WHERE id = ?", [part.id])).toEqual({ name_ar: "فلتر زيت" });
+    expect(C.db.get("SELECT language FROM documents WHERE id = ?", [doc.id])).toEqual({ language: "en_ar" });
+  });
+});

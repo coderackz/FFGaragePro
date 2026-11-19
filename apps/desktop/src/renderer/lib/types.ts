@@ -1,4 +1,4 @@
-import type { DocType, LineKind, Role } from "@ffgp/shared";
+import type { DocLanguage, DocType, LineKind, Role } from "@ffgp/shared";
 
 export interface User { id: string; name: string; username: string; role: Role; active?: boolean; createdAt?: string }
 /** A PC's backup folder and newest backup (filled by the main process). */
@@ -11,6 +11,8 @@ export interface Customer {
   address: string | null; notes: string | null; createdAt: string; plates?: string[];
   creditAllowed?: boolean; creditLimitFils?: number; termsDays?: number | null; discountPct?: number; lpoRequired?: boolean;
   openingBalanceFils?: number; openingBalanceDate?: string | null;
+  /** Arabic name and address, and what their documents print in (English, or English + Arabic). */
+  nameAr?: string | null; addressAr?: string | null; docLanguage?: DocLanguage;
   /** Where the account stands: owed (negative = in credit), past due, unallocated payments, over the credit limit. */
   balanceFils?: number; overdueFils?: number; creditFils?: number; openingDueFils?: number; overLimit?: boolean;
 }
@@ -22,7 +24,7 @@ export interface Vehicle {
 export interface DocLine {
   id?: string; kind: LineKind; description: string; qty: number; unitPriceFils: number; discountPct: number;
   netFils?: number; vatFils?: number; grossFils?: number;
-  partId?: string | null; partNo?: string | null; partStocked?: boolean | null; partOnHand?: number | null; partUnit?: string | null;
+  partId?: string | null; partNo?: string | null; partNameAr?: string | null; partStocked?: boolean | null; partOnHand?: number | null; partUnit?: string | null;
   suppliedBy?: "garage" | "fleetfix"; poLineId?: string | null; orderStatus?: "on_order" | "received" | null;
   purchaseOrderId?: string | null; purchaseOrderNumber?: string | null; costFils?: number | null;
   /** Set in the editor when a part was just picked: its shelf count before this line takes any. */
@@ -36,6 +38,8 @@ export interface DocumentFull {
   createdAt: string; updatedAt: string; createdBy: string | null; editable: boolean;
   /** Prices were typed including VAT (fixed when the document was created). */
   pricesIncludeVat: boolean;
+  /** What it prints in, copied from the customer when it was created. */
+  language?: DocLanguage;
   /** Times an issued invoice has been printed (the 2nd print onwards says COPY). */
   printCount?: number;
   dueDate?: string | null; lpoNumber?: string | null;
@@ -56,7 +60,7 @@ export interface DocumentSummary {
 // ---- Inventory ----
 
 export interface Part {
-  id: string; partNo: string; name: string; brand: string | null; unit: string; stocked: boolean; sellPriceFils: number;
+  id: string; partNo: string; name: string; nameAr?: string | null; brand: string | null; unit: string; stocked: boolean; sellPriceFils: number;
   onHand: number; reorderLevel: number; location: string | null; fits: string | null; active: boolean; lowStock: boolean;
   avgCostFils?: number; stockValueFils?: number;
 }
@@ -89,7 +93,7 @@ export interface PurchaseOrderSummary {
 /** A payment from a customer and what it was put against (Settings Part 2). */
 export interface ReceiptAllocation { id: string; documentId: string; number: string; amountFils: number; createdAt: string }
 export interface Receipt {
-  id: string; number: string; customerId: string; customerName: string; amountFils: number; method: string; reference: string | null;
+  id: string; number: string; customerId: string; customerName: string; customerNameAr?: string | null; customerLanguage?: DocLanguage; amountFils: number; method: string; reference: string | null;
   chequeDate: string | null; receivedAt: string; createdBy: string | null; allocations: ReceiptAllocation[]; allocatedFils: number; unallocatedFils: number;
 }
 
