@@ -142,13 +142,16 @@ export function AdjustStockModal({ open, part, onClose, onSaved }: { open: boole
   );
 }
 
-const emptySupplier = { name: "", trn: "", phone: "", email: "", address: "", notes: "" };
+const emptySupplier = { name: "", trn: "", phone: "", email: "", address: "", notes: "", termsDays: "30", opening: "", openingDate: "" };
 
 export function SupplierFormModal({ open, supplier, onClose, onSaved }: { open: boolean; supplier?: Supplier | null; onClose: () => void; onSaved: (s: Supplier) => void }) {
   const [form, setForm] = useState(emptySupplier);
   const [busy, setBusy] = useState(false);
   useEffect(() => {
-    if (open) setForm(supplier ? { name: supplier.name, trn: supplier.trn ?? "", phone: supplier.phone ?? "", email: supplier.email ?? "", address: supplier.address ?? "", notes: supplier.notes ?? "" } : emptySupplier);
+    if (open) setForm(supplier ? {
+      name: supplier.name, trn: supplier.trn ?? "", phone: supplier.phone ?? "", email: supplier.email ?? "", address: supplier.address ?? "", notes: supplier.notes ?? "",
+      termsDays: String(supplier.termsDays ?? 30), opening: supplier.openingBalanceFils ? (supplier.openingBalanceFils / 100).toFixed(2) : "", openingDate: supplier.openingBalanceDate ?? "",
+    } : emptySupplier);
   }, [open, supplier]);
   const set = (k: keyof typeof form, v: string) => setForm((f) => ({ ...f, [k]: v }));
 
@@ -156,7 +159,12 @@ export function SupplierFormModal({ open, supplier, onClose, onSaved }: { open: 
     e.preventDefault();
     setBusy(true);
     try {
-      const res = supplier ? await patch<{ supplier: Supplier }>(`/api/suppliers/${supplier.id}`, form) : await post<{ supplier: Supplier }>("/api/suppliers", form);
+      const { termsDays, opening, openingDate, ...rest } = form;
+      const body = {
+        ...rest, termsDays: Math.max(0, Math.min(365, Number.parseInt(termsDays, 10) || 0)),
+        openingBalanceFils: Math.round((Number.parseFloat(opening.replace(/,/g, "")) || 0) * 100), openingBalanceDate: openingDate || null,
+      };
+      const res = supplier ? await patch<{ supplier: Supplier }>(`/api/suppliers/${supplier.id}`, body) : await post<{ supplier: Supplier }>("/api/suppliers", body);
       toast.success("Supplier saved");
       onSaved(res.supplier);
       onClose();
@@ -177,6 +185,10 @@ export function SupplierFormModal({ open, supplier, onClose, onSaved }: { open: 
         <Field label="Email" className="col-span-2"><Input value={form.email} onChange={(e) => set("email", e.target.value)} /></Field>
         <Field label="Address" className="col-span-2"><Textarea value={form.address} onChange={(e) => set("address", e.target.value)} className="min-h-14" /></Field>
         <Field label="Notes" className="col-span-2"><Textarea value={form.notes} onChange={(e) => set("notes", e.target.value)} className="min-h-14" /></Field>
+        <Field label="Payment terms (days)" hint="Their bills are due this long after the invoice date"><Input inputMode="numeric" value={form.termsDays} onChange={(e) => set("termsDays", e.target.value)} /></Field>
+        <div />
+        <Field label="Opening balance (AED)" hint="Owed to them before using the app"><Input inputMode="decimal" value={form.opening} onChange={(e) => set("opening", e.target.value)} /></Field>
+        <Field label="Opening balance date"><Input type="date" value={form.openingDate} onChange={(e) => set("openingDate", e.target.value)} /></Field>
       </form>
     </Modal>
   );

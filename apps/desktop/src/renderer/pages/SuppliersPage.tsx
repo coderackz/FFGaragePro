@@ -1,5 +1,6 @@
 import { Plus, Truck } from "lucide-react";
 import { useState } from "react";
+import { useNavigate } from "react-router";
 import { SupplierFormModal } from "../components/inventoryForms";
 import { Badge, Button, Card, Empty, PageHeader, Table } from "../components/ui";
 import { useAuth } from "../lib/auth";
@@ -11,6 +12,7 @@ export function SuppliersPage() {
   const { data, loading, reload } = useApi<{ suppliers: Supplier[] }>("/api/suppliers");
   const [editing, setEditing] = useState<{ supplier: Supplier | null } | null>(null);
   const canEdit = can("purchases.manage");
+  const navigate = useNavigate();
 
   return (
     <>
@@ -20,7 +22,8 @@ export function SuppliersPage() {
         <Table
           rows={data?.suppliers ?? []}
           rowKey={(s) => s.id}
-          onRowClick={canEdit ? (s) => setEditing({ supplier: s }) : undefined}
+          // Those who pay suppliers open the supplier's page (balance, bills, payments); others edit the details.
+          onRowClick={can("payables.manage") ? (s) => navigate(`/suppliers/${s.id}`) : canEdit ? (s) => setEditing({ supplier: s }) : undefined}
           empty={!loading && <Empty icon={<Truck className="size-10" />} title="No suppliers yet" />}
           columns={[
             { header: "Name", cell: (s) => <span className="flex items-center gap-2 font-medium">{s.name}{s.isFleetfix && <Badge tone="brand">Fleet Fix</Badge>}</span> },

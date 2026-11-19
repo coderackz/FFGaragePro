@@ -77,6 +77,9 @@ export interface StockMovement {
 export interface Supplier {
   id: string; name: string; trn: string | null; phone: string | null; email: string | null; address: string | null; notes: string | null;
   isFleetfix: boolean;
+  termsDays?: number; openingBalanceFils?: number; openingBalanceDate?: string | null;
+  /** For those who pay suppliers: what we owe (negative = an advance), what's overdue, the advance. */
+  balanceFils?: number; overdueFils?: number; advanceFils?: number;
 }
 
 export interface PoLine {

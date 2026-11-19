@@ -150,7 +150,24 @@ set. Each tile opens its section with its own Save; every change goes to the Act
 
     npm run e2e:books                               # start the books, sale → trial balance → P&L, journal and reversal, health, Excel
 
-Next: Accounting Part 2 (suppliers, expenses and bank). See `docs/superpowers/specs/2026-11-19-accounting-design.md`.
+**Suppliers, expenses and bank (Accounting Part 2):**
+- **Bills** for rent, utilities, outside work and the like, with 5% or no VAT per line. Parts on purchase orders
+  are already billed by their goods receipt. A bill is posted when saved, and an unpaid one can be cancelled.
+- **Paying suppliers:** a payment is split across their bills oldest due first, and anything over is kept as an
+  advance to use later. Each supplier has a balance, overdue amounts, a statement (Excel) and **payables aging**.
+- **Expenses** paid on the spot (fuel, petty cash), with a photo of the receipt.
+- **Bank & cash:**
+  - balances from the books, and moving money between accounts;
+  - customer cheques wait in "cheques in hand" until paid in (post-dated ones can't be paid in early);
+  - our cheques wait in "cheques issued" until they clear.
+- **Reconciliation:**
+  - import the bank's CSV statement, with its columns set up once per bank;
+  - importing the same statement twice adds nothing;
+  - accept the suggested matches and add bank charges in place, until the page says **Reconciled**.
+
+    npm run e2e:payables                            # bill → payment → expense with photo → statement import → reconciled → books health
+
+Next: Accounting Part 3 (VAT return). See `docs/superpowers/specs/2026-11-19-accounting-design.md`.
 
 ## Layout
 | Path | What |

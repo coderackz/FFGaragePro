@@ -27,6 +27,12 @@ import { JournalEditor } from "./pages/books/JournalEditor";
 import { JournalsPage, JournalView } from "./pages/books/JournalsPage";
 import { ReportPage } from "./pages/books/ReportPage";
 import { AgingPage } from "./pages/AgingPage";
+import { BillsPage } from "./pages/payables/BillsPage";
+import { ExpensesPage } from "./pages/payables/ExpensesPage";
+import { MoneyPage } from "./pages/payables/MoneyPage";
+import { PayablesAgingPage } from "./pages/payables/PayablesAgingPage";
+import { ReconcilePage } from "./pages/payables/ReconcilePage";
+import { SupplierPage } from "./pages/payables/SupplierPage";
 import { ReceiptsPage } from "./pages/ReceiptsPage";
 
 export function App() {
@@ -79,6 +85,16 @@ export function App() {
         <Route path="/credit-notes" element={<DocumentsPage type="credit_note" />} />
         <Route path="/receipts" element={<ReceiptsPage />} />
         {canSee("reports.view") && <Route path="/reports/aging" element={<AgingPage />} />}
+        {canSee("payables.manage") && (
+          <>
+            <Route path="/bills" element={<BillsPage />} />
+            <Route path="/expenses" element={<ExpensesPage />} />
+            <Route path="/bank" element={<MoneyPage />} />
+            <Route path="/bank/:id/reconcile" element={<ReconcilePage />} />
+            <Route path="/suppliers/:id" element={<SupplierPage />} />
+            <Route path="/reports/payables-aging" element={<PayablesAgingPage />} />
+          </>
+        )}
         {canSee("books.view") && (
           <>
             <Route path="/books" element={<BooksHome />} />

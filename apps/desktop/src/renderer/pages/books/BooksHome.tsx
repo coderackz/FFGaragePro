@@ -15,6 +15,8 @@ const CARDS: { to: string; title: string; blurb: string; icon: ReactNode }[] = [
   { to: "/books/accounts", title: "Chart of accounts", blurb: "Add, rename or switch off accounts", icon: <ListTree className="size-5" /> },
   { to: "/books/opening", title: "Opening balances", blurb: "Where the books start from", icon: <FileSpreadsheet className="size-5" /> },
   { to: "/books/health", title: "Books health", blurb: "Do the books agree with the workshop?", icon: <HeartPulse className="size-5" /> },
+  { to: "/bank", title: "Bank & cash", blurb: "Balances, cheques, reconciliation", icon: <Wallet className="size-5" /> },
+  { to: "/reports/payables-aging", title: "Payables aging", blurb: "What we owe suppliers, by how late", icon: <ChartBar className="size-5" /> },
 ];
 
 /** The Books area: what's in it, and a reminder when the books haven't started. */

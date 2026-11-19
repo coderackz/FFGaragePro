@@ -15,6 +15,7 @@
     "e2e:credit": "playwright test -c playwright.credit.config.ts",
     "e2e:messages": "playwright test -c playwright.messages.config.ts",
     "e2e:books": "playwright test -c playwright.books.config.ts",
+    "e2e:payables": "playwright test -c playwright.payables.config.ts",
     "e2e:electron": "playwright test -c playwright.electron.config.ts",
     "cloud": "npm run web:cloud -w @ffgp/desktop && npm run dev -w @ffgp/cloud",
     "e2e:cloud": "playwright test -c playwright.cloud.config.ts",
