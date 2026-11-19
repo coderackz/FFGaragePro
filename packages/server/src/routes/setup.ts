@@ -1,5 +1,5 @@
 import type { FastifyInstance } from "fastify";
-import { garageSchema, loginSchema, setupSchema } from "@ffgp/shared";
+import { loginSchema, setupSchema } from "@ffgp/shared";
 import { createSession, endSession, bearer, hashPassword, LoginThrottle, requireAction, sessionUser, verifyPassword } from "../auth";
 import { newId, now, type Db } from "../db";
 import { conflict, tooManyRequests, unauthorized } from "../errors";
@@ -17,7 +17,7 @@ export function garage(db: Db): GarageRow | undefined {
   return db.get<GarageRow>("SELECT name, trn, address, phone, email, vat_rate_bp FROM garage WHERE id = 1");
 }
 
-const garageOut = (g: GarageRow) => ({ name: g.name, trn: g.trn, address: g.address, phone: g.phone, email: g.email, vatRateBp: g.vat_rate_bp });
+export const garageOut = (g: GarageRow) => ({ name: g.name, trn: g.trn, address: g.address, phone: g.phone, email: g.email, vatRateBp: g.vat_rate_bp });
 
 export function setupRoutes(app: FastifyInstance, db: Db, clock: () => number = Date.now, throttle = new LoginThrottle()): void {
 
@@ -66,19 +66,4 @@ export function setupRoutes(app: FastifyInstance, db: Db, clock: () => number = 
   });
 
   app.get("/api/me", async (req) => ({ user: sessionUser(db, req) }));
-
-  app.get("/api/settings", async (req) => {
-    sessionUser(db, req);
-    const g = garage(db);
-    return { garage: g ? garageOut(g) : null };
-  });
-
-  app.patch("/api/settings", async (req) => {
-    requireAction(sessionUser(db, req), "settings.manage");
-    const input = garageSchema.parse(req.body);
-    db.run("UPDATE garage SET name = ?, trn = ?, address = ?, phone = ?, email = ?, updated_at = ? WHERE id = 1", [
-      input.name, input.trn, input.address, input.phone, input.email, now(),
-    ]);
-    return { garage: garageOut(garage(db)!) };
-  });
 }

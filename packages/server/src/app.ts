@@ -11,6 +11,7 @@ import { customerRoutes } from "./routes/customers";
 import { documentRoutes } from "./routes/documents";
 import { partRoutes } from "./routes/parts";
 import { purchaseRoutes } from "./routes/purchases";
+import { settingsRoutes } from "./routes/settings";
 import { setupRoutes } from "./routes/setup";
 import { syncIssueRoutes } from "./routes/sync-issues";
 import { userRoutes } from "./routes/users";
@@ -79,6 +80,7 @@ export async function buildApp(options: AppOptions): Promise<FastifyInstance & {
   app.get("/api/health", async () => ({ ok: true }));
   setupRoutes(app, db, now, options.loginThrottle);
   if (!options.cloud) networkRoutes(app, db, { now, port: options.networkPort ?? NETWORK_PORT, status: options.networkStatus ?? { listening: false, error: null } });
+  settingsRoutes(app, db);
   userRoutes(app, db);
   customerRoutes(app, db);
   const documents = documentRoutes(app, db, options.numbers);
