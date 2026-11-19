@@ -7,6 +7,7 @@ export { audit, type AuditAction, type AuditEntry } from "./audit";
 export { legacyPaymentReceipt, recomputeInvoiceMoney, releaseOverpayment } from "./invoice-money";
 export { customerBalance } from "./ledger";
 export { mailerFor, smtpMailer, type Mailer, type MailMessage } from "./messages/mailer";
+export { postPending } from "./books/pending";
 export { abandonQueuedEmails, queueReminders, recoverInterrupted, sendDue } from "./messages/outbox";
 export { DISCOVERY_PORT, discoverMainComputers, type FoundComputer } from "./discovery";
 export { DEVICE_HEADER, NETWORK_PORT } from "./network";
@@ -19,9 +20,9 @@ import { garage } from "./routes/setup";
 
 /** Starts a server on a given host/port (development and tests). */
 export async function startServer(options: {
-  dataDir: string; host?: string; port?: number; logger?: boolean; sendsMessages?: AppOptions["sendsMessages"];
+  dataDir: string; host?: string; port?: number; logger?: boolean; sendsMessages?: AppOptions["sendsMessages"]; postsBooks?: boolean;
 }) {
-  const app = await buildApp({ dataDir: options.dataDir, logger: options.logger, sendsMessages: options.sendsMessages });
+  const app = await buildApp({ dataDir: options.dataDir, logger: options.logger, sendsMessages: options.sendsMessages, postsBooks: options.postsBooks });
   const address = await app.listen({ host: options.host ?? "127.0.0.1", port: options.port ?? 0 });
   return { app, address };
 }
@@ -51,6 +52,8 @@ export async function startGarageServer(o: {
   app?: Pick<AppOptions, "numbers" | "guard">;
   /** Where this garage's email goes out from: this server unless the garage is linked to the cloud (the cloud sends). */
   sendsMessages?: boolean;
+  /** Where this garage's books are posted: this server unless the garage is linked to the cloud (the cloud posts). */
+  postsBooks?: boolean;
 }): Promise<GarageServer> {
   const networkPort = o.networkPort ?? NETWORK_PORT;
   const status: NetworkStatus = { listening: false, error: null };
@@ -59,6 +62,7 @@ export async function startGarageServer(o: {
     buildApp({
       ...o.app, dataDir: o.dataDir, logger: o.logger, networkPort, networkStatus: status,
       sendsMessages: sends ? { place: `PC ${hostname()}` } : undefined,
+      postsBooks: o.postsBooks ?? !o.app?.numbers,
     });
 
   let app = await build();

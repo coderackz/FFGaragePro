@@ -9,6 +9,7 @@ import type { NumberSource } from "./numbering";
 import { deviceGuard, NETWORK_PORT, networkRoutes, type NetworkStatus } from "./network";
 import { mailerFor } from "./messages/mailer";
 import { startOutbox } from "./messages/outbox";
+import { postPending } from "./books/pending";
 import { bookRoutes } from "./routes/books";
 import { contactRoutes } from "./routes/contacts";
 import { messageRoutes } from "./routes/messages";
@@ -115,6 +116,17 @@ export async function buildApp(options: AppOptions): Promise<FastifyInstance & {
   receiptRoutes(app, db, options.numbers);
   const outbox = options.sendsMessages ? startOutbox(db, { mailerFor: () => mailerFor(db), ...options.sendsMessages }) : null;
   bookRoutes(app, db, { posts: !!options.postsBooks });
+  if (options.postsBooks) {
+    // The books catch up after every change made here (idempotent: each event posts once).
+    app.addHook("onResponse", async (req, reply) => {
+      if (req.method === "GET" || reply.statusCode >= 300) return;
+      try {
+        postPending(db);
+      } catch (error) {
+        console.error("Books:", error);
+      }
+    });
+  }
   messageRoutes(app, db, () => {
     options.onMessageQueued?.();
     // Sent from here: don't wait for the next round.

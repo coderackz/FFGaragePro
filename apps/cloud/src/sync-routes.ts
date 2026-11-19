@@ -3,7 +3,7 @@ import { join } from "node:path";
 import { DatabaseSync } from "node:sqlite";
 import type { FastifyInstance, FastifyRequest } from "fastify";
 import { z, ZodError } from "zod";
-import { HttpError, LoginThrottle, newId, SCHEMA_VERSION, takeNumber, verifyPassword } from "@ffgp/server";
+import { HttpError, LoginThrottle, newId, postPending, SCHEMA_VERSION, takeNumber, verifyPassword } from "@ffgp/server";
 import { NUMBER_KINDS, GARAGE_HEADER, normalizeGarageCode } from "@ffgp/shared";
 import { applyAtCloud, changesFor, forgetPushed, issuesFor, maxSeq, SYNC_TABLES } from "@ffgp/sync";
 import type { AdminDb, DeviceRow, GarageRow } from "./admin-db";
@@ -209,6 +209,8 @@ export function syncRoutes(
       // A read-only garage's PC is read-only itself; what it sends was made before, so it's still taken.
       const result = await withGarage(g, (a) => {
         const applied = applyAtCloud(a.db, device.device_code, input.entries);
+        // What the PC sent is in: the books catch up before anyone pulls.
+        postPending(a.db);
         // Attachments and secrets are never sent on to PCs: the cloud's log needn't keep them.
         forgetPushed(a.db);
         return applied;
@@ -224,6 +226,7 @@ export function syncRoutes(
       const input = pullSchema.parse(req.query);
       checkSchema(input.schema);
       const { entries, issues } = await withGarage(g, (a) => ({
+        posted: postPending(a.db),
         entries: changesFor(a.db, input.since, device.device_code, input.limit),
         issues: issuesFor(a.db, device.device_code, input.issuesSince),
       }));

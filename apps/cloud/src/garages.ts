@@ -31,7 +31,8 @@ export class GarageHost {
     let app = this.open.get(garageId);
     if (app) this.open.delete(garageId);
     else {
-      app = buildApp({ ...this.optionsFor(garageId), dataDir: this.dir(garageId), cloud: true })
+      // The cloud posts linked garages' books (their PCs get the entries by sync).
+      app = buildApp({ ...this.optionsFor(garageId), dataDir: this.dir(garageId), cloud: true, postsBooks: true })
         .then(async (a) => {
           await a.ready();
           // Every change in the cloud is logged for the garage's PCs.

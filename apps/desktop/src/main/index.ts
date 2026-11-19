@@ -70,6 +70,8 @@ async function startLocal(saved?: CloudLink): Promise<void> {
     app: sync ? { numbers: sync.client.numbers(), guard: readOnlyGuard(sync.client) } : undefined,
     // One sender per garage: the cloud when linked, else this PC (or main computer). Client PCs have no server.
     sendsMessages: !sync,
+    // The same rule for the books: the cloud posts when linked, else this PC (or main computer).
+    postsBooks: !sync,
   });
   connection = { apiBase: server.address, deviceKey: null, mode: server.sharing ? "main" : "local", mainComputer: null };
   if (sync) {

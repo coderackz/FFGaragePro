@@ -20,8 +20,8 @@ export function tempDir(): string {
 
 export type App = Awaited<ReturnType<typeof buildApp>>;
 
-export async function makeApp(dataDir = tempDir()) {
-  const app = await buildApp({ dataDir });
+export async function makeApp(dataDir = tempDir(), options: Partial<Parameters<typeof buildApp>[0]> = {}) {
+  const app = await buildApp({ ...options, dataDir });
   apps.push(app);
   return app;
 }

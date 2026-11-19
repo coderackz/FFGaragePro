@@ -7,5 +7,6 @@ const fast = process.env.FFGP_OUTBOX_FAST === "1";
 const { address } = await startServer({
   dataDir, port: Number(process.env.PORT ?? 4780),
   sendsMessages: { place: "dev server", ...(fast ? { everyMs: 500, retryMinutes: [1 / 60, 1 / 60, 1 / 60] } : {}) },
+  postsBooks: true,
 });
 console.log(`Fleetfix Garage Pro dev server on ${address} (data: ${dataDir})`);
