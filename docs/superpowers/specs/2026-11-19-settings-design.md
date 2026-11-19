@@ -33,7 +33,7 @@ written to the audit log (G). Layout picked by the user from mockups (2026-11-19
 - **Users & roles** moves into Settings (`/settings/users`, the existing Users screen); its main-menu item goes and
   `/users` redirects there.
 - **Activity log** is the audit log (G) in plain words, filterable by person, kind and date.
-- **About & support:** app version, licence status, Fleet Fix support contact. *(My call: "Check for updates" needs
+- **About & support:** app version, licence status, Fleet Fix support email **garagepro@fleetfix.ae** (user, 2026-11-19; a mailto link). *(My call: "Check for updates" needs
   an updater, which is its own project; not in Part 1.)*
 - **Tiles of later parts** (Customers & credit, Messages) show faded, marked "Coming", and don't open.
 - **Browser app:** no Backups or Other PCs tiles (the cloud backs up); the Fleetfix cloud tile becomes **Sync
@@ -54,7 +54,7 @@ written to the audit log (G). Layout picked by the user from mockups (2026-11-19
 | Activity log | read-only view of the audit log (G) | — |
 | Backups *(PC only)* | backup folder, keep N days, Back up now, Restore | this PC |
 | Fleetfix cloud, Other PCs *(PC)*, Sync issues | as today | as today |
-| About & support | version, licence status, Fleet Fix contact | — |
+| About & support | version, licence status, support email garagepro@fleetfix.ae | — |
 
 **B. Documents and printing (A4 only).**
 - Logo top-left, garage details (EN, plus AR right-to-left when bilingual) top-right. **Letterhead mode** leaves a
