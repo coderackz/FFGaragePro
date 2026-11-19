@@ -9,6 +9,7 @@ import type { NumberSource } from "./numbering";
 import { deviceGuard, NETWORK_PORT, networkRoutes, type NetworkStatus } from "./network";
 import { mailerFor } from "./messages/mailer";
 import { startOutbox } from "./messages/outbox";
+import { bookRoutes } from "./routes/books";
 import { contactRoutes } from "./routes/contacts";
 import { messageRoutes } from "./routes/messages";
 import { customerRoutes } from "./routes/customers";
@@ -53,6 +54,11 @@ export interface AppOptions {
   sendsMessages?: { place: string; everyMs?: number; retryMinutes?: readonly number[] };
   /** Called when an email is queued (the cloud uses it to send soon). */
   onMessageQueued?: () => void;
+  /**
+   * This server posts the garage's books (automatic entries, manual journals): the cloud's garage apps, or a PC or
+   * main computer that isn't linked. A linked PC leaves it off and gets the entries by sync.
+   */
+  postsBooks?: boolean;
 }
 
 /** The app's own pages: Electron (file:// sends "null") and local dev servers. */
@@ -108,6 +114,7 @@ export async function buildApp(options: AppOptions): Promise<FastifyInstance & {
   reportRoutes(app, db);
   receiptRoutes(app, db, options.numbers);
   const outbox = options.sendsMessages ? startOutbox(db, { mailerFor: () => mailerFor(db), ...options.sendsMessages }) : null;
+  bookRoutes(app, db, { posts: !!options.postsBooks });
   messageRoutes(app, db, () => {
     options.onMessageQueued?.();
     // Sent from here: don't wait for the next round.

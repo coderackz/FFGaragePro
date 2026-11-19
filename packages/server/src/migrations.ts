@@ -1,3 +1,4 @@
+import { DEFAULT_CHART } from "@ffgp/shared";
 import type { Db } from "./db";
 
 /** Ordered, append-only. Never edit a shipped migration; add a new one. */
@@ -5,6 +6,14 @@ import type { Db } from "./db";
  * `foreignKeysOff`: the migration rebuilds tables, so it runs with foreign keys off and then checks the references
  * of the listed tables (the rebuilt ones and the tables that point at them) before committing.
  */
+/** The default chart as it was when migration 11 shipped (later changes to the chart need a migration of their own). */
+const CHART_SQL = DEFAULT_CHART.map(
+  (a) =>
+    `INSERT INTO accounts (id, code, name, type, system_key, active, created_at, updated_at) VALUES ('${a.id}', '${a.code}', '${a.name.replace(/'/g, "''")}', '${a.type}', ${
+      a.systemKey ? `'${a.systemKey}'` : "NULL"
+    }, 1, strftime('%Y-%m-%dT%H:%M:%fZ','now'), strftime('%Y-%m-%dT%H:%M:%fZ','now'));`,
+).join("\n");
+
 const MIGRATIONS: { id: number; sql: string; foreignKeysOff?: string[] }[] = [
   {
     id: 1,
@@ -558,6 +567,69 @@ CREATE TABLE message_files (
   created_at TEXT NOT NULL
 );
 CREATE INDEX message_files_message ON message_files(message_id);
+`,
+  },
+  {
+    id: 11,
+    // Accounting Part 1 (the books): the chart of accounts (seeded with fixed ids, the same on every PC and the cloud),
+    // posted journal entries and their lines (insert-only: never edited or deleted), and editable drafts.
+    sql: `
+CREATE TABLE accounts (
+  id TEXT PRIMARY KEY,
+  code TEXT NOT NULL UNIQUE,
+  name TEXT NOT NULL,
+  type TEXT NOT NULL CHECK (type IN ('asset', 'liability', 'equity', 'income', 'cost_of_sales', 'expense')),
+  system_key TEXT UNIQUE,
+  active INTEGER NOT NULL DEFAULT 1,
+  created_at TEXT NOT NULL,
+  updated_at TEXT NOT NULL
+);
+${CHART_SQL}
+CREATE TABLE journal_entries (
+  id TEXT PRIMARY KEY,
+  series TEXT NOT NULL DEFAULT '',
+  seq INTEGER NOT NULL,
+  number TEXT NOT NULL,
+  date TEXT NOT NULL,
+  narration TEXT NOT NULL,
+  source_type TEXT NOT NULL CHECK (source_type IN ('invoice', 'credit_note', 'receipt', 'goods_receipt', 'stock', 'cogs', 'customer_opening',
+    'opening', 'manual', 'reversal', 'year_close', 'revaluation')),
+  source_id TEXT,
+  post_key TEXT UNIQUE,
+  reverses_id TEXT REFERENCES journal_entries(id),
+  original_date TEXT,
+  created_by TEXT REFERENCES users(id),
+  created_at TEXT NOT NULL,
+  UNIQUE (series, seq)
+);
+CREATE INDEX journal_entries_date ON journal_entries(date);
+CREATE INDEX journal_entries_source ON journal_entries(source_type, source_id);
+CREATE TABLE journal_lines (
+  id TEXT PRIMARY KEY,
+  entry_id TEXT NOT NULL REFERENCES journal_entries(id),
+  position INTEGER NOT NULL,
+  account_id TEXT NOT NULL REFERENCES accounts(id),
+  debit_fils INTEGER NOT NULL DEFAULT 0 CHECK (debit_fils >= 0),
+  credit_fils INTEGER NOT NULL DEFAULT 0 CHECK (credit_fils >= 0),
+  customer_id TEXT,
+  supplier_id TEXT,
+  document_id TEXT,
+  memo TEXT
+);
+CREATE INDEX journal_lines_entry ON journal_lines(entry_id, position);
+CREATE INDEX journal_lines_account ON journal_lines(account_id);
+CREATE INDEX journal_lines_customer ON journal_lines(customer_id);
+CREATE INDEX journal_lines_document ON journal_lines(document_id);
+CREATE TABLE journal_drafts (
+  id TEXT PRIMARY KEY,
+  kind TEXT NOT NULL CHECK (kind IN ('manual', 'opening')),
+  date TEXT NOT NULL,
+  narration TEXT NOT NULL,
+  lines_json TEXT NOT NULL,
+  created_by TEXT REFERENCES users(id),
+  created_at TEXT NOT NULL,
+  updated_at TEXT NOT NULL
+);
 `,
   },
 ];
