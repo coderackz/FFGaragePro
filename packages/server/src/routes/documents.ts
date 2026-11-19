@@ -1,7 +1,7 @@
 import type { FastifyInstance } from "fastify";
 import {
   can, CONVERTS_TO, DOC_STATUSES, DOC_TYPES, documentCreateSchema, documentUpdateSchema, formatDocNumber, lineSchema, lineTotals,
-  approvalSchema, formatNumberOf, paymentSchema, prefixOf, type ApprovalInput, type DocType, type LineInput,
+  approvalSchema, docTotals, dueDate, formatAED, formatNumberOf, issueSchema, paymentSchema, prefixOf, type ApprovalInput, type DocType, type LineInput,
 } from "@ffgp/shared";
 import { z } from "zod";
 import { audit } from "../audit";
@@ -9,6 +9,7 @@ import { LoginThrottle, requireAction, sessionUser, verifyPassword, type Session
 import { newId, now, type Db } from "../db";
 import { badRequest, conflict, HttpError, notFound, tooManyRequests } from "../errors";
 import { recomputeInvoiceMoney } from "../invoice-money";
+import { customerBalance } from "../ledger";
 import { checkStockAvailable, documentCost, reconcileDocumentStock } from "../stock";
 import { reserveNumber, takeNumber, type NumberSource, type Reserved } from "../numbering";
 import { getSettings } from "../settings";
@@ -74,7 +75,15 @@ export function documentRoutes(
     };
     const over = lines.filter((l, i) => l.discountPct > limit && !approvedBefore(l, i));
     if (!over.length) return null;
-    const refuse = () => new HttpError(403, `A discount over ${limit}% needs the Owner's approval`, "discount_approval");
+    const approvedBy = ownerApproval(approval, () => new HttpError(403, `A discount over ${limit}% needs the Owner's approval`, "discount_approval"));
+    return { approvedBy, lines: over.map((l) => ({ description: l.description, discountPct: l.discountPct })) };
+  }
+
+  /**
+   * The Owner's username and password typed on the spot (same lockout as signing in). Returns the Owner's name, or
+   * throws `refuse()` when missing or wrong.
+   */
+  function ownerApproval(approval: ApprovalInput | undefined, refuse: () => HttpError): string {
     if (!approval) throw refuse();
     const locked = auth.throttle.lockedMinutes(approval.username, auth.clock());
     if (locked) throw tooManyRequests(`Too many wrong passwords. This login is locked — try again in ${locked} minute${locked === 1 ? "" : "s"}.`);
@@ -87,7 +96,29 @@ export function documentRoutes(
       throw refuse();
     }
     auth.throttle.succeeded(approval.username);
-    return { approvedBy: owner.name, lines: over.map((l) => ({ description: l.description, discountPct: l.discountPct })) };
+    return owner.name;
+  }
+
+  interface CreditCustomer { credit_allowed: number; credit_limit_fils: number; terms_days: number | null; lpo_required: number }
+  const creditCustomer = (id: string) =>
+    db.get<CreditCustomer>("SELECT credit_allowed, credit_limit_fils, terms_days, lpo_required FROM customers WHERE id = ?", [id]);
+
+  /**
+   * Settings → Customers & credit: adding `addFils` to the customer's balance over their credit limit (0 = none)
+   * warns, is refused, or needs the Owner's approval. Owners pass themselves. Returns the warning to show and who
+   * approved, if anyone.
+   */
+  function checkCreditLimit(user: SessionUser, customerId: string, addFils: number, approval: ApprovalInput | undefined): { warning?: string; approvedBy?: string } {
+    const c = creditCustomer(customerId);
+    if (!c || c.credit_limit_fils <= 0) return {};
+    const over = customerBalance(db, customerId).balanceFils + addFils - c.credit_limit_fils;
+    if (over <= 0) return {};
+    const message = `Over the credit limit by ${formatAED(over)}`;
+    const rule = getSettings(db).credit.overLimit;
+    if (rule === "warn") return { warning: message };
+    if (rule === "block") throw new HttpError(409, message, "over_limit");
+    if (user.role === "owner") return { warning: message };
+    return { approvedBy: ownerApproval(approval, () => new HttpError(403, `${message}. The Owner needs to approve it.`, "credit_approval")) };
   }
 
   function logApproval(user: SessionUser, docId: string, approved: ReturnType<typeof checkDiscounts>): void {
@@ -222,6 +253,10 @@ export function documentRoutes(
       issuedAt: d.issued_at, createdAt: d.created_at, updatedAt: d.updated_at, createdBy,
       editable: linesEditable(d),
       pricesIncludeVat: !!d.prices_include_vat,
+      dueDate: d.due_date, lpoNumber: d.lpo_number, reason: d.reason,
+      creditedFils: d.credited_fils,
+      owedFils: d.type === "invoice" && d.status !== "draft" ? d.gross_fils - d.credited_fils - d.paid_fils : 0,
+      customerBalanceFils: customerBalance(db, d.customer_id).balanceFils,
       printCount: db.get<{ n: number }>("SELECT COUNT(*) AS n FROM document_prints WHERE document_id = ?", [id])!.n,
       customer, vehicle, source, derived,
       lines: lines.map((l) => ({
@@ -238,7 +273,7 @@ export function documentRoutes(
         ? { partsCostFils: cost.partsCostFils, marginFils: d.net_fils - cost.partsCostFils, costPending: cost.costPending, uncostedLines: cost.uncostedLines }
         : {}),
       paidFils: d.paid_fils,
-      balanceFils: d.type === "invoice" ? d.gross_fils - d.paid_fils : 0,
+      balanceFils: d.type === "invoice" ? d.gross_fils - d.credited_fils - d.paid_fils : 0,
       payments: payments.map((p) => ({
         id: p.id, amountFils: p.amount_fils, method: p.method, reference: p.reference, paidAt: p.paid_at, createdBy: p.created_by_name, receiptNumber: p.receipt_number,
       })),
@@ -262,7 +297,7 @@ export function documentRoutes(
     return {
       documents: rows.map((d) => ({
         id: d.id, type: d.type, number: d.number, status: d.status, customerName: d.customer_name, plate: d.plate,
-        grossFils: d.gross_fils, paidFils: d.paid_fils, balanceFils: d.type === "invoice" ? d.gross_fils - d.paid_fils : 0,
+        grossFils: d.gross_fils, paidFils: d.paid_fils, balanceFils: d.type === "invoice" ? d.gross_fils - d.credited_fils - d.paid_fils : 0,
         createdAt: d.created_at, issuedAt: d.issued_at,
       })),
     };
@@ -281,6 +316,9 @@ export function documentRoutes(
     checkVehicle(input.customerId, input.vehicleId);
     const approved = checkDiscounts(user, null, input.lines, input.approval);
     if (input.type === "jobcard" && blockStock()) checkStockAvailable(db, input.lines, []);
+    const limit = input.type === "jobcard"
+      ? checkCreditLimit(user, input.customerId, docTotals(input.lines, vatRate(), getSettings(db).tax.pricesIncludeVat).grossFils, input.approval)
+      : {};
     const reserved = await reserveNumber(numbers, input.type);
     const id = db.tx(() => {
       checkVehicle(input.customerId, input.vehicleId);
@@ -289,9 +327,13 @@ export function documentRoutes(
         sourceId: null, pricesIncludeVat: getSettings(db).tax.pricesIncludeVat,
       }, input.lines, reserved);
       logApproval(user, docId, approved);
+      if (limit.approvedBy) {
+        const number = getDoc(docId)?.number ?? null;
+        audit(db, { action: "credit.override", entity: "document", entityId: docId, after: { document: number, approvedBy: limit.approvedBy }, userId: user.id });
+      }
       return docId;
     });
-    return { document: full(id, user) };
+    return { document: full(id, user), ...(limit.warning ? { warning: limit.warning } : {}) };
   });
 
   app.patch<{ Params: { id: string } }>("/api/documents/:id", async (req) => {
@@ -301,7 +343,8 @@ export function documentRoutes(
     db.tx(() => {
       const d = getDoc(req.params.id);
       if (!d) throw notFound("Document not found");
-      const changesContent = input.lines !== undefined || input.vehicleId !== undefined || input.odometer !== undefined || input.notes !== undefined;
+      const changesContent = input.lines !== undefined || input.vehicleId !== undefined || input.odometer !== undefined || input.notes !== undefined
+        || input.lpoNumber !== undefined;
       if (changesContent && !linesEditable(d)) throw conflict(`${d.number} can no longer be edited`);
       if (input.status !== undefined && input.status !== d.status) {
         if (!MANUAL_STATUSES[d.type].includes(input.status)) throw badRequest("That status can't be set directly");
@@ -309,11 +352,12 @@ export function documentRoutes(
       }
       if (input.vehicleId !== undefined) checkVehicle(d.customer_id, input.vehicleId);
       db.run(
-        `UPDATE documents SET vehicle_id = ?, odometer = ?, notes = ?, status = ?, updated_at = ? WHERE id = ?`,
+        `UPDATE documents SET vehicle_id = ?, odometer = ?, notes = ?, lpo_number = ?, status = ?, updated_at = ? WHERE id = ?`,
         [
           input.vehicleId !== undefined ? input.vehicleId : d.vehicle_id,
           input.odometer !== undefined ? input.odometer : d.odometer,
           input.notes !== undefined ? input.notes : d.notes,
+          input.lpoNumber !== undefined ? input.lpoNumber : d.lpo_number,
           input.status ?? d.status,
           now(),
           d.id,
@@ -377,17 +421,27 @@ export function documentRoutes(
   app.post<{ Params: { id: string } }>("/api/documents/:id/issue", async (req) => {
     const user = sessionUser(db, req);
     requireAction(user, "invoices.issue");
-    db.tx(() => {
+    const input = issueSchema.parse(req.body ?? {});
+    const result = db.tx(() => {
       const d = getDoc(req.params.id);
       if (!d) throw notFound("Document not found");
       if (d.type !== "invoice") throw badRequest("Only invoices are issued");
       if (d.status !== "draft") throw conflict(`${d.number} is already issued`);
       if (d.gross_fils <= 0) throw badRequest("Add at least one charged line before issuing");
+      const c = creditCustomer(d.customer_id)!;
+      const lpo = input.lpoNumber ?? d.lpo_number;
+      if (c.lpo_required && !lpo) throw badRequest("This customer needs an LPO number on the invoice");
+      const limit = checkCreditLimit(user, d.customer_id, d.gross_fils, input.approval);
       reconcileDocumentStock(db, d.id, user.id, { block: blockStock() });
       const t = now();
-      db.run("UPDATE documents SET status = 'issued', issued_at = ?, updated_at = ? WHERE id = ?", [t, t, d.id]);
+      const due = dueDate(t, c.terms_days ?? getSettings(db).credit.defaultTermsDays, !!c.credit_allowed);
+      db.run("UPDATE documents SET status = 'issued', issued_at = ?, due_date = ?, lpo_number = ?, updated_at = ? WHERE id = ?", [t, due, lpo, t, d.id]);
+      if (limit.approvedBy) {
+        audit(db, { action: "credit.override", entity: "document", entityId: d.id, after: { document: d.number, approvedBy: limit.approvedBy }, userId: user.id });
+      }
+      return limit;
     });
-    return { document: full(req.params.id, user) };
+    return { document: full(req.params.id, user), ...(result.warning ? { warning: result.warning } : {}) };
   });
 
   /**
