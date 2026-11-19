@@ -5,7 +5,7 @@ import { audit } from "../audit";
 import { requireAction, sessionUser } from "../auth";
 import { now, type Db } from "../db";
 import { notFound } from "../errors";
-import { diff, getSettings, nextNumbers, saveSection } from "../settings";
+import { diff, emailReady, getSecret, getSettings, nextNumbers, saveSection, setSecret } from "../settings";
 import { garage, garageOut } from "./setup";
 
 const auditQuery = z.object({
@@ -14,6 +14,8 @@ const auditQuery = z.object({
   from: z.string().regex(/^\d{4}-\d{2}-\d{2}$/).optional(),
   to: z.string().regex(/^\d{4}-\d{2}-\d{2}$/).optional(),
 });
+
+const passwordInput = z.object({ password: z.string().min(1, "Enter the password").max(200).nullable() });
 
 interface AuditRow {
   id: string; action: string; entity: string; entity_id: string | null; before: string | null; after: string | null;
@@ -43,6 +45,15 @@ export function settingsRoutes(app: FastifyInstance, db: Db): void {
     return { garage: garageOut(garage(db)!) };
   });
 
+  /** The SMTP password: write-only (no route ever returns it). */
+  app.put("/api/settings/messages/password", async (req) => {
+    const user = sessionUser(db, req);
+    requireAction(user, "settings.manage");
+    const { password } = passwordInput.parse(req.body ?? {});
+    setSecret(db, user.id, "smtp.password", password);
+    return { ok: true, passwordSet: password !== null };
+  });
+
   app.put<{ Params: { section: string } }>("/api/settings/:section", async (req) => {
     const user = sessionUser(db, req);
     requireAction(user, "settings.manage");
@@ -58,6 +69,8 @@ export function settingsRoutes(app: FastifyInstance, db: Db): void {
       nextNumbers: nextNumbers(db),
       users: db.get<{ n: number }>("SELECT COUNT(*) AS n FROM users WHERE active = 1")!.n,
       changesThisWeek: db.get<{ n: number }>("SELECT COUNT(*) AS n FROM audit_log WHERE created_at >= ?", [weekAgo])!.n,
+      messages: { emailReady: emailReady(db), passwordSet: getSecret(db, "smtp.password") !== null },
+      failedMessages: db.get<{ n: number }>("SELECT COUNT(*) AS n FROM messages WHERE status = 'failed'")!.n,
     };
   });
 
