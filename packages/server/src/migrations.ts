@@ -490,6 +490,18 @@ INSERT INTO receipt_allocations (id, receipt_id, document_id, amount_fils, creat
 SELECT id || '-a', id, document_id, amount_fils, created_by, created_at FROM payments;
 `,
   },
+  {
+    id: 9,
+    // Settings Part 3a (English + Arabic documents): Arabic names, the customer's document language, and the
+    // language a document was created in (so a reprint looks the same after the customer's setting changes).
+    sql: `
+ALTER TABLE customers ADD COLUMN name_ar TEXT;
+ALTER TABLE customers ADD COLUMN address_ar TEXT;
+ALTER TABLE customers ADD COLUMN doc_language TEXT NOT NULL DEFAULT 'en' CHECK (doc_language IN ('en', 'en_ar'));
+ALTER TABLE parts ADD COLUMN name_ar TEXT;
+ALTER TABLE documents ADD COLUMN language TEXT NOT NULL DEFAULT 'en' CHECK (language IN ('en', 'en_ar'));
+`,
+  },
 ];
 
 /** The newest migration this code knows: the garage database's schema version. */

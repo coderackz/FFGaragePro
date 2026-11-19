@@ -20,10 +20,11 @@ interface DocRow {
   odometer: number | null; notes: string | null; source_id: string | null; issued_at: string | null; net_fils: number;
   vat_fils: number; gross_fils: number; paid_fils: number; created_by: string | null; created_at: string; updated_at: string;
   prices_include_vat: number; credited_fils: number; due_date: string | null; lpo_number: string | null; reason: string | null;
+  language: string;
 }
 interface LineRow {
   id: string; position: number; kind: string; description: string; qty: number; unit_price_fils: number;
-  discount_pct: number; net_fils: number; vat_fils: number; gross_fils: number; part_id: string | null; supplied_by: string;
+  discount_pct: number; net_fils: number; vat_fils: number; gross_fils: number; part_id: string | null; supplied_by: string; part_name_ar?: string | null;
   po_line_id: string | null; part_no?: string | null; part_stocked?: number | null; part_on_hand?: number | null; part_unit?: string | null; po_qty?: number | null; po_received?: number | null; po_number?: string | null;
   po_id?: string | null; po_status?: string | null;
 }
@@ -210,10 +211,11 @@ export function documentRoutes(
     const { series, seq, number } = nextNumber(d.type, reserved);
     const t = now();
     db.run(
+      // A new document (converted ones too) is printed in the customer's language as it is now, and keeps it.
       `INSERT INTO documents (id, type, series, seq, number, status, customer_id, vehicle_id, odometer, notes, source_id, prices_include_vat,
-         created_by, created_at, updated_at)
-       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
-      [id, d.type, series, seq, number, DOC_STATUSES[d.type][0], d.customerId, d.vehicleId, d.odometer, d.notes, d.sourceId, d.pricesIncludeVat ? 1 : 0, user.id, t, t],
+         created_by, created_at, updated_at, language)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, (SELECT doc_language FROM customers WHERE id = ?))`,
+      [id, d.type, series, seq, number, DOC_STATUSES[d.type][0], d.customerId, d.vehicleId, d.odometer, d.notes, d.sourceId, d.pricesIncludeVat ? 1 : 0, user.id, t, t, d.customerId],
     );
     writeLines(id, lines, user.id);
     if (d.vehicleId && d.odometer) {
@@ -226,7 +228,7 @@ export function documentRoutes(
     const d = getDoc(id);
     if (!d) throw notFound("Document not found");
     const lines = db.all<LineRow>(
-      `SELECT dl.*, p.part_no, p.stocked AS part_stocked, p.on_hand AS part_on_hand, p.unit AS part_unit, pl.qty AS po_qty, pl.received_qty AS po_received, po.number AS po_number, po.id AS po_id, po.status AS po_status
+      `SELECT dl.*, p.part_no, p.name_ar AS part_name_ar, p.stocked AS part_stocked, p.on_hand AS part_on_hand, p.unit AS part_unit, pl.qty AS po_qty, pl.received_qty AS po_received, po.number AS po_number, po.id AS po_id, po.status AS po_status
        FROM document_lines dl
        LEFT JOIN parts p ON p.id = dl.part_id
        LEFT JOIN po_lines pl ON pl.id = dl.po_line_id
@@ -242,7 +244,10 @@ export function documentRoutes(
        WHERE a.document_id = ? ORDER BY r.received_at, a.created_at, a.rowid`,
       [id],
     );
-    const customer = db.get<Record<string, unknown>>("SELECT id, kind, name, phone, email, trn, address FROM customers WHERE id = ?", [d.customer_id]);
+    const customer = db.get<Record<string, unknown>>(
+      "SELECT id, kind, name, phone, email, trn, address, name_ar AS nameAr, address_ar AS addressAr, doc_language AS docLanguage FROM customers WHERE id = ?",
+      [d.customer_id],
+    );
     const vehicle = d.vehicle_id
       ? db.get<Record<string, unknown>>("SELECT id, plate, make, model, year, vin, colour, odometer FROM vehicles WHERE id = ?", [d.vehicle_id])
       : null;
@@ -260,7 +265,7 @@ export function documentRoutes(
       issuedAt: d.issued_at, createdAt: d.created_at, updatedAt: d.updated_at, createdBy,
       editable: linesEditable(d),
       pricesIncludeVat: !!d.prices_include_vat,
-      dueDate: d.due_date, lpoNumber: d.lpo_number, reason: d.reason,
+      dueDate: d.due_date, lpoNumber: d.lpo_number, reason: d.reason, language: d.language,
       creditedFils: d.credited_fils,
       owedFils: d.type === "invoice" && d.status !== "draft" ? d.gross_fils - d.credited_fils - d.paid_fils : 0,
       customerBalanceFils: customerBalance(db, d.customer_id).balanceFils,
@@ -269,7 +274,7 @@ export function documentRoutes(
       lines: lines.map((l) => ({
         id: l.id, kind: l.kind, description: l.description, qty: l.qty, unitPriceFils: l.unit_price_fils,
         discountPct: l.discount_pct, netFils: l.net_fils, vatFils: l.vat_fils, grossFils: l.gross_fils,
-        partId: l.part_id, partNo: l.part_no ?? null,
+        partId: l.part_id, partNo: l.part_no ?? null, partNameAr: l.part_name_ar ?? null,
         partStocked: l.part_id ? !!l.part_stocked : null, partOnHand: l.part_id ? l.part_on_hand ?? null : null, partUnit: l.part_unit ?? null, suppliedBy: l.supplied_by, poLineId: l.po_line_id,
         purchaseOrderId: l.po_id ?? null, purchaseOrderNumber: l.po_number ?? null,
         orderStatus: !l.po_line_id || l.po_status === "cancelled" ? null : (l.po_received ?? 0) >= (l.po_qty ?? 0) ? "received" : "on_order",
@@ -352,7 +357,7 @@ export function documentRoutes(
       const d = getDoc(req.params.id);
       if (!d) throw notFound("Document not found");
       const changesContent = input.lines !== undefined || input.vehicleId !== undefined || input.odometer !== undefined || input.notes !== undefined
-        || input.lpoNumber !== undefined;
+        || input.lpoNumber !== undefined || input.language !== undefined;
       if (changesContent && !linesEditable(d)) throw conflict(`${d.number} can no longer be edited`);
       if (input.status !== undefined && input.status !== d.status) {
         if (!MANUAL_STATUSES[d.type].includes(input.status)) throw badRequest("That status can't be set directly");
@@ -360,12 +365,13 @@ export function documentRoutes(
       }
       if (input.vehicleId !== undefined) checkVehicle(d.customer_id, input.vehicleId);
       db.run(
-        `UPDATE documents SET vehicle_id = ?, odometer = ?, notes = ?, lpo_number = ?, status = ?, updated_at = ? WHERE id = ?`,
+        `UPDATE documents SET vehicle_id = ?, odometer = ?, notes = ?, lpo_number = ?, language = ?, status = ?, updated_at = ? WHERE id = ?`,
         [
           input.vehicleId !== undefined ? input.vehicleId : d.vehicle_id,
           input.odometer !== undefined ? input.odometer : d.odometer,
           input.notes !== undefined ? input.notes : d.notes,
           input.lpoNumber !== undefined ? input.lpoNumber : d.lpo_number,
+          input.language ?? d.language,
           input.status ?? d.status,
           now(),
           d.id,
@@ -515,9 +521,9 @@ export function documentRoutes(
       const t = now();
       db.run(
         `INSERT INTO documents (id, type, series, seq, number, status, customer_id, vehicle_id, odometer, source_id, issued_at, prices_include_vat, reason,
-           created_by, created_at, updated_at)
-         VALUES (?, 'credit_note', ?, ?, ?, 'issued', ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
-        [cnId, series, seq, number, inv.customer_id, inv.vehicle_id, inv.odometer, inv.id, t, inv.prices_include_vat, input.reason, user.id, t, t],
+           created_by, created_at, updated_at, language)
+         VALUES (?, 'credit_note', ?, ?, ?, 'issued', ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+        [cnId, series, seq, number, inv.customer_id, inv.vehicle_id, inv.odometer, inv.id, t, inv.prices_include_vat, input.reason, user.id, t, t, inv.language],
       );
       const rate = vatRate();
       let net = 0, vat = 0, gross = 0;
