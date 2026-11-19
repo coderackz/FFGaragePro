@@ -1,6 +1,6 @@
 import { randomUUID } from "node:crypto";
 import { mkdirSync, readFileSync, writeFileSync } from "node:fs";
-import { rm, writeFile } from "node:fs/promises";
+import { mkdir, rm, writeFile } from "node:fs/promises";
 import { hostname } from "node:os";
 import { basename, join } from "node:path";
 import { app, BrowserWindow, dialog, ipcMain, Menu, shell } from "electron";
@@ -420,7 +420,7 @@ async function withPrintWindow<T>(html: string, fn: (win: BrowserWindow) => Prom
 
 ipcMain.handle("ffgp:savePdf", async (_event, args: { html: string; fileName: string }) => {
   const pdf = await withPrintWindow(args.html, (win) =>
-    win.webContents.printToPDF({ pageSize: "A4", printBackground: true, margins: { top: 0, bottom: 0, left: 0, right: 0 } }),
+    win.webContents.printToPDF(PDF_OPTIONS),
   );
   const parent = mainWindow ?? undefined;
   const options = { defaultPath: join(app.getPath("documents"), args.fileName), filters: [{ name: "PDF", extensions: ["pdf"] }] };
@@ -429,6 +429,30 @@ ipcMain.handle("ffgp:savePdf", async (_event, args: { html: string; fileName: st
   await writeFile(result.filePath, pdf);
   void shell.openPath(result.filePath);
   return result.filePath;
+});
+
+const PDF_OPTIONS = { pageSize: "A4", printBackground: true, margins: { top: 0, bottom: 0, left: 0, right: 0 } } as const;
+
+/** A page as PDF bytes (base64), to attach to an email or hand to WhatsApp. */
+ipcMain.handle("ffgp:makePdf", async (_event, args: { html: string }) =>
+  Buffer.from(await withPrintWindow(args.html, (win) => win.webContents.printToPDF(PDF_OPTIONS))).toString("base64"),
+);
+
+/**
+ * WhatsApp click-to-send: saves the PDF to Documents/Fleetfix Garage Pro/Sent, shows it in its folder (ready to drag
+ * into the chat), then opens the chat with the message typed in. Only wa.me links are opened.
+ */
+ipcMain.handle("ffgp:whatsapp", async (_event, args: { url: string; pdf: { fileName: string; base64: string } | null }) => {
+  if (!/^https:\/\/wa\.me\/\d{8,15}\?text=/.test(args.url)) throw new Error("Not a WhatsApp link");
+  if (args.pdf) {
+    const dir = join(app.getPath("documents"), "Fleetfix Garage Pro", "Sent");
+    await mkdir(dir, { recursive: true });
+    const file = join(dir, basename(args.pdf.fileName.replace(/[\\/:*?"<>|]+/g, " ").trim() || "document.pdf"));
+    await writeFile(file, Buffer.from(args.pdf.base64, "base64"));
+    shell.showItemInFolder(file);
+  }
+  await shell.openExternal(args.url);
+  return true;
 });
 
 ipcMain.handle("ffgp:print", async (_event, args: { html: string }) =>

@@ -13,6 +13,10 @@ interface FfgpBridge {
   hostname: string;
   savePdf(html: string, fileName: string): Promise<string | null>;
   print(html: string): Promise<boolean>;
+  /** A page as PDF bytes (base64). */
+  makePdf(html: string): Promise<string>;
+  /** Saves the PDF to Documents/Fleetfix Garage Pro/Sent, shows it, and opens the wa.me chat. */
+  whatsapp(args: { url: string; pdf: { fileName: string; base64: string } | null }): Promise<boolean>;
   discover(): Promise<{ host: string; port: number; name: string }[]>;
   connect(args: { host: string; code: string; deviceName: string }): Promise<{ ok?: true; error?: string }>;
   disconnect(): Promise<void>;
