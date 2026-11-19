@@ -1,9 +1,10 @@
 import {
-  formatDocNumber, formatPoNumber, LOCAL_SETTING_PREFIXES, NUMBER_KINDS, prefixOf, readSettings, sectionRows, type NumberKind,
+  formatDocNumber, formatPoNumber, LOCAL_SETTING_PREFIXES, NUMBER_KINDS, prefixOf, readSettings, sectionRows, startOf, type NumberKind,
   type Settings, type SettingsSection,
 } from "@ffgp/shared";
 import { audit } from "./audit";
 import type { Db } from "./db";
+import { badRequest } from "./errors";
 import { previewNumber } from "./numbering";
 
 const notLocal = LOCAL_SETTING_PREFIXES.map((p) => `key NOT LIKE '${p}%'`).join(" AND ");
@@ -61,3 +62,22 @@ export function nextNumbers(db: Db): Record<NumberKind, string> {
     }),
   ) as Record<NumberKind, string>;
 }
+
+/**
+ * Numbering may only move forward: a changed "next number" below what the series would hand out next is refused,
+ * so an invoice number never goes backwards. (The cloud also never goes below a start, see takeNumber.)
+ */
+export function checkNumbering(db: Db, next: Settings["numbering"]): void {
+  const current = getSettings(db);
+  const proposed: Settings = { ...current, numbering: next };
+  for (const kind of NUMBER_KINDS) {
+    if (startOf(proposed, kind) === startOf(current, kind)) continue;
+    const upcoming = previewNumber(db, kind);
+    if (startOf(proposed, kind) < upcoming) {
+      const prefix = prefixOf(proposed, kind);
+      const shown = kind === "purchase_order" ? formatPoNumber(upcoming, "", prefix) : formatDocNumber(kind, upcoming, "", prefix);
+      throw badRequest(`${prefix} can't go back: the next number is ${shown}`);
+    }
+  }
+}
+registerSectionCheck("numbering", checkNumbering);

@@ -1,11 +1,12 @@
 import type { FastifyInstance } from "fastify";
-import { can, formatPoNumber, poSchema, poUpdateSchema, receiveSchema, requestPartSchema, roundFils } from "@ffgp/shared";
+import { can, formatPoNumber, prefixOf, poSchema, poUpdateSchema, receiveSchema, requestPartSchema, roundFils } from "@ffgp/shared";
 import { z } from "zod";
 import { requireAction, sessionUser, type SessionUser } from "../auth";
 import { newId, now, type Db } from "../db";
 import { badRequest, conflict, notFound } from "../errors";
 import { postMovement, round3 } from "../stock";
 import type { DocumentOut } from "./documents";
+import { getSettings } from "../settings";
 import { reserveNumber, takeNumber, type NumberSource, type Reserved } from "../numbering";
 import { garage } from "./setup";
 
@@ -31,7 +32,7 @@ export function purchaseRoutes(app: FastifyInstance, db: Db, docs: { full: Docum
 
   function nextPoNumber(reserved: Reserved | null): { series: string; seq: number; number: string } {
     const { series, seq } = takeNumber(db, "purchase_order", reserved, numbers);
-    return { series, seq, number: formatPoNumber(seq, series) };
+    return { series, seq, number: formatPoNumber(seq, series, prefixOf(getSettings(db), "purchase_order")) };
   }
 
   function checkSupplier(id: string) {

@@ -1,7 +1,7 @@
 import type { FastifyInstance } from "fastify";
 import {
   can, CONVERTS_TO, DOC_STATUSES, DOC_TYPES, documentCreateSchema, documentUpdateSchema, formatDocNumber, lineSchema, lineTotals,
-  paymentSchema, type DocType, type LineInput,
+  paymentSchema, prefixOf, type DocType, type LineInput,
 } from "@ffgp/shared";
 import { z } from "zod";
 import { requireAction, sessionUser, type SessionUser } from "../auth";
@@ -9,6 +9,7 @@ import { newId, now, type Db } from "../db";
 import { badRequest, conflict, notFound } from "../errors";
 import { documentCost, reconcileDocumentStock } from "../stock";
 import { reserveNumber, takeNumber, type NumberSource, type Reserved } from "../numbering";
+import { getSettings } from "../settings";
 import { garage } from "./setup";
 
 interface DocRow {
@@ -43,7 +44,7 @@ export function documentRoutes(app: FastifyInstance, db: Db, numbers?: NumberSou
 
   function nextNumber(type: DocType, reserved: Reserved | null): { series: string; seq: number; number: string } {
     const { series, seq } = takeNumber(db, type, reserved, numbers);
-    return { series, seq, number: formatDocNumber(type, seq, series) };
+    return { series, seq, number: formatDocNumber(type, seq, series, prefixOf(getSettings(db), type)) };
   }
 
   /**
