@@ -10,4 +10,4 @@ const here = dirname(fileURLToPath(import.meta.url));
 const dataDir = process.env.FFGP_CLOUD_DATA ?? join(homedir(), "fleetfix-cloud-data");
 const web = process.env.FFGP_CLOUD_WEB ?? join(here, "web");
 
-await runCloud({ dataDir, webDir: existsSync(web) ? web : undefined, port: Number(process.env.PORT ?? 3000), backups: true });
+await runCloud({ dataDir, webDir: existsSync(web) ? web : undefined, port: Number(process.env.PORT ?? 3000), backups: true, messages: true });

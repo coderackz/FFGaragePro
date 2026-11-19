@@ -51,7 +51,11 @@ function checkSchema(schema: number): void {
  */
 export function syncRoutes(
   app: FastifyInstance,
-  o: { admin: AdminDb; host: GarageHost; now: () => number; dataDir: string; key: LicenceKey; throttleFor: (garageId: string) => LoginThrottle },
+  o: {
+    admin: AdminDb; host: GarageHost; now: () => number; dataDir: string; key: LicenceKey; throttleFor: (garageId: string) => LoginThrottle;
+    /** Told when a PC pushes messages: the cloud sends them. */
+    outbox?: { mark(garageId: string): void };
+  },
 ): void {
   const { admin, host, now, key } = o;
   const tmpDir = join(o.dataDir, "tmp");
@@ -204,6 +208,7 @@ export function syncRoutes(
       checkSchema(input.schema);
       // A read-only garage's PC is read-only itself; what it sends was made before, so it's still taken.
       const result = await withGarage(g, (a) => applyAtCloud(a.db, device.device_code, input.entries));
+      if (input.entries.some((e) => e.table === "messages")) o.outbox?.mark(g.id);
       admin.synced(device, now());
       return { lastOriginSeq: result.lastOriginSeq, receivedAt: new Date(now()).toISOString(), issues: result.issues, licence: licence(g) };
     });
