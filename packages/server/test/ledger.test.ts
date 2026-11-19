@@ -38,9 +38,10 @@ describe("customer ledger", () => {
     const { app, customer, invoice, pay, unallocated } = await garage();
     const inv = await invoice(10000, "2026-10-10", "2026-11-09");
     await pay(inv, 8000, "2026-10-20");
-    expect(customerBalance(app.db, customer.id)).toEqual({ balanceFils: 7500, overdueFils: expect.any(Number), creditFils: 0 });
+    expect(customerBalance(app.db, customer.id)).toMatchObject({ balanceFils: 7500, creditFils: 0, openingDueFils: 5000 });
+    // Money not put against an invoice pays the oldest debt first: the opening balance.
     unallocated(1000, "2026-10-25");
-    expect(customerBalance(app.db, customer.id)).toMatchObject({ balanceFils: 6500, creditFils: 1000 });
+    expect(customerBalance(app.db, customer.id)).toMatchObject({ balanceFils: 6500, creditFils: 0, openingDueFils: 4000 });
   });
 
   it("statement ties to the balance", async () => {
@@ -95,6 +96,52 @@ describe("customer ledger", () => {
     expect(refused.status).toBe(403);
     expect(refused.body.error).toBe("Only the Owner or an Accountant can change a customer's credit terms");
     expect((await call(app, "POST", "/api/customers", advisor, { name: "New Co", creditAllowed: true })).status).toBe(403);
+  });
+
+  it("paying an opening balance clears it; it isn't credit", async () => {
+    const { app, owner, customer, invoice } = await garage();
+    await invoice(1000, "2026-10-10", "2026-11-09");
+    const paid = await call(app, "POST", "/api/receipts", owner, { customerId: customer.id, amountFils: 5000, method: "cash" });
+    expect(paid.body.receipt.allocations).toEqual([]); // the opening balance (1 Oct) is older than the invoice
+    expect(customerBalance(app.db, customer.id)).toMatchObject({ balanceFils: 1050, creditFils: 0, openingDueFils: 0 });
+    expect(agingReport(app.db, "2026-11-20").customers[0]!.totalFils).toBe(1050);
+    const refund = await call(app, "POST", "/api/receipts", owner, { customerId: customer.id, amountFils: -100, method: "cash" });
+    expect(refund.body.error).toBe("The refund is more than the customer's credit of AED 0.00");
+  });
+
+  it("a negative opening balance is credit that can be used or refunded", async () => {
+    const app = await makeApp();
+    const owner = await setUp(app);
+    const c = (await call(app, "POST", "/api/customers", owner, { name: "Advance LLC", openingBalanceFils: -2000, openingBalanceDate: "2026-10-01" })).body.customer;
+    expect(customerBalance(app.db, c.id)).toMatchObject({ balanceFils: -2000, creditFils: 2000, openingDueFils: 0 });
+    expect((await call(app, "POST", "/api/receipts", owner, { customerId: c.id, amountFils: -2000, method: "cash" })).status).toBe(200);
+    expect(customerBalance(app.db, c.id)).toMatchObject({ balanceFils: 0, creditFils: 0 });
+  });
+
+  it("refunded credit can't be put against an invoice again", async () => {
+    const app = await makeApp();
+    const owner = await setUp(app);
+    const c = (await call(app, "POST", "/api/customers", owner, { name: "Fleet LLC", creditAllowed: true })).body.customer;
+    const r = (await call(app, "POST", "/api/receipts", owner, { customerId: c.id, amountFils: 10000, method: "cash" })).body.receipt;
+    await call(app, "POST", "/api/receipts", owner, { customerId: c.id, amountFils: -10000, method: "cash" });
+    const inv = (await call(app, "POST", "/api/documents", owner, { type: "invoice", customerId: c.id, lines: [LINE(9000)] })).body.document;
+    await call(app, "POST", `/api/documents/${inv.id}/issue`, owner);
+    const res = await call(app, "POST", `/api/receipts/${r.id}/allocations`, owner, { allocations: [{ documentId: inv.id, amountFils: 9450 }] });
+    expect(res.status).toBe(400);
+    expect(res.body.error).toBe("Only AED 0.00 of the customer's credit is left");
+  });
+
+  it("statements and aging for a past date use what stood then", async () => {
+    const { app, customer, invoice, pay } = await garage();
+    const oct = await invoice(10000, "2026-10-05", "2026-10-15");
+    await pay(oct, 10500, "2026-11-10");
+    // On 31 Oct the invoice was 16 days late (and the 1 Oct opening balance 30); paying in November doesn't change October.
+    const r = agingReport(app.db, "2026-10-31");
+    expect(r.customers[0]!.buckets["1-30"]).toBe(10500 + 5000);
+    const s = customerLedger(app.db, customer.id, "2026-10-01", "2026-10-31");
+    const bucketTotal = Object.values(s.aging).reduce((a, b) => a + b, 0);
+    expect(bucketTotal - s.creditFils).toBe(s.closingFils);
+    expect(s.closingFils).toBe(5000 + 10500);
   });
 });
 

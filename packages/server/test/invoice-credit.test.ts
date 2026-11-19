@@ -87,4 +87,18 @@ describe("invoices for credit customers", () => {
     expect(r.status).toBe(200);
     expect(r.body.warning).toBeUndefined();
   });
+
+  it("turning an estimate into a job card checks the limit too", async () => {
+    const g = await garage({ creditAllowed: true, creditLimitFils: 10000, openingBalanceFils: 8000 });
+    const est = (await g.draft(5000, "estimate")).document;
+    await call(g.app, "PUT", "/api/settings/credit", g.owner, { overLimit: "block" });
+    const refused = await call(g.app, "POST", `/api/documents/${est.id}/convert`, g.owner);
+    expect(refused.body).toMatchObject({ code: "over_limit", error: "Over the credit limit by AED 32.50" });
+    expect(g.app.db.get("SELECT 1 FROM documents WHERE type = 'jobcard'")).toBeUndefined();
+    await call(g.app, "PUT", "/api/settings/credit", g.owner, { overLimit: "warn" });
+    const warned = await call(g.app, "POST", `/api/documents/${est.id}/convert`, g.owner);
+    expect(warned.status).toBe(200);
+    expect(warned.body.warning).toBe("Over the credit limit by AED 32.50");
+  });
 });
+

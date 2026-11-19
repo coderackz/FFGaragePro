@@ -32,8 +32,10 @@ function garageAt7(): string {
 describe("migration 8", () => {
   it("existing payments become receipts, nothing changes on the invoices", () => {
     const db = new Db(garageAt7());
-    const receipts = db.all<{ id: string; number: string; customer_id: string; amount_fils: number }>("SELECT id, number, customer_id, amount_fils FROM receipts ORDER BY seq");
-    expect(receipts.map((r) => [r.id, r.number])).toEqual([["p-early", "RCT-00001"], ["p-mid", "RCT-00002"], ["p-late", "RCT-00003"]]);
+    const receipts = db.all<{ id: string; number: string; customer_id: string; amount_fils: number }>("SELECT id, number, customer_id, amount_fils FROM receipts ORDER BY received_at");
+    // Numbered from the payment's own id, so every PC and the cloud give it the same number whatever payments
+    // each had; new receipts start the main series at RCT-00001.
+    expect(receipts.map((r) => [r.id, r.number])).toEqual([["p-early", "RCT-PEARLY"], ["p-mid", "RCT-PMID"], ["p-late", "RCT-PLATE"]]);
     expect(receipts.every((r) => r.customer_id === "c1")).toBe(true);
     const allocs = db.all<{ id: string; receipt_id: string; document_id: string; amount_fils: number }>("SELECT * FROM receipt_allocations ORDER BY id");
     expect(allocs.map((a) => a.id)).toEqual(["p-early-a", "p-late-a", "p-mid-a"]);
@@ -42,7 +44,7 @@ describe("migration 8", () => {
       { id: "d1", paid_fils: 10500, status: "paid", credited_fils: 0, due_date: "2026-11-03" },
       { id: "d2", paid_fils: 5000, status: "part_paid", credited_fils: 0, due_date: "2026-11-03" },
     ]);
-    expect(db.get<{ next: number }>("SELECT next FROM counters WHERE type = 'receipt'")?.next).toBe(4);
+    expect(db.get("SELECT next FROM counters WHERE type = 'receipt'")).toBeUndefined();
     db.close();
   });
 

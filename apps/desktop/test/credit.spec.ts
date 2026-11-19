@@ -83,5 +83,14 @@ test.describe.serial("credit customers", () => {
     await expect(page.getByText(/Refund RCT-00002 saved/)).toBeVisible();
     await expect(page.getByTestId("account")).not.toContainText("Unused payments");
     await shot("04-after-refund");
+
+    // A payment put against the wrong invoice is taken back off; it becomes credit again.
+    page.on("dialog", (d) => void d.accept());
+    await nav(page, "Invoices");
+    await page.getByRole("cell", { name: "INV-00002", exact: true }).click();
+    await page.getByRole("button", { name: "Undo RCT-00001" }).click();
+    await expect(page.getByText("Payment taken back off")).toBeVisible();
+    await page.goto(`/#/customers/${customerId}`);
+    await expect(page.getByTestId("account")).toContainText("Unused payments (credit)");
   });
 });

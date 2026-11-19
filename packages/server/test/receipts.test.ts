@@ -93,6 +93,8 @@ describe("receipts", () => {
     expect((await call(app, "POST", `/api/documents/${a.id}/payments`, owner, { amountFils: 5000, method: "card" })).status).toBe(200);
     expect(status(a.id)).toEqual({ status: "part_paid", paid_fils: 5000 });
     expect(app.db.get<{ n: number }>("SELECT COUNT(*) AS n FROM receipt_allocations WHERE document_id = ?", [a.id])!.n).toBe(1);
+    const log = (await call(app, "GET", "/api/audit?action=receipt.create", owner)).body.entries;
+    expect(log[0].after).toMatchObject({ customer: "Fleet LLC", amountFils: 5000, allocations: [{ document: a.number, amountFils: 5000 }] });
   });
 
   it("receipts are listed and logged", async () => {

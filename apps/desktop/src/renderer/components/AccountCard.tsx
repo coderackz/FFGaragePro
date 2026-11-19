@@ -86,7 +86,7 @@ export function AccountCard({ customer, onChanged }: { customer: Customer; onCha
             { header: "Method", cell: (r) => [PAYMENT_LABELS[r.method] ?? r.method, r.reference].filter(Boolean).join(" · ") },
             { header: "Against", cell: (r) => r.allocations.filter((a) => a.amountFils > 0).map((a) => a.number).join(", ") || (r.amountFils < 0 ? "Refund" : "—") },
             { header: "Amount", cell: (r) => formatAED(r.amountFils), align: "right" },
-            { header: "Credit left", cell: (r) => (r.unallocatedFils ? formatAED(r.unallocatedFils) : ""), align: "right" },
+            { header: "On account", cell: (r) => (r.unallocatedFils ? formatAED(r.unallocatedFils) : ""), align: "right" },
             { header: "", cell: (r) => <Button size="sm" variant="ghost" icon={<Printer className="size-3.5" />} aria-label={`Print ${r.number}`} onClick={() => void printReceipt(r, garage!, settings ?? DEFAULT_SETTINGS, "print")} /> },
           ]}
         />

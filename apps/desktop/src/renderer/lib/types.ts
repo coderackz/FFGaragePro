@@ -12,7 +12,7 @@ export interface Customer {
   creditAllowed?: boolean; creditLimitFils?: number; termsDays?: number | null; discountPct?: number; lpoRequired?: boolean;
   openingBalanceFils?: number; openingBalanceDate?: string | null;
   /** Where the account stands: owed (negative = in credit), past due, unallocated payments, over the credit limit. */
-  balanceFils?: number; overdueFils?: number; creditFils?: number; overLimit?: boolean;
+  balanceFils?: number; overdueFils?: number; creditFils?: number; openingDueFils?: number; overLimit?: boolean;
 }
 export interface Vehicle {
   id: string; customerId: string; plate: string; make: string | null; model: string | null; year: number | null; vin: string | null;
@@ -28,7 +28,7 @@ export interface DocLine {
   /** Set in the editor when a part was just picked: its shelf count before this line takes any. */
   pickedOnHand?: number;
 }
-export interface Payment { id: string; amountFils: number; method: string; reference: string | null; paidAt: string; createdBy: string | null; receiptNumber?: string }
+export interface Payment { id: string; amountFils: number; method: string; reference: string | null; paidAt: string; createdBy: string | null; receiptNumber?: string; receiptId?: string }
 export interface DocRef { id: string; number: string; type: DocType; issuedAt?: string | null }
 
 export interface DocumentFull {
@@ -97,4 +97,4 @@ export type AgingBucket = "current" | "1-30" | "31-60" | "61-90" | "90+";
 export interface LedgerRow {
   date: string; kind: "opening" | "invoice" | "credit_note" | "receipt"; number: string; description: string; debitFils: number; creditFils: number; balanceFils: number;
 }
-export interface Statement { openingFils: number; rows: LedgerRow[]; closingFils: number; aging: Record<AgingBucket, number> }
+export interface Statement { openingFils: number; rows: LedgerRow[]; closingFils: number; aging: Record<AgingBucket, number>; creditFils: number }

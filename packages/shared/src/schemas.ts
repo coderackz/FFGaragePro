@@ -97,8 +97,11 @@ export type LineInput = z.infer<typeof lineSchema>;
 export const approvalSchema = z.object({ username: text(60).min(1), password: z.string().min(1).max(200) });
 export type ApprovalInput = z.infer<typeof approvalSchema>;
 
+/** What can be started from scratch; a credit note is only ever made from an issued invoice. */
+export const CREATABLE_DOC_TYPES = ["estimate", "jobcard", "invoice"] as const;
+
 export const documentCreateSchema = z.object({
-  type: z.enum(DOC_TYPES),
+  type: z.enum(CREATABLE_DOC_TYPES),
   customerId: z.string().uuid(),
   vehicleId: z.string().uuid().optional().nullable(),
   odometer: z.number().int().min(0).optional().nullable(),

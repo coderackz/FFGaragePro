@@ -8,7 +8,7 @@ import { audit } from "../audit";
 import { LoginThrottle, requireAction, sessionUser, verifyPassword, type SessionUser } from "../auth";
 import { newId, now, type Db } from "../db";
 import { badRequest, conflict, HttpError, notFound, tooManyRequests } from "../errors";
-import { recomputeInvoiceMoney } from "../invoice-money";
+import { recomputeInvoiceMoney, releaseOverpayment } from "../invoice-money";
 import { customerBalance } from "../ledger";
 import { checkStockAvailable, costTakenFor, documentCost, postMovement, reconcileDocumentStock } from "../stock";
 import { reserveNumber, takeNumber, type NumberSource, type Reserved } from "../numbering";
@@ -236,8 +236,8 @@ export function documentRoutes(
     );
     const cost = can(user.role, "costs.view") ? documentCost(db, id) : null;
     // Payments on this invoice: its receipt allocations (an undone allocation shows as a negative line).
-    const payments = db.all<{ id: string; amount_fils: number; method: string; reference: string | null; paid_at: string; created_by_name: string | null; receipt_number: string }>(
-      `SELECT a.id, a.amount_fils, r.method, r.reference, r.received_at AS paid_at, r.number AS receipt_number, u.name AS created_by_name
+    const payments = db.all<{ id: string; amount_fils: number; method: string; reference: string | null; paid_at: string; created_by_name: string | null; receipt_number: string; receipt_id: string }>(
+      `SELECT a.id, a.amount_fils, r.method, r.reference, r.received_at AS paid_at, r.number AS receipt_number, r.id AS receipt_id, u.name AS created_by_name
        FROM receipt_allocations a JOIN receipts r ON r.id = a.receipt_id LEFT JOIN users u ON u.id = a.created_by
        WHERE a.document_id = ? ORDER BY r.received_at, a.created_at, a.rowid`,
       [id],
@@ -283,6 +283,7 @@ export function documentRoutes(
       balanceFils: d.type === "invoice" ? d.gross_fils - d.credited_fils - d.paid_fils : 0,
       payments: payments.map((p) => ({
         id: p.id, amountFils: p.amount_fils, method: p.method, reference: p.reference, paidAt: p.paid_at, createdBy: p.created_by_name, receiptNumber: p.receipt_number,
+        receiptId: p.receipt_id,
       })),
     };
   }
@@ -405,6 +406,9 @@ export function documentRoutes(
       ).map((l) => ({ kind: l.kind, partId: l.part_id, qty: l.qty, suppliedBy: l.supplied_by }));
       checkStockAvailable(db, lines, [before.id]);
     }
+    // An estimate becoming a job card is where most jobs start: the credit limit applies here too, before a number.
+    const { approval } = z.object({ approval: approvalSchema.optional() }).parse(req.body ?? {});
+    const limit = before && convertsTo === "jobcard" ? checkCreditLimit(user, before.customer_id, before.gross_fils, approval) : {};
     const reserved = convertsTo ? await reserveNumber(numbers, convertsTo) : null;
     const id = db.tx(() => {
       const d = getDoc(req.params.id);
@@ -420,9 +424,12 @@ export function documentRoutes(
       }));
       const newDocId = insertDoc(user, { type: target, customerId: d.customer_id, vehicleId: d.vehicle_id, odometer: d.odometer, notes: d.notes, sourceId: d.id, pricesIncludeVat: !!d.prices_include_vat }, lines, target === convertsTo ? reserved : null);
       db.run("UPDATE documents SET status = 'converted', updated_at = ? WHERE id = ?", [now(), d.id]);
+      if (limit.approvedBy) {
+        audit(db, { action: "credit.override", entity: "document", entityId: newDocId, after: { document: getDoc(newDocId)?.number ?? null, approvedBy: limit.approvedBy }, userId: user.id });
+      }
       return newDocId;
     });
-    return { document: full(id, user) };
+    return { document: full(id, user), ...(limit.warning ? { warning: limit.warning } : {}) };
   });
 
   app.post<{ Params: { id: string } }>("/api/documents/:id/issue", async (req) => {
@@ -532,23 +539,7 @@ export function documentRoutes(
       db.run("UPDATE documents SET net_fils = ?, vat_fils = ?, gross_fils = ? WHERE id = ?", [net, vat, gross, cnId]);
       recomputeInvoiceMoney(db, inv.id);
       // Paid more than is now owed: take the excess back off the invoice, newest payments first, as customer credit.
-      let excess = -db.get<{ owed: number }>("SELECT gross_fils - credited_fils - paid_fils AS owed FROM documents WHERE id = ?", [inv.id])!.owed;
-      if (excess > 0) {
-        const byReceipt = db.all<{ receipt_id: string; amount: number }>(
-          `SELECT a.receipt_id, SUM(a.amount_fils) AS amount, MAX(r.received_at) AS at FROM receipt_allocations a JOIN receipts r ON r.id = a.receipt_id
-           WHERE a.document_id = ? GROUP BY a.receipt_id HAVING SUM(a.amount_fils) > 0 ORDER BY at DESC`,
-          [inv.id],
-        );
-        for (const r of byReceipt) {
-          if (excess <= 0) break;
-          const take = Math.min(excess, r.amount);
-          db.run("INSERT INTO receipt_allocations (id, receipt_id, document_id, amount_fils, created_by, created_at) VALUES (?, ?, ?, ?, ?, ?)", [
-            newId(), r.receipt_id, inv.id, -take, user.id, t,
-          ]);
-          excess -= take;
-        }
-        recomputeInvoiceMoney(db, inv.id);
-      }
+      releaseOverpayment(db, inv.id, user.id);
       audit(db, {
         action: "credit_note.issue", entity: "document", entityId: cnId, userId: user.id,
         after: { creditNote: number, invoice: inv.number, reason: input.reason, amountFils: gross },
@@ -567,7 +558,7 @@ export function documentRoutes(
     return db.tx(() => {
       const d = getDoc(req.params.id);
       if (!d) throw notFound("Document not found");
-      if (d.type !== "invoice" || d.status === "draft") return { count: 0 };
+      if (!((d.type === "invoice" && d.status !== "draft") || d.type === "credit_note")) return { count: 0 };
       db.run("INSERT INTO document_prints (id, document_id, user_id, printed_at) VALUES (?, ?, ?, ?)", [newId(), d.id, user.id, now()]);
       return { count: db.get<{ n: number }>("SELECT COUNT(*) AS n FROM document_prints WHERE document_id = ?", [d.id])!.n };
     });
@@ -603,6 +594,11 @@ export function documentRoutes(
       ]);
       recomputeInvoiceMoney(db, d.id);
       db.run("UPDATE documents SET updated_at = ? WHERE id = ?", [t, d.id]);
+      const customer = db.get<{ name: string }>("SELECT name FROM customers WHERE id = ?", [d.customer_id])!.name;
+      audit(db, {
+        action: "receipt.create", entity: "receipt", entityId: receiptId, userId: user.id,
+        after: { receipt: formatNumberOf("receipt", seq, series, prefixOf(getSettings(db), "receipt")), customer, amountFils: input.amountFils, allocations: [{ document: d.number, amountFils: input.amountFils }] },
+      });
     });
     return { document: full(req.params.id, user) };
   });

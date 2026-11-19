@@ -23,7 +23,8 @@ export const SYNC_TABLES: SyncTable[] = [
   { name: "purchase_orders", key: "id", derived: ["net_fils", "version"] },
   { name: "po_lines", key: "id", derived: ["received_qty"] },
   { name: "document_lines", key: "document_id", set: true },
-  // payments stopped at migration 8 (they became receipts); the table stays, read-only, and doesn't sync.
+  // Old-style payments (before migration 8) still syncing after an upgrade; each becomes a receipt on arrival.
+  { name: "payments", key: "id", insertOnly: true },
   { name: "receipts", key: "id", insertOnly: true },
   { name: "receipt_allocations", key: "id", insertOnly: true },
   { name: "goods_receipts", key: "id", insertOnly: true },

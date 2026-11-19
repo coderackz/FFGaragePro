@@ -398,8 +398,10 @@ CREATE INDEX audit_log_created ON audit_log(created_at);
   {
     id: 8,
     // Settings Part 2 (credit customers and credit notes). documents is rebuilt so its type can be 'credit_note';
-    // payments become receipts (one each, same id) with one allocation each (id + '-a'), numbered in date order,
-    // so a PC and the cloud migrating separately end up with identical rows. payments stays, read-only.
+    // payments become receipts (one each, same id) with one allocation each (id + '-a'). Each is numbered from its
+    // own id (series = id, number RCT-<first 10 of the id>), never from a counter, so a PC and the cloud give the same
+    // payment the same receipt whatever payments each had, and the main series (RCT-00001…) is left for new ones.
+    // Old payments still waiting to sync are turned into the same receipts when they arrive (legacyPaymentReceipt).
     foreignKeysOff: ["documents", "document_lines", "payments", "stock_movements", "po_lines", "document_prints", "receipts", "receipt_allocations"],
     sql: `
 ALTER TABLE customers ADD COLUMN credit_allowed INTEGER NOT NULL DEFAULT 0;
@@ -481,12 +483,11 @@ CREATE INDEX receipt_allocations_receipt ON receipt_allocations(receipt_id);
 CREATE INDEX receipt_allocations_document ON receipt_allocations(document_id);
 
 INSERT INTO receipts (id, series, seq, number, customer_id, amount_fils, method, reference, cheque_date, received_at, created_by, created_at)
-SELECT p.id, '', n, 'RCT-' || printf('%05d', n), d.customer_id, p.amount_fils, p.method, p.reference, NULL, p.paid_at, p.created_by, p.created_at
-FROM (SELECT payments.*, ROW_NUMBER() OVER (ORDER BY paid_at, id) AS n FROM payments) p JOIN documents d ON d.id = p.document_id;
+SELECT p.id, p.id, 1, 'RCT-' || upper(substr(replace(p.id, '-', ''), 1, 10)), d.customer_id, p.amount_fils, p.method, p.reference, NULL, p.paid_at,
+  p.created_by, p.created_at
+FROM payments p JOIN documents d ON d.id = p.document_id;
 INSERT INTO receipt_allocations (id, receipt_id, document_id, amount_fils, created_by, created_at)
 SELECT id || '-a', id, document_id, amount_fils, created_by, created_at FROM payments;
-INSERT INTO counters (type, next) SELECT 'receipt', COUNT(*) + 1 FROM payments WHERE true
-  ON CONFLICT(type) DO UPDATE SET next = excluded.next;
 `,
   },
 ];

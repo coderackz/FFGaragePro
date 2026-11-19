@@ -22,28 +22,55 @@ const openingBy = (c: Customer, asOf: string) => (!c.opening_balance_date || c.o
 export interface Balance {
   /** What the customer owes (negative: in credit). */
   balanceFils: number;
-  /** Owed on invoices past their due date. */
+  /** Owed past the due date: invoices, and an opening balance not yet paid. */
   overdueFils: number;
-  /** Received but not yet put against an invoice. */
+  /** Money the customer can use or have refunded: what's left once everything owed is covered. */
   creditFils: number;
+  /** The part of the opening balance still owed (payments not put against an invoice pay it first). */
+  openingDueFils: number;
+}
+
+interface OpenInvoice { id: string; due: string; owed: number }
+
+/**
+ * Each issued invoice's amount still owed as it stood on `asOf`: its total, less credit notes issued by then and
+ * payments received by then (an allocation counts from its receipt's date).
+ */
+function invoicesAsOf(db: Db, customerId: string, asOf: string): OpenInvoice[] {
+  return db.all<OpenInvoice>(
+    `SELECT d.id, COALESCE(d.due_date, ${D("d.issued_at")}) AS due,
+       d.gross_fils
+       - COALESCE((SELECT SUM(c.gross_fils) FROM documents c WHERE c.source_id = d.id AND c.type = 'credit_note' AND c.status = 'issued' AND ${D("c.issued_at")} <= :asOf), 0)
+       - COALESCE((SELECT SUM(a.amount_fils) FROM receipt_allocations a JOIN receipts r ON r.id = a.receipt_id WHERE a.document_id = d.id AND ${D("r.received_at")} <= :asOf), 0)
+       AS owed
+     FROM documents d WHERE d.customer_id = :customer AND d.type = 'invoice' AND d.status <> 'draft' AND ${D("d.issued_at")} <= :asOf`,
+    { customer: customerId, asOf },
+  );
+}
+
+/** Where a customer's account stood on `asOf`, and each invoice's part in it. */
+function accountAsOf(db: Db, customerId: string, asOf: string): Balance & { invoices: OpenInvoice[]; opening: Customer | undefined } {
+  const c = customerRow(db, customerId);
+  if (!c) return { balanceFils: 0, overdueFils: 0, creditFils: 0, openingDueFils: 0, invoices: [], opening: undefined };
+  const sum = (sql: string) => db.get<{ v: number }>(sql, [customerId, asOf])!.v;
+  const invoiced = sum(`SELECT COALESCE(SUM(gross_fils), 0) AS v FROM documents WHERE customer_id = ? AND type = 'invoice' AND status <> 'draft' AND ${D("issued_at")} <= ?`);
+  const credited = sum(`SELECT COALESCE(SUM(gross_fils), 0) AS v FROM documents WHERE customer_id = ? AND type = 'credit_note' AND status = 'issued' AND ${D("issued_at")} <= ?`);
+  const received = sum(`SELECT COALESCE(SUM(amount_fils), 0) AS v FROM receipts WHERE customer_id = ? AND ${D("received_at")} <= ?`);
+  const opening = openingBy(c, asOf);
+  const balance = opening + invoiced - credited - received;
+  const invoices = invoicesAsOf(db, customerId, asOf);
+  const owedOnInvoices = invoices.reduce((s, i) => s + Math.max(i.owed, 0), 0);
+  // Money not on an invoice (and over-paid invoices) covers the oldest debt, the opening balance, first.
+  const openingDue = Math.min(Math.max(balance - owedOnInvoices, 0), Math.max(opening, 0));
+  const credit = Math.max(owedOnInvoices - balance, 0);
+  const overdue = invoices.filter((i) => i.owed > 0 && i.due < asOf).reduce((s, i) => s + i.owed, 0)
+    + (openingDue > 0 && (c.opening_balance_date ?? "") < asOf ? openingDue : 0);
+  return { balanceFils: balance, overdueFils: overdue, creditFils: credit, openingDueFils: openingDue, invoices, opening: c };
 }
 
 export function customerBalance(db: Db, customerId: string, asOf: string = today()): Balance {
-  const c = customerRow(db, customerId);
-  if (!c) return { balanceFils: 0, overdueFils: 0, creditFils: 0 };
-  const sum = (sql: string) => db.get<{ v: number }>(sql, [customerId, asOf])!.v;
-  const invoices = sum(`SELECT COALESCE(SUM(gross_fils), 0) AS v FROM documents WHERE customer_id = ? AND type = 'invoice' AND status <> 'draft' AND ${D("issued_at")} <= ?`);
-  const credits = sum(`SELECT COALESCE(SUM(gross_fils), 0) AS v FROM documents WHERE customer_id = ? AND type = 'credit_note' AND status = 'issued' AND ${D("issued_at")} <= ?`);
-  const received = sum(`SELECT COALESCE(SUM(amount_fils), 0) AS v FROM receipts WHERE customer_id = ? AND ${D("received_at")} <= ?`);
-  const allocated = sum(
-    `SELECT COALESCE(SUM(a.amount_fils), 0) AS v FROM receipt_allocations a JOIN receipts r ON r.id = a.receipt_id WHERE r.customer_id = ? AND ${D("r.received_at")} <= ?`,
-  );
-  const overdue = db.get<{ v: number }>(
-    `SELECT COALESCE(SUM(MAX(gross_fils - credited_fils - paid_fils, 0)), 0) AS v FROM documents
-     WHERE customer_id = ? AND type = 'invoice' AND status IN ('issued', 'part_paid') AND due_date < ?`,
-    [customerId, asOf],
-  )!.v;
-  return { balanceFils: openingBy(c, asOf) + invoices - credits - received, overdueFils: overdue, creditFils: received - allocated };
+  const { balanceFils, overdueFils, creditFils, openingDueFils } = accountAsOf(db, customerId, asOf);
+  return { balanceFils, overdueFils, creditFils, openingDueFils };
 }
 
 export interface LedgerRow {
@@ -60,7 +87,9 @@ export interface Statement {
   openingFils: number;
   rows: LedgerRow[];
   closingFils: number;
+  /** Owed at the end date by how late, and the customer's credit then: buckets − credit = closing balance. */
   aging: Record<AgingBucket, number>;
+  creditFils: number;
 }
 
 /** Statement of account for `from`..`to` (inclusive): balance brought forward, each entry with a running balance. */
@@ -100,7 +129,7 @@ export function customerLedger(db: Db, customerId: string, from: string, to: str
   let running = openingFils;
   const rows = entries.map((e) => ({ ...e, balanceFils: (running += e.debitFils - e.creditFils) }));
   const aged = agingReport(db, to, customerId).customers[0];
-  return { openingFils, rows, closingFils: customerBalance(db, customerId, to).balanceFils, aging: aged?.buckets ?? emptyBuckets() };
+  return { openingFils, rows, closingFils: customerBalance(db, customerId, to).balanceFils, aging: aged?.buckets ?? emptyBuckets(), creditFils: aged?.creditFils ?? 0 };
 }
 
 const emptyBuckets = () => Object.fromEntries(AGING_BUCKETS.map((b) => [b, 0])) as Record<AgingBucket, number>;
@@ -120,17 +149,10 @@ export function agingReport(db: Db, asOf: string = today(), onlyCustomer?: strin
   const out: AgingRow[] = [];
   for (const c of customers) {
     const buckets = emptyBuckets();
-    if (c.opening_balance_fils > 0 && (!c.opening_balance_date || c.opening_balance_date <= asOf)) {
-      buckets[c.opening_balance_date ? agingBucket(c.opening_balance_date, asOf) : "current"] += c.opening_balance_fils;
-    }
-    for (const inv of db.all<{ due: string; owed: number }>(
-      `SELECT COALESCE(due_date, ${D("issued_at")}) AS due, gross_fils - credited_fils - paid_fils AS owed FROM documents
-       WHERE customer_id = ? AND type = 'invoice' AND status IN ('issued', 'part_paid') AND ${D("issued_at")} <= ?`,
-      [c.id, asOf],
-    )) {
-      if (inv.owed > 0) buckets[agingBucket(inv.due, asOf)] += inv.owed;
-    }
-    const creditFils = customerBalance(db, c.id, asOf).creditFils;
+    const account = accountAsOf(db, c.id, asOf);
+    if (account.openingDueFils > 0) buckets[c.opening_balance_date ? agingBucket(c.opening_balance_date, asOf) : "current"] += account.openingDueFils;
+    for (const inv of account.invoices) if (inv.owed > 0) buckets[agingBucket(inv.due, asOf)] += inv.owed;
+    const creditFils = account.creditFils;
     const totalFils = AGING_BUCKETS.reduce((s, b) => s + buckets[b], 0);
     if (!totalFils && !creditFils && !onlyCustomer) continue;
     for (const b of AGING_BUCKETS) totals[b] += buckets[b];

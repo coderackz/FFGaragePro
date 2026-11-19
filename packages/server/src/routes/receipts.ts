@@ -18,6 +18,7 @@ interface ReceiptRow {
 interface InvoiceRow { id: string; number: string; type: string; status: string; customer_id: string; owed: number; due_date: string | null; issued_at: string | null }
 
 type Allocation = { documentId: string; amountFils: number };
+const OPENING = "opening-balance";
 
 const invoiceOf = (db: Db, id: string) =>
   db.get<InvoiceRow>(
@@ -66,7 +67,12 @@ function planAllocations(db: Db, input: ReceiptInput): Allocation[] {
        WHERE customer_id = ? AND type = 'invoice' AND status IN ('issued', 'part_paid')`,
       [input.customerId],
     );
-    return allocateOldestFirst(input.amountFils, open.map((d) => ({ id: d.id, dueDate: d.due_date ?? d.issued_at.slice(0, 10), issuedAt: d.issued_at, owedFils: d.owed })));
+    // An opening balance still owed is the oldest debt: what goes to it stays off the invoices (it has no invoice).
+    const c = db.get<{ opening_balance_date: string | null }>("SELECT opening_balance_date FROM customers WHERE id = ?", [input.customerId]);
+    const openingDue = customerBalance(db, input.customerId).openingDueFils;
+    const items = open.map((d) => ({ id: d.id, dueDate: d.due_date ?? d.issued_at.slice(0, 10), issuedAt: d.issued_at, owedFils: d.owed }));
+    if (openingDue > 0) items.push({ id: OPENING, dueDate: c?.opening_balance_date ?? "0000-00-00", issuedAt: "", owedFils: openingDue });
+    return allocateOldestFirst(input.amountFils, items).filter((a) => a.documentId !== OPENING);
   }
   checkAllocations(db, input.customerId, input.allocations);
   if (input.allocations.reduce((s, a) => s + a.amountFils, 0) > input.amountFils) {
@@ -169,6 +175,9 @@ export function receiptRoutes(app: FastifyInstance, db: Db, numbers?: NumberSour
       }
       const added = allocations.reduce((s, a) => s + a.amountFils, 0);
       if (added > r.unallocatedFils) throw badRequest(`Only ${formatAED(r.unallocatedFils)} of ${r.number} is left to put against invoices`);
+      // A receipt's leftover may already have paid the opening balance or been refunded: only real credit can be used.
+      const credit = customerBalance(db, r.customerId).creditFils;
+      if (added > 0 && added > credit) throw badRequest(`Only ${formatAED(credit)} of the customer's credit is left`);
       insertAllocations(db, r.id, allocations, user.id);
       audit(db, {
         action: "receipt.allocate", entity: "receipt", entityId: r.id, userId: user.id,

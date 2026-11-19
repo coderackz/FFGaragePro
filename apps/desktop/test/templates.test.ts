@@ -39,7 +39,7 @@ describe("printed documents follow Settings", () => {
   it("watermarks", () => {
     expect(renderDocumentHtml(invoice(), SAMPLE_GARAGE, settings(), { copy: true })).toContain('class="wm"');
     expect(renderDocumentHtml(invoice(), SAMPLE_GARAGE, settings(), { copy: true })).toContain(">COPY<");
-    expect(renderDocumentHtml(invoice("paid"), SAMPLE_GARAGE, settings())).toContain(">PAID<");
+    expect(renderDocumentHtml({ ...invoice("paid"), paidFils: SAMPLE_DOCUMENTS.invoice.totals.grossFils }, SAMPLE_GARAGE, settings())).toContain(">PAID<");
     const draft = renderDocumentHtml(invoice("draft"), SAMPLE_GARAGE, settings(), { copy: true });
     expect(draft).not.toContain(">COPY<");
     expect(draft).not.toContain(">PAID<");
@@ -98,7 +98,7 @@ describe("receipts and statements", () => {
     expect(html).toContain("RCT-00004");
     expect(html).toContain("Allocated to");
     expect(html).toContain("INV-00009");
-    expect(html).toContain("Kept as credit: AED 32.50");
+    expect(html).toContain("On account: AED 32.50");
     expect(html).toContain("TT 4471");
   });
 
@@ -108,11 +108,19 @@ describe("receipts and statements", () => {
       rows: [{ date: "2026-11-05", kind: "invoice", number: "INV-00010", description: "Tax invoice, due 2026-12-05", debitFils: 21000, creditFils: 0, balanceFils: 28500 }],
       closingFils: 28500,
       aging: { current: 21000, "1-30": 7500, "31-60": 0, "61-90": 0, "90+": 0 },
+      creditFils: 0,
     }, { name: "Emirates Logistics", trn: null, address: "Dubai", phone: null, email: null }, SAMPLE_GARAGE, settings(), { from: "2026-11-01", to: "2026-11-30" });
     expect(html).toContain("STATEMENT OF ACCOUNT");
     expect(html).toContain("Balance brought forward");
     expect(html).toContain("285.00");
     for (const label of ["Current", "1–30 days", "31–60 days", "61–90 days", "Over 90 days"]) expect(html).toContain(label);
+  });
+
+  it("watermarks: CREDITED for a fully credited invoice, COPY on a credit note", () => {
+    const credited = renderDocumentHtml({ ...invoice("paid"), paidFils: 0, creditedFils: SAMPLE_DOCUMENTS.invoice.totals.grossFils }, SAMPLE_GARAGE, settings());
+    expect(credited).toContain(">CREDITED<");
+    expect(credited).not.toContain(">PAID<");
+    expect(renderDocumentHtml(SAMPLE_DOCUMENTS.credit_note, SAMPLE_GARAGE, settings(), { copy: true })).toContain(">COPY<");
   });
 });
 

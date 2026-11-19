@@ -31,7 +31,7 @@ export function ReceiptsPage() {
           { header: "Customer", cell: (r) => r.customerName },
           { header: "Method", cell: (r) => [PAYMENT_LABELS[r.method] ?? r.method, r.reference].filter(Boolean).join(" · ") },
           { header: "Amount", cell: (r) => formatAED(r.amountFils), align: "right" },
-          { header: "Credit left", cell: (r) => (r.unallocatedFils ? formatAED(r.unallocatedFils) : ""), align: "right" },
+          { header: "On account", cell: (r) => (r.unallocatedFils ? formatAED(r.unallocatedFils) : ""), align: "right" },
           {
             header: "", cell: (r) => (
               <Button size="sm" variant="ghost" icon={<Printer className="size-3.5" />} aria-label={`Print ${r.number}`}

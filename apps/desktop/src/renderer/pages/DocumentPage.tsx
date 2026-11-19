@@ -119,7 +119,8 @@ export function DocumentPage() {
     }));
     const body = { vehicleId: draft.vehicleId, odometer: draft.odometer, notes: draft.notes, lines, ...(type === "invoice" && !isNew ? { lpoNumber: draft.lpoNumber } : {}) };
     if (isNew) {
-      const res = await approval.withApproval((a) => post<{ document: DocumentFull }>("/api/documents", { type, customerId: draft.customer!.id, ...body, approval: a }));
+      const res = await approval.withApproval((a) => post<{ document: DocumentFull; warning?: string }>("/api/documents", { type, customerId: draft.customer!.id, ...body, approval: a }));
+      if (res.warning) toast.warning(res.warning);
       setDirty(false);
       navigate(`/documents/${res.document.id}`, { replace: true });
       return res.document.id;
@@ -157,8 +158,9 @@ export function DocumentPage() {
   const onConvert = () => run("convert", async () => {
     const id = await save();
     if (!id) return;
-    const res = await post<{ document: DocumentFull }>(`/api/documents/${id}/convert`);
+    const res = await approval.withApproval((a) => post<{ document: DocumentFull; warning?: string }>(`/api/documents/${id}/convert`, { approval: a }));
     toast.success(`${res.document.number} created`);
+    if (res.warning) toast.warning(res.warning);
     navigate(`/documents/${res.document.id}`);
   });
 
@@ -171,6 +173,15 @@ export function DocumentPage() {
     docQuery.setData({ document: res.document });
     toast.success(`${res.document.number} issued`);
     if (res.warning) toast.warning(res.warning);
+  });
+
+  /** A payment put against this invoice by mistake: taken back off, so it becomes the customer's credit again. */
+  const onUndo = (receiptId: string, amountFils: number, key: string) => run(`undo-${key}`, async () => {
+    if (!window.confirm(`Take ${formatAED(amountFils)} back off ${doc!.number}? It becomes the customer's credit, to use on another invoice or refund.`)) return;
+    await post(`/api/receipts/${receiptId}/allocations`, { allocations: [{ documentId: doc!.id, amountFils: -amountFils }] });
+    const { document } = await get<{ document: DocumentFull }>(`/api/documents/${doc!.id}`);
+    docQuery.setData({ document });
+    toast.success("Payment taken back off — it's now the customer's credit");
   });
 
   /** Saves first if needed, then opens "Request part" for the line (positions are counted after blank lines are dropped). */
@@ -193,6 +204,7 @@ export function DocumentPage() {
   if (!isNew && docQuery.error) return <Empty title="Document not found">{docQuery.error}</Empty>;
   if (!isNew && !doc) return <Spinner />;
   if (!DOC_LABELS[type]) return <Empty title="Unknown document type" />;
+  if (isNew && type === "credit_note") return <Empty title="Credit notes are made from an invoice">Open the issued invoice and choose “Credit note”.</Empty>;
 
   const next = CONVERTS_TO[type];
   const isInvoice = type === "invoice";
@@ -369,15 +381,24 @@ export function DocumentPage() {
                 <div className="px-4 py-3 text-sm text-zinc-500">No payments yet</div>
               ) : (
                 <ul className="divide-y divide-zinc-100">
-                  {doc.payments.map((p) => (
-                    <li key={p.id} className="flex items-center justify-between px-4 py-2.5 text-sm">
-                      <div>
-                        <div className="font-medium">{PAYMENT_LABELS[p.method] ?? p.method}{p.reference ? ` · ${p.reference}` : ""}</div>
-                        <div className="text-xs text-zinc-500">{formatDate(p.paidAt)}{p.createdBy ? ` · ${p.createdBy}` : ""}</div>
-                      </div>
-                      <div className="tabular font-medium">{formatAED(p.amountFils)}</div>
-                    </li>
-                  ))}
+                  {doc.payments.map((p) => {
+                    // What this receipt still has on this invoice (after any earlier undo).
+                    const onIt = doc.payments.filter((x) => x.receiptId === p.receiptId).reduce((s, x) => s + x.amountFils, 0);
+                    return (
+                      <li key={p.id} className="flex items-center justify-between gap-2 px-4 py-2.5 text-sm">
+                        <div className="min-w-0">
+                          <div className="font-medium">{p.receiptNumber ? `${p.receiptNumber} · ` : ""}{PAYMENT_LABELS[p.method] ?? p.method}{p.reference ? ` · ${p.reference}` : ""}</div>
+                          <div className="text-xs text-zinc-500">{formatDate(p.paidAt)}{p.createdBy ? ` · ${p.createdBy}` : ""}{p.amountFils < 0 ? " · taken back off" : ""}</div>
+                        </div>
+                        <div className="flex shrink-0 items-center gap-2">
+                          <span className="tabular font-medium">{formatAED(p.amountFils)}</span>
+                          {p.amountFils > 0 && onIt > 0 && p.receiptId && can("payments.record") && (
+                            <Button size="sm" variant="ghost" busy={busy === `undo-${p.id}`} onClick={() => onUndo(p.receiptId!, Math.min(p.amountFils, onIt), p.id)} aria-label={`Undo ${p.receiptNumber ?? "payment"}`}>Undo</Button>
+                          )}
+                        </div>
+                      </li>
+                    );
+                  })}
                 </ul>
               )}
             </Card>

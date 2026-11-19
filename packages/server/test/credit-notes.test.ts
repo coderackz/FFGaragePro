@@ -100,4 +100,20 @@ describe("credit notes", () => {
       await app.close();
     }
   });
+
+  it("a credit note can't be created on its own, only from an issued invoice", async () => {
+    const { app, owner, customer } = await garage();
+    const res = await call(app, "POST", "/api/documents", owner, { type: "credit_note", customerId: customer.id, lines: [LABOUR] });
+    expect(res.status).toBe(400);
+    expect(app.db.get("SELECT 1 FROM documents WHERE type = 'credit_note'")).toBeUndefined();
+  });
+
+  it("credit note prints are counted (second says COPY)", async () => {
+    const { app, owner, invoice, credit } = await garage();
+    const inv = await invoice([LABOUR]);
+    const cn = (await credit(inv.id, { reason: "Fine" })).body.document;
+    expect((await call(app, "POST", `/api/documents/${cn.id}/prints`, owner)).body).toEqual({ count: 1 });
+    expect((await call(app, "POST", `/api/documents/${cn.id}/prints`, owner)).body).toEqual({ count: 2 });
+  });
 });
+

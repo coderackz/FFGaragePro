@@ -156,7 +156,11 @@ export function renderDocumentHtml(doc: DocumentFull, garage: Garage, settings: 
     ? `<div class="terms">${bank ? `<div class="bank">${esc(bank)}</div>` : ""}${ds.terms ? esc(ds.terms) : ""}</div>`
     : "";
   const issued = isInvoice && !draftInvoice;
-  const marks = [doc.status === "paid" && issued ? "PAID" : null, opts.copy && issued ? "COPY" : null].filter(Boolean);
+  const fullyCredited = issued && (doc.creditedFils ?? 0) >= doc.totals.grossFils && doc.totals.grossFils > 0;
+  const marks = [
+    fullyCredited ? "CREDITED" : doc.status === "paid" && issued && doc.paidFils > 0 ? "PAID" : null,
+    opts.copy && (issued || isCredit) ? "COPY" : null,
+  ].filter(Boolean);
   const watermark = marks.length ? `<div class="wm">${marks.map((m) => `<span>${m}</span>`).join("")}</div>` : "";
   const titleHtml = `<div class="title">
       <div class="en">${title.en}</div>
@@ -255,6 +259,7 @@ function shell(title: string, body: string): string {
   return `<!doctype html><html lang="en"><head><meta charset="utf-8"><title>${esc(title)}</title><style>${PAGE_CSS}
     table.ledger td.d { white-space: nowrap; color: #52525b; } .aging { display: grid; grid-template-columns: repeat(6, 1fr); gap: 2mm; margin-top: 6mm; }
     .aging div { border: 1px solid #e4e4e7; border-radius: 2mm; padding: 2.5mm; font-size: 8.5pt; color: #52525b; } .aging b { display: block; font-size: 10.5pt; color: #18181b; margin-top: 1mm; }
+    .aging { grid-template-columns: repeat(auto-fit, minmax(24mm, 1fr)); }
     .amount { font-size: 20pt; font-weight: 800; margin: 2mm 0 4mm; }</style></head><body><div class="page">${body}</div></body></html>`;
 }
 
@@ -271,7 +276,7 @@ export function renderReceiptHtml(r: Receipt, garage: Garage, settings: Settings
     <div class="party"><h3>Amount</h3><div class="amount">AED ${money(Math.abs(r.amountFils))}</div><div class="line">${esc(how)}</div></div></div>
   ${r.allocations.length ? `<h3 style="font-size:8pt;letter-spacing:.1em;color:#71717a;text-transform:uppercase;margin:4mm 0 2mm">Allocated to</h3>
   <table class="items"><thead><tr><th class="n">#</th><th>Invoice</th><th class="r">Amount</th></tr></thead><tbody>${rows}</tbody></table>` : ""}
-  ${r.unallocatedFils > 0 ? `<div class="warranty"><b>Kept as credit: ${formatAED(r.unallocatedFils)}</b> — set against future invoices.</div>` : ""}
+  ${r.unallocatedFils > 0 ? `<div class="warranty"><b>On account: ${formatAED(r.unallocatedFils)}</b> — not against an invoice; it pays any earlier balance first, then is kept as credit.</div>` : ""}
   <div class="sigs two"><div><span></span>${refund ? "Received by (customer)" : "Paid by (customer)"}</div>${garageSignature(garage, settings)}</div>
   <footer><span>${esc(r.number)} · printed ${date(new Date().toISOString())}</span><span>Powered by Fleetfix Garage Pro</span></footer>`);
 }
@@ -299,7 +304,7 @@ export function renderStatementHtml(
   <table class="items ledger"><thead><tr><th>Date</th><th>Number</th><th>Details</th><th class="r">Debit</th><th class="r">Credit</th><th class="r">Balance</th></tr></thead>
     <tbody><tr><td class="d">${ymdDate(range.from)}</td><td></td><td>Balance brought forward</td><td></td><td></td><td class="r b">${money(s.openingFils)}</td></tr>${rows}
     <tr><td class="d">${ymdDate(range.to)}</td><td></td><td><b>Balance carried forward</b></td><td></td><td></td><td class="r b">${money(s.closingFils)}</td></tr></tbody></table>
-  <div class="aging">${(Object.keys(AGING_LABELS) as AgingBucket[]).map((b) => `<div>${AGING_LABELS[b]}<b>${money(s.aging[b])}</b></div>`).join("")}<div>Total due<b>${money(s.closingFils)}</b></div></div>
+  <div class="aging">${(Object.keys(AGING_LABELS) as AgingBucket[]).map((b) => `<div>${AGING_LABELS[b]}<b>${money(s.aging[b])}</b></div>`).join("")}${s.creditFils ? `<div>Less credit<b>−${money(s.creditFils)}</b></div>` : ""}<div>Total due<b>${money(s.closingFils)}</b></div></div>
   ${bank ? `<div class="terms"><div class="bank">${esc(bank)}</div></div>` : ""}
   <footer><span>Statement · printed ${date(new Date().toISOString())}</span><span>Powered by Fleetfix Garage Pro</span></footer>`);
 }

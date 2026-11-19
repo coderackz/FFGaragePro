@@ -43,7 +43,12 @@ export function ReceivePaymentDialog({ customer, mode, onClose, onDone }: {
     setReference("");
     setChequeDate("");
     setMethod(mode === "refund" ? "cash" : "bank_transfer");
-    void openInvoices(customer.id).then((list) => {
+    void openInvoices(customer.id).then((invoicesOnly) => {
+      const openingDue = customer.openingDueFils ?? 0;
+      const list = mode === "receive" && openingDue > 0
+        ? [{ id: OPENING_ROW, number: "Opening balance", dueDate: customer.openingBalanceDate ?? "0000-00-00", issuedAt: "", owedFils: openingDue }, ...invoicesOnly]
+          .sort((a, b) => a.dueDate.localeCompare(b.dueDate))
+        : invoicesOnly;
       setInvoices(list);
       const start = mode === "receive" ? list.reduce((s, i) => s + i.owedFils, 0) : mode === "allocate" ? Math.min(credit, list.reduce((s, i) => s + i.owedFils, 0)) : credit;
       setAmount(start);
@@ -58,7 +63,7 @@ export function ReceivePaymentDialog({ customer, mode, onClose, onDone }: {
   const submit = async () => {
     setBusy(true);
     try {
-      const allocations = Object.entries(split).filter(([, v]) => v > 0).map(([documentId, amountFils]) => ({ documentId, amountFils }));
+      const allocations = Object.entries(split).filter(([id, v]) => v > 0 && id !== OPENING_ROW).map(([documentId, amountFils]) => ({ documentId, amountFils }));
       if (mode === "receive") {
         const { receipt } = await post<{ receipt: Receipt }>("/api/receipts", {
           customerId: customer.id, amountFils: amount, method, reference, chequeDate: method === "cheque" && chequeDate ? chequeDate : null, allocations,
@@ -114,8 +119,8 @@ export function ReceivePaymentDialog({ customer, mode, onClose, onDone }: {
                 <tbody className="divide-y divide-zinc-100">
                   {invoices.map((i) => (
                     <tr key={i.id}>
-                      <td className="py-1.5 font-mono">{i.number}</td>
-                      <td className="text-zinc-600">{formatDate(`${i.dueDate}T00:00:00.000Z`)}</td>
+                      <td className={i.id === OPENING_ROW ? "py-1.5" : "py-1.5 font-mono"}>{i.number}</td>
+                      <td className="text-zinc-600">{i.dueDate === "0000-00-00" ? "—" : formatDate(`${i.dueDate}T00:00:00.000Z`)}</td>
                       <td className="tabular text-right">{formatAED(i.owedFils)}</td>
                       <td className="pl-3"><MoneyInput fils={split[i.id] ?? 0} onChange={(v) => setSplit({ ...split, [i.id]: v })} aria-label={`Pay ${i.number}`} className="h-8" /></td>
                     </tr>
@@ -135,6 +140,9 @@ export function ReceivePaymentDialog({ customer, mode, onClose, onDone }: {
 
 const oldestFirst = (amount: number, list: Open[]) =>
   Object.fromEntries(allocateOldestFirst(amount, list.map((i) => ({ id: i.id, dueDate: i.dueDate, issuedAt: i.issuedAt, owedFils: i.owedFils }))).map((a) => [a.documentId, a.amountFils]));
+
+/** An opening balance still owed is the oldest debt: shown as a row; what goes to it isn't put against an invoice. */
+export const OPENING_ROW = "opening-balance";
 
 /** Puts a customer's credit against invoices, taking it from their oldest receipts with something left. */
 async function allocateCredit(customerId: string, wanted: { documentId: string; amountFils: number }[]): Promise<void> {
