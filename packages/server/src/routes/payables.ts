@@ -5,6 +5,7 @@ import type { Db } from "../db";
 import { badRequest, notFound } from "../errors";
 import { cancelBill, createBill, getBill, listBills } from "../payables/bills";
 import { postPending } from "../books/pending";
+import { expenseFromLine, importStatement, matchLine, reconcileView, setMapping, unmatchLine } from "../payables/reconcile";
 import { payablesAging, supplierBalance, supplierOpenItems, supplierStatement } from "../payables/ledger";
 import { allocatePayment, createPayment, listPayments } from "../payables/payments";
 import {
@@ -132,5 +133,37 @@ export function payablesRoutes(app: FastifyInstance, db: Db, o: PayablesRouteOpt
     requireAction(sessionUser(db, req), "payables.manage");
     if (o.posts) postPending(db);
     return { accounts: moneyAccounts(db) };
+  });
+
+  // ── Bank reconciliation ──
+  app.put<{ Params: { id: string } }>("/api/money-accounts/:id/mapping", async (req) => {
+    requireAction(sessionUser(db, req), "payables.manage");
+    return { mapping: setMapping(db, req.params.id, req.body) };
+  });
+  app.post<{ Params: { id: string } }>("/api/money-accounts/:id/imports", { bodyLimit: 6 * 1024 * 1024 }, async (req) => {
+    const user = sessionUser(db, req);
+    requireAction(user, "payables.manage");
+    return importStatement(db, req.params.id, req.body, user.id);
+  });
+  app.get<{ Params: { id: string }; Querystring: { to?: string } }>("/api/money-accounts/:id/reconcile", async (req) => {
+    requireAction(sessionUser(db, req), "payables.manage");
+    if (o.posts) postPending(db);
+    return reconcileView(db, req.params.id, req.query.to && YMD.test(req.query.to) ? req.query.to : undefined);
+  });
+  app.post<{ Params: { id: string }; Body: { journalLineId?: string } }>("/api/bank-lines/:id/match", async (req) => {
+    requireAction(sessionUser(db, req), "payables.manage");
+    if (!req.body?.journalLineId) throw badRequest("Choose the entry to match");
+    matchLine(db, req.params.id, req.body.journalLineId);
+    return { ok: true };
+  });
+  app.post<{ Params: { id: string } }>("/api/bank-lines/:id/unmatch", async (req) => {
+    requireAction(sessionUser(db, req), "payables.manage");
+    unmatchLine(db, req.params.id);
+    return { ok: true };
+  });
+  app.post<{ Params: { id: string } }>("/api/bank-lines/:id/expense", async (req) => {
+    const user = sessionUser(db, req);
+    requireAction(user, "payables.manage");
+    return expenseFromLine(db, req.params.id, req.body, user.id, o.posts, o.numbers);
   });
 }
