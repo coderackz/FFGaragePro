@@ -15,6 +15,7 @@ interface MessageRow {
   id: string; customer_id: string | null; employee_id: string | null; contact_id: string | null; document_id: string | null; receipt_id: string | null;
   event: string; channel: string; recipient: string; subject: string | null; body: string; status: string; attempts: number;
   next_attempt_at: string | null; error: string | null; sender_place: string | null; created_at: string; sent_at: string | null;
+  provider_id?: string | null; delivery?: string | null;
   created_by_name?: string | null; file_name?: string | null;
 }
 
@@ -26,6 +27,7 @@ export const messageOut = (m: MessageRow) => ({
   channel: m.channel, recipient: m.recipient, subject: m.subject, body: m.body, status: m.status, attempts: m.attempts,
   nextAttemptAt: m.next_attempt_at, error: m.error, senderPlace: m.sender_place, createdBy: m.created_by_name ?? null,
   createdAt: m.created_at, sentAt: m.sent_at, fileName: m.file_name ?? null,
+  providerId: m.provider_id ?? null, delivery: m.delivery ?? null,
 });
 export type MessageOut = ReturnType<typeof messageOut>;
 
@@ -54,7 +56,7 @@ export const payslipMessages = (db: Db, runId: string): MessageOut[] =>
  * Queues an email (sent by this garage's one sender: the cloud when linked, else its server) or logs a WhatsApp
  * message opened on a PC. The same `dedupeKey` twice returns the first message: automatic messages never go twice.
  */
-export function queueMessage(db: Db, input: MessageInput, userId: string | null): MessageOut {
+export function queueMessage(db: Db, input: Omit<MessageInput, "wa"> & { wa?: MessageInput["wa"] }, userId: string | null): MessageOut {
   return db.tx(() => {
     if (input.dedupeKey) {
       const existing = db.get<{ id: string; event: string }>("SELECT id, event FROM messages WHERE dedupe_key = ?", [input.dedupeKey]);
@@ -67,12 +69,13 @@ export function queueMessage(db: Db, input: MessageInput, userId: string | null)
     if (input.event === "payslip" && !(input.employeeId && db.get("SELECT 1 FROM employees WHERE id = ?", [input.employeeId]))) throw badRequest("A payslip goes to an employee");
     const id = newId();
     const t = nowIso();
-    const email = input.channel === "email";
+    // Email and WhatsApp Business API messages are queued for the sender; a WhatsApp chat opened on a PC is logged.
+    const queued = input.channel === "email" || !!input.wa;
     db.run(
       `INSERT INTO messages (id, customer_id, employee_id, contact_id, document_id, receipt_id, event, channel, recipient, subject, body, status, dedupe_key,
-         created_by, created_at, sent_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+         created_by, created_at, sent_at, updated_at, wa_json) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
       [id, input.customerId, input.employeeId, input.contactId, input.documentId, input.receiptId, input.event, input.channel, input.recipient, input.subject,
-        input.body, email ? "queued" : "opened", input.dedupeKey, userId, t, email ? null : t, t],
+        input.body, queued ? "queued" : "opened", input.dedupeKey, userId, t, queued ? null : t, t, input.wa ? JSON.stringify(input.wa) : null],
     );
     if (input.attachment) {
       db.run("INSERT INTO message_files (id, message_id, file_name, data_base64, created_at) VALUES (?, ?, ?, ?, ?)", [

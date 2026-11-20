@@ -104,7 +104,8 @@ describe("customer ledger", () => {
     const paid = await call(app, "POST", "/api/receipts", owner, { customerId: customer.id, amountFils: 5000, method: "cash" });
     expect(paid.body.receipt.allocations).toEqual([]); // the opening balance (1 Oct) is older than the invoice
     expect(customerBalance(app.db, customer.id)).toMatchObject({ balanceFils: 1050, creditFils: 0, openingDueFils: 0 });
-    expect(agingReport(app.db, "2026-11-20").customers[0]!.totalFils).toBe(1050);
+    // As of today: the receipt was just taken (a fixed past date would leave it out).
+    expect(agingReport(app.db).customers[0]!.totalFils).toBe(1050);
     const refund = await call(app, "POST", "/api/receipts", owner, { customerId: customer.id, amountFils: -100, method: "cash" });
     expect(refund.body.error).toBe("The refund is more than the customer's credit of AED 0.00");
   });

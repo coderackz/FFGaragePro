@@ -144,7 +144,14 @@ export const messageInputSchema = z
       .optional()
       .transform((v) => v ?? null),
     dedupeKey: z.string().max(300).nullable().optional().transform((v) => v ?? null),
+    /** WhatsApp Business API: send as this Meta-approved template (queued and sent by the cloud). */
+    wa: z
+      .object({ name: z.string().trim().min(1).max(512), language: z.string().trim().min(2).max(15), params: z.array(z.string().max(1024)).max(20) })
+      .nullable()
+      .optional()
+      .transform((v) => v ?? null),
   })
+  .refine((m) => !m.wa || m.channel === "whatsapp", { message: "A WhatsApp template goes on a WhatsApp message", path: ["wa"] })
   .refine((m) => m.channel !== "email" || EMAIL_RE.test(m.recipient), { message: "Enter a valid email address", path: ["recipient"] })
   .refine((m) => m.channel !== "email" || !!m.subject, { message: "An email needs a subject", path: ["subject"] });
 export type MessageInput = z.infer<typeof messageInputSchema>;

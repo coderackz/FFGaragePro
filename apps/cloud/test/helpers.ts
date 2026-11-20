@@ -16,7 +16,7 @@ export function makeClock(start = Date.parse("2026-11-18T08:00:00Z")) {
   return { now: () => t, advanceDays: (d: number) => { t += d * 86_400_000; } };
 }
 
-export async function startCloud(o: { maxOpen?: number; now?: () => number; webDir?: string; mailerFor?: CloudOptions["mailerFor"] } = {}) {
+export async function startCloud(o: { maxOpen?: number; now?: () => number; webDir?: string; mailerFor?: CloudOptions["mailerFor"]; integrations?: CloudOptions["integrations"] } = {}) {
   const dataDir = mkdtempSync(join(tmpdir(), "ffgp-cloud-test-"));
   const cloud = await createCloudServer({ dataDir, ...o });
   await new Promise<void>((r) => cloud.server.listen(0, "127.0.0.1", r));

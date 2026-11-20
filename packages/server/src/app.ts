@@ -20,6 +20,7 @@ import { templateRoutes } from "./routes/templates";
 import { promoRoutes } from "./routes/promo";
 import { integrationRoutes } from "./routes/integrations";
 import type { IntegrationOptions } from "./integrations/store";
+import { integrationRunner, type IntegrationRunner } from "./integrations/runner";
 import { messageRoutes } from "./routes/messages";
 import { customerRoutes } from "./routes/customers";
 import { documentRoutes } from "./routes/documents";
@@ -76,7 +77,9 @@ export interface AppOptions {
 const allowedOrigin = (origin: string | undefined) =>
   !origin || origin === "null" || /^http:\/\/(localhost|127\.0\.0\.1)(:\d+)?$/.test(origin);
 
-export async function buildApp(options: AppOptions): Promise<FastifyInstance & { db: Db }> {
+export type GarageAppInstance = FastifyInstance & { db: Db; integrations: IntegrationRunner | null };
+
+export async function buildApp(options: AppOptions): Promise<GarageAppInstance> {
   const db = Db.open(options.dataDir);
   db.device = options.cloud ? "Fleetfix cloud" : hostname();
   // Closing drops every connection, including spare ones a browser opened ahead of time without a request yet;
@@ -133,6 +136,11 @@ export async function buildApp(options: AppOptions): Promise<FastifyInstance & {
   templateRoutes(app, db);
   promoRoutes(app, db);
   integrationRoutes(app, db, options.integrations);
+  const integrations = options.integrations ? integrationRunner(db, options.integrations) : null;
+  const integrationTimer = integrations && options.integrations?.ownLoopMs
+    ? setInterval(() => void integrations.runOnce(new Date()).catch((e) => console.error("Integrations:", e)), options.integrations.ownLoopMs)
+    : null;
+  integrationTimer?.unref?.();
   if (options.postsBooks) {
     // The books catch up after every change made here (idempotent: each event posts once).
     app.addHook("onResponse", async (req, reply) => {
@@ -150,9 +158,10 @@ export async function buildApp(options: AppOptions): Promise<FastifyInstance & {
     outbox?.kick();
   });
   // One hook, in this order: the email in flight is finished and written before the database closes.
+  if (integrationTimer) app.addHook("onClose", async () => clearInterval(integrationTimer));
   app.addHook("onClose", async () => {
     await outbox?.stop();
     db.close();
   });
-  return Object.assign(app, { db }) as unknown as FastifyInstance & { db: Db };
+  return Object.assign(app, { db, integrations }) as unknown as GarageAppInstance;
 }
