@@ -12,7 +12,7 @@ const today = () => dubaiDate(new Date().toISOString());
 export const monthName = (month: string) => new Intl.DateTimeFormat("en-GB", { month: "short", year: "numeric", timeZone: "UTC" }).format(new Date(`${month}-01T00:00:00Z`));
 
 /** The same id everywhere for the same thing: two places opening one month make one run, one line per person. */
-const stableId = (text: string) => {
+export const stableId = (text: string) => {
   const h = createHash("sha1").update(text).digest("hex");
   return `${h.slice(0, 8)}-${h.slice(8, 12)}-5${h.slice(13, 16)}-8${h.slice(17, 20)}-${h.slice(20, 32)}`;
 };
@@ -90,7 +90,11 @@ function advanceDue(db: Db, employeeId: string, monthEnd: string): { dueFils: nu
 
 const employedIn = (db: Db, month: string) => {
   const m = monthDays(month);
-  return db.all<EmpRow>("SELECT * FROM employees WHERE join_date <= ? AND (left_date IS NULL OR left_date >= ?) ORDER BY name COLLATE NOCASE", [m.to, m.from]);
+  // Someone with a final settlement is paid by it from their leaving month on.
+  return db.all<EmpRow>(
+    `SELECT * FROM employees e WHERE join_date <= ? AND (left_date IS NULL OR left_date >= ?)
+       AND NOT (left_date IS NOT NULL AND left_date <= ? AND EXISTS (SELECT 1 FROM final_settlements f WHERE f.employee_id = e.id))
+     ORDER BY name COLLATE NOCASE`, [m.to, m.from, m.to]);
 };
 
 const salaryRule = (db: Db) => {

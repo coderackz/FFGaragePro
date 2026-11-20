@@ -1,0 +1,131 @@
+import { dubaiDate, proposeLine, settlementEditSchema, settlementProposal, settlementTotal, type SettlementItem, type SettlementKey } from "@ffgp/shared";
+import { checkNotLocked } from "../books/journals";
+import { formatDay } from "../books/post";
+import { newId, now, type Db } from "../db";
+import { badRequest, conflict, notFound } from "../errors";
+import { getSettings } from "../settings";
+import { advancesOf, unpaidLeaveOf } from "./employees";
+import { gratuityHeld, stableId, type Snapshot } from "./runs";
+
+interface EmpRow {
+  id: string; name: string; job: string; name_ar: string | null; language: string; join_date: string; left_date: string | null;
+  basic_fils: number; housing_fils: number; transport_fils: number; other_allowance_fils: number;
+}
+interface Row { id: string; employee_id: string; edits_json: string; created_at: string }
+export interface SettlementSnapshot {
+  employeeId: string; name: string; job: string; joinDate: string; lastDay: string; items: SettlementItem[]; totalFils: number;
+  gratuityHeldFils: number; salaryBasicFils: number;
+}
+
+const rowOf = (db: Db, idOrEmployee: string) => db.get<Row>("SELECT * FROM final_settlements WHERE id = ? OR employee_id = ?", [idOrEmployee, idOrEmployee]);
+const approvalOf = (db: Db, id: string) => db.get<{ snapshot_json: string; approved_at: string }>("SELECT snapshot_json, approved_at FROM settlement_approvals WHERE settlement_id = ?", [id]);
+const paymentOf = (db: Db, id: string) => db.get<{ paid_on: string }>("SELECT paid_on FROM settlement_payments WHERE settlement_id = ?", [id]);
+const employee = (db: Db, id: string) => db.get<EmpRow>("SELECT * FROM employees WHERE id = ?", [id]);
+
+function rules(db: Db) {
+  const r = getSettings(db).payroll;
+  if (!r.salaryDayRate || !r.gratuityDayRate || !r.gratuityCap || !r.leaveBasis) throw badRequest("Choose how pay is worked out in Settings → Payroll first");
+  return { salaryDayRate: r.salaryDayRate, gratuityDayRate: r.gratuityDayRate, gratuityCap: r.gratuityCap, leaveBasis: r.leaveBasis };
+}
+
+/** Has an approved payroll already paid this person's days in their leaving month? */
+function salaryPaid(db: Db, employeeId: string, lastDay: string): boolean {
+  const a = db.get<{ snapshot_json: string }>(
+    "SELECT a.snapshot_json FROM payroll_approvals a JOIN payroll_runs r ON r.id = a.run_id WHERE r.month = ?", [lastDay.slice(0, 7)]);
+  return !!a && (JSON.parse(a.snapshot_json) as Snapshot).lines.some((l) => l.employeeId === employeeId);
+}
+
+/** The settlement as it would be approved now: the proposal, with the accountant's changed amounts and reasons. */
+function current(db: Db, r: Row): SettlementSnapshot {
+  const e = employee(db, r.employee_id)!;
+  if (!e.left_date) throw badRequest("Enter the day they leave on the employee first");
+  const leave = db.all<{ kind: string; from_date: string; to_date: string }>(
+    "SELECT kind, from_date, to_date FROM employee_leave WHERE employee_id = ? AND cancelled_at IS NULL", [e.id]);
+  const rule = rules(db);
+  const pay = { basicFils: e.basic_fils, housingFils: e.housing_fils, transportFils: e.transport_fils, otherAllowanceFils: e.other_allowance_fils, joinDate: e.join_date, leftDate: e.left_date };
+  const paid = salaryPaid(db, e.id, e.left_date);
+  const gratuityHeldFils = gratuityHeld(db, e.id);
+  const items = settlementProposal({
+    employee: pay, lastDay: e.left_date, unpaidLeave: unpaidLeaveOf(db, e.id),
+    annualTaken: leave.filter((l) => l.kind === "annual" && l.from_date <= e.left_date!).map((l) => ({ from: l.from_date, to: l.to_date })),
+    rules: rule, salaryAlreadyPaid: paid, gratuityHeldFils, advancesOwedFils: advancesOf(db, e.id).reduce((s, a) => s + a.owedFils, 0),
+  });
+  const edits = JSON.parse(r.edits_json) as Partial<Record<SettlementKey, { amountFils: number; reason: string }>>;
+  for (const i of items) {
+    const ed = edits[i.key];
+    if (ed) { i.amountFils = ed.amountFils; i.reason = ed.reason; }
+  }
+  // The salary splits between basic and allowances as the proposal did (a changed amount keeps the same split).
+  const line = proposeLine({ month: e.left_date.slice(0, 7), employee: pay, unpaidLeave: unpaidLeaveOf(db, e.id), salaryDayRate: rule.salaryDayRate, advanceDueFils: 0 });
+  const salary = items.find((i) => i.key === "salary")!;
+  const proposedGross = line.basicFils + line.allowancesFils;
+  const salaryBasicFils = paid || !proposedGross ? (paid ? 0 : salary.amountFils) : Math.round((salary.amountFils * line.basicFils) / proposedGross);
+  return { employeeId: e.id, name: e.name, job: e.job, joinDate: e.join_date, lastDay: e.left_date, items, totalFils: settlementTotal(items), gratuityHeldFils, salaryBasicFils };
+}
+
+export function getSettlement(db: Db, idOrEmployee: string) {
+  const r = rowOf(db, idOrEmployee);
+  if (!r) throw notFound("No final settlement yet");
+  const a = approvalOf(db, r.id);
+  const s = a ? (JSON.parse(a.snapshot_json) as SettlementSnapshot) : current(db, r);
+  return { id: r.id, ...s, status: a ? ("approved" as const) : ("draft" as const), approvedAt: a?.approved_at ?? null, paidOn: paymentOf(db, r.id)?.paid_on ?? null };
+}
+
+/** Starts a leaver's final settlement (once their last day is entered and the pay rules are chosen). */
+export function openSettlement(db: Db, employeeId: string, userId: string) {
+  const e = employee(db, employeeId);
+  if (!e) throw notFound("Employee not found");
+  if (!e.left_date) throw badRequest("Enter the day they leave on the employee first");
+  rules(db);
+  if (rowOf(db, employeeId)) throw conflict(`${e.name} already has a final settlement`);
+  const t = now();
+  db.run("INSERT INTO final_settlements (id, employee_id, edits_json, created_by, created_at, updated_at) VALUES (?, ?, '{}', ?, ?, ?)", [
+    stableId(`settlement|${employeeId}`), employeeId, userId, t, t,
+  ]);
+  return getSettlement(db, employeeId);
+}
+
+const draft = (db: Db, id: string) => {
+  const r = rowOf(db, id);
+  if (!r) throw notFound("Final settlement not found");
+  if (approvalOf(db, r.id)) throw conflict("This settlement is approved: it can't change");
+  return r;
+};
+
+/** Changes one amount, with the reason (kept and printed). Back to the proposed amount, the change is dropped. */
+export function editSettlement(db: Db, id: string, input: unknown) {
+  const r = draft(db, id);
+  const x = settlementEditSchema.parse(input);
+  const proposed = current(db, { ...r, edits_json: "{}" }).items.find((i) => i.key === x.key)!;
+  const edits = JSON.parse(r.edits_json) as Record<string, unknown>;
+  if (x.amountFils === proposed.proposedFils) delete edits[x.key];
+  else edits[x.key] = { amountFils: x.amountFils, reason: x.reason };
+  db.run("UPDATE final_settlements SET edits_json = ?, updated_at = ? WHERE id = ?", [JSON.stringify(edits), now(), r.id]);
+  return getSettlement(db, r.id);
+}
+
+/** The owner approves what they were shown (`totalFils`): kept exactly as approved, for the books and the letter. */
+export function approveSettlement(db: Db, id: string, userId: string, input: { totalFils?: unknown }) {
+  const r = draft(db, id);
+  const s = current(db, r);
+  checkNotLocked(db, s.lastDay);
+  if (typeof input.totalFils === "number" && input.totalFils !== s.totalFils) throw conflict("The settlement changed since it was shown: check it and approve again");
+  db.run("INSERT INTO settlement_approvals (id, settlement_id, snapshot_json, approved_by, approved_at) VALUES (?, ?, ?, ?, ?)", [newId(), r.id, JSON.stringify(s), userId, now()]);
+  return getSettlement(db, r.id);
+}
+
+/** Paid out, from a bank or cash box, on or after the last day: once. */
+export function markSettlementPaid(db: Db, id: string, input: { date?: unknown; accountId?: unknown }, userId: string) {
+  const s = getSettlement(db, id);
+  if (s.status !== "approved") throw conflict("Approve the settlement first");
+  if (s.paidOn) throw conflict(`Already marked paid on ${formatDay(s.paidOn)}`);
+  const a = typeof input.accountId === "string" ? db.get<{ money_kind: string | null; active: number }>("SELECT money_kind, active FROM accounts WHERE id = ?", [input.accountId]) : undefined;
+  if (!a?.active || !["bank", "cash"].includes(a.money_kind ?? "")) throw badRequest("Pay a settlement from a bank or cash account");
+  if (typeof input.date !== "string" || !/^\d{4}-\d{2}-\d{2}$/.test(input.date) || input.date < s.lastDay) throw badRequest("Use a date on or after the last day");
+  checkNotLocked(db, input.date);
+  if (input.date > dubaiDate(new Date().toISOString())) throw badRequest("A payment can't be dated in the future");
+  db.run("INSERT INTO settlement_payments (id, settlement_id, paid_on, account_id, amount_fils, created_by, created_at) VALUES (?, ?, ?, ?, ?, ?, ?)", [
+    newId(), s.id, input.date, input.accountId as string, s.totalFils, userId, now(),
+  ]);
+  return getSettlement(db, s.id);
+}

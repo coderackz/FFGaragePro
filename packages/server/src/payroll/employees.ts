@@ -93,11 +93,14 @@ export function cancelLeave(db: Db, employeeId: string, leaveId: string) {
   return { id: leaveId };
 }
 
-/** What approved payrolls took back from someone's salary towards advances. */
+/** What approved payrolls (and an approved final settlement) took back from someone's pay towards advances. */
 const repaidFromSalary = (db: Db, employeeId: string) =>
   db.all<{ snapshot_json: string }>("SELECT snapshot_json FROM payroll_approvals").reduce((s, a) =>
     s + (JSON.parse(a.snapshot_json) as { lines: { employeeId: string; advanceRepaymentFils: number }[] }).lines
-      .filter((l) => l.employeeId === employeeId).reduce((t, l) => t + l.advanceRepaymentFils, 0), 0);
+      .filter((l) => l.employeeId === employeeId).reduce((t, l) => t + l.advanceRepaymentFils, 0), 0)
+  + db.all<{ snapshot_json: string }>(
+    "SELECT a.snapshot_json FROM settlement_approvals a JOIN final_settlements f ON f.id = a.settlement_id WHERE f.employee_id = ?", [employeeId],
+  ).reduce((s, a) => s - ((JSON.parse(a.snapshot_json) as { items: { key: string; amountFils: number }[] }).items.find((i) => i.key === "advances")?.amountFils ?? 0), 0);
 
 /** Advances paid to an employee, with what's still owed on each (repayments go oldest first; cancelled ones owe nothing). */
 export function advancesOf(db: Db, employeeId: string) {

@@ -1,4 +1,5 @@
 import { gratuityAtStart, type Snapshot } from "../payroll/runs";
+import type { SettlementSnapshot } from "../payroll/settlements";
 import { getSettings } from "../settings";
 import { SYSTEM_ACCOUNTS as A, type Settings } from "@ffgp/shared";
 import type { Db } from "../db";
@@ -488,3 +489,42 @@ export function postPayrollPayments(c: PostCtx): number {
   }
   return n;
 }
+
+/**
+ * An approved final settlement, dated the last day: salary (basic and allowances), leave pay (or leave taken ahead, a
+ * credit), the gratuity provision released and the difference to gratuity expense, advances taken back, and what's
+ * owed to the leaver in salaries payable. Paying it: Dr Salaries payable / Cr the bank or cash.
+ */
+export function postSettlements(c: PostCtx): number {
+  let n = 0;
+  for (const s of c.db.all<{ id: string; snapshot_json: string }>(
+    `SELECT f.id, a.snapshot_json FROM settlement_approvals a JOIN final_settlements f ON f.id = a.settlement_id WHERE ${unposted("'final_settlement:' || f.id")}`,
+  )) {
+    if (c.full()) break;
+    const x = JSON.parse(s.snapshot_json) as SettlementSnapshot;
+    if (x.lastDay < c.start) continue;
+    const amt = (k: string) => x.items.find((i) => i.key === k)?.amountFils ?? 0;
+    const salary = amt("salary");
+    if (c.post({
+      date: x.lastDay, narration: `Final settlement: ${x.name}`, sourceType: "final_settlement", sourceId: s.id, postKey: `final_settlement:${s.id}`, userId: null,
+      lines: [
+        debit(A.salaries.id, x.salaryBasicFils), debit(A.allowances.id, salary - x.salaryBasicFils), debit(A.salaries.id, amt("leave")),
+        debit(A.gratuity_provision.id, x.gratuityHeldFils), debit(A.gratuity_expense.id, amt("gratuity") - x.gratuityHeldFils),
+        credit(A.staff_advances.id, -amt("advances")), credit(A.salaries_payable.id, x.totalFils),
+      ],
+    })) n++;
+  }
+  for (const p of c.db.all<{ settlement_id: string; paid_on: string; account_id: string; amount_fils: number; name: string }>(
+    `SELECT p.settlement_id, p.paid_on, p.account_id, p.amount_fils, e.name FROM settlement_payments p JOIN final_settlements f ON f.id = p.settlement_id
+     JOIN employees e ON e.id = f.employee_id WHERE p.paid_on >= ? AND ${unposted("'settlement_paid:' || p.settlement_id")} ORDER BY p.created_at`,
+    [c.start],
+  )) {
+    if (c.full()) break;
+    if (c.post({
+      date: p.paid_on, narration: `Final settlement paid: ${p.name}`, sourceType: "settlement_paid", sourceId: p.settlement_id, postKey: `settlement_paid:${p.settlement_id}`,
+      userId: null, lines: [debit(A.salaries_payable.id, p.amount_fils), credit(p.account_id, p.amount_fils)],
+    })) n++;
+  }
+  return n;
+}
+

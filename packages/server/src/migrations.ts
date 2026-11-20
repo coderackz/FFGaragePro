@@ -1035,6 +1035,69 @@ ALTER TABLE sync_issues_new RENAME TO sync_issues;
 CREATE INDEX sync_issues_device ON sync_issues(for_device);
 `,
   },
+  {
+    id: 15,
+    // Accounting Part 4b (leavers, payslips by message): final settlements, their approval and payment; messages for an employee.
+    foreignKeysOff: ["journal_entries", "journal_lines", "vat_returns"],
+    sql: `
+CREATE TABLE journal_entries_new (
+  id TEXT PRIMARY KEY,
+  series TEXT NOT NULL DEFAULT '',
+  seq INTEGER NOT NULL,
+  number TEXT NOT NULL,
+  date TEXT NOT NULL,
+  narration TEXT NOT NULL,
+  source_type TEXT NOT NULL CHECK (source_type IN ('invoice', 'credit_note', 'receipt', 'goods_receipt', 'stock', 'cogs', 'customer_opening',
+    'opening', 'manual', 'reversal', 'year_close', 'revaluation', 'supplier_bill', 'bill_cancel', 'supplier_payment', 'supplier_opening', 'expense',
+    'transfer', 'cheque_deposit', 'cheque_clear', 'vat_return', 'payroll_run', 'wps_paid', 'bonus_paid', 'staff_advance', 'payroll_opening',
+    'final_settlement', 'settlement_paid')),
+  source_id TEXT,
+  post_key TEXT UNIQUE,
+  reverses_id TEXT REFERENCES journal_entries(id),
+  original_date TEXT,
+  created_by TEXT REFERENCES users(id),
+  created_at TEXT NOT NULL,
+  UNIQUE (series, seq)
+);
+INSERT INTO journal_entries_new SELECT id, series, seq, number, date, narration, source_type, source_id, post_key, reverses_id, original_date, created_by, created_at
+  FROM journal_entries;
+DROP TABLE journal_entries;
+ALTER TABLE journal_entries_new RENAME TO journal_entries;
+CREATE INDEX journal_entries_date ON journal_entries(date);
+CREATE INDEX journal_entries_source ON journal_entries(source_type, source_id);
+
+-- A leaver's final settlement while it's prepared: the accountant's changed amounts (with reasons). One per employee
+-- (its id comes from the employee, so two places make one).
+CREATE TABLE final_settlements (
+  id TEXT PRIMARY KEY,
+  employee_id TEXT NOT NULL UNIQUE REFERENCES employees(id),
+  edits_json TEXT NOT NULL DEFAULT '{}',
+  created_by TEXT REFERENCES users(id),
+  created_at TEXT NOT NULL,
+  updated_at TEXT NOT NULL
+);
+-- The owner's approval, with the settlement exactly as approved (the books and the letter read this). Once.
+CREATE TABLE settlement_approvals (
+  id TEXT PRIMARY KEY,
+  settlement_id TEXT NOT NULL UNIQUE REFERENCES final_settlements(id),
+  snapshot_json TEXT NOT NULL,
+  approved_by TEXT REFERENCES users(id),
+  approved_at TEXT NOT NULL
+);
+-- Paid out: once (the first place to record it wins).
+CREATE TABLE settlement_payments (
+  id TEXT PRIMARY KEY,
+  settlement_id TEXT NOT NULL UNIQUE REFERENCES final_settlements(id),
+  paid_on TEXT NOT NULL,
+  account_id TEXT NOT NULL REFERENCES accounts(id),
+  amount_fils INTEGER NOT NULL,
+  created_by TEXT REFERENCES users(id),
+  created_at TEXT NOT NULL
+);
+-- Payslips are messages to an employee (only people who run payroll see them).
+ALTER TABLE messages ADD COLUMN employee_id TEXT;
+`,
+  },
 ];
 
 /** The newest migration this code knows: the garage database's schema version. */

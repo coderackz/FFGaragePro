@@ -4,6 +4,7 @@ import type { Db } from "../db";
 import { addAdvance, addLeave, cancelAdvance, cancelLeave, createEmployee, expiringDocuments, getEmployee, listEmployees, updateEmployee } from "../payroll/employees";
 import { approveRun, editLine, getRun, listRuns, openRun, refreshRun } from "../payroll/runs";
 import { bonusVoucher, markBonusPaid, markWpsPaid, payslips, wpsFile } from "../payroll/pay";
+import { approveSettlement, editSettlement, getSettlement, markSettlementPaid, openSettlement } from "../payroll/settlements";
 
 export interface PayrollRouteOptions { posts: boolean }
 
@@ -88,6 +89,27 @@ export function payrollRoutes(app: FastifyInstance, db: Db, options: PayrollRout
   app.get<{ Params: { id: string } }>("/api/payroll/runs/:id/payslips", async (req) => {
     manager(req);
     return { payslips: payslips(db, req.params.id) };
+  });
+  app.post<{ Params: { id: string } }>("/api/employees/:id/settlement", async (req) => {
+    const user = manager(req);
+    return { settlement: openSettlement(db, req.params.id, user.id) };
+  });
+  app.get<{ Params: { id: string } }>("/api/employees/:id/settlement", async (req) => {
+    manager(req);
+    return { settlement: getSettlement(db, req.params.id) };
+  });
+  app.patch<{ Params: { id: string } }>("/api/settlements/:id", async (req) => {
+    manager(req);
+    return { settlement: editSettlement(db, req.params.id, req.body) };
+  });
+  app.post<{ Params: { id: string }; Body: { totalFils?: number } }>("/api/settlements/:id/approve", async (req) => {
+    const user = sessionUser(db, req);
+    requireAction(user, "payroll.approve");
+    return { settlement: approveSettlement(db, req.params.id, user.id, req.body ?? {}) };
+  });
+  app.post<{ Params: { id: string }; Body: { date?: string; accountId?: string } }>("/api/settlements/:id/paid", async (req) => {
+    const user = manager(req);
+    return { settlement: markSettlementPaid(db, req.params.id, req.body ?? {}, user.id) };
   });
   app.get("/api/payroll/expiring", async (req) => {
     manager(req);
