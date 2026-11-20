@@ -397,3 +397,43 @@ export function postStaffAdvances(c: PostCtx): number {
   return n;
 }
 
+/**
+ * An approved payroll, dated its month end: salaries and allowances (less unpaid leave, split between them pro rata),
+ * extras, a bonus paid through WPS and the gratuity put aside, against salaries payable, advances taken back and the
+ * gratuity provision.
+ */
+export function postPayrollRuns(c: PostCtx): number {
+  let n = 0;
+  for (const r of c.db.all<{ id: string; month: string }>(
+    `SELECT id, month FROM payroll_runs WHERE status = 'approved' AND month || '-31' >= ? AND ${unposted("'payroll_run:' || payroll_runs.id")} ORDER BY month`,
+    [c.start],
+  )) {
+    if (c.full()) break;
+    const lines = c.db.all<{ basic_fils: number; allowances_fils: number; unpaid_deduction_fils: number; extras_fils: number; bonus_fils: number; bonus_in_wps: number; net_fils: number; advance_repayment_fils: number; gratuity_fils: number }>(
+      "SELECT * FROM payroll_lines WHERE run_id = ?", [r.id]);
+    let salaries = 0, allowances = 0, bonus = 0, payable = 0, advances = 0, gratuity = 0;
+    for (const l of lines) {
+      const gross = l.basic_fils + l.allowances_fils;
+      const fromBasic = gross ? Math.round((l.unpaid_deduction_fils * l.basic_fils) / gross) : 0;
+      salaries += l.basic_fils - fromBasic + l.extras_fils;
+      allowances += l.allowances_fils - (l.unpaid_deduction_fils - fromBasic);
+      const wpsBonus = l.bonus_in_wps ? l.bonus_fils : 0;
+      bonus += wpsBonus;
+      payable += l.net_fils + wpsBonus;
+      advances += l.advance_repayment_fils;
+      gratuity += l.gratuity_fils;
+    }
+    const [y, m] = r.month.split("-").map(Number) as [number, number];
+    const monthEnd = new Date(Date.UTC(y, m, 0)).toISOString().slice(0, 10);
+    const name = new Intl.DateTimeFormat("en-GB", { month: "long", year: "numeric", timeZone: "UTC" }).format(new Date(`${r.month}-01T00:00:00Z`));
+    if (c.post({
+      date: monthEnd, narration: `Payroll ${name}`, sourceType: "payroll_run", sourceId: r.id, postKey: `payroll_run:${r.id}`, userId: null,
+      lines: [
+        debit(A.salaries.id, salaries), debit(A.allowances.id, allowances), debit(A.staff_bonus.id, bonus), debit(A.gratuity_expense.id, gratuity),
+        credit(A.salaries_payable.id, payable), credit(A.staff_advances.id, advances), credit(A.gratuity_provision.id, gratuity),
+      ],
+    })) n++;
+  }
+  return n;
+}
+
