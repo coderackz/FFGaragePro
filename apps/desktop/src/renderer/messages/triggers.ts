@@ -116,6 +116,24 @@ export async function queueEmail(
   return message;
 }
 
+/**
+ * WhatsApp through the Business API (connected in the cloud): queued with the approved Meta template and its body
+ * parameters filled from the placeholders; the cloud sends it (with the PDF as its document header).
+ */
+export async function queueWhatsAppApi(
+  r: SendRequest, to: Recipient, phone: string, body: string, pdf: { fileName: string; base64: string } | null,
+  t: { waTemplateName: string; waLanguage: string | null; waParams: string[] }, language: "en" | "ar", balanceFils: number | null,
+): Promise<Message> {
+  const values = messageValues({ ...r.values, contactName: to.name, balanceFils });
+  const { message } = await post<{ message: Message }>("/api/messages", {
+    event: r.event, channel: "whatsapp", customerId: r.customerId, contactId: to.contactId, documentId: r.documentId ?? null, receiptId: r.receiptId ?? null,
+    recipient: phone, body, attachment: pdf,
+    wa: { name: t.waTemplateName, language: t.waLanguage ?? language, params: t.waParams.map((p) => values[p as keyof typeof values] ?? "") },
+  });
+  messagesChanged();
+  return message;
+}
+
 export async function logWhatsApp(r: SendRequest, to: Recipient, phone: string, body: string): Promise<void> {
   await post("/api/messages", {
     event: r.event, channel: "whatsapp", customerId: r.customerId, contactId: to.contactId, documentId: r.documentId ?? null, receiptId: r.receiptId ?? null,

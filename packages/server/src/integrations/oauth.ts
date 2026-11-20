@@ -93,8 +93,9 @@ export async function pushProvider(db: Db, a: Adapter, o: IntegrationOptions, no
   }
 }
 
+const esc = (s: string) => s.replace(/[&<>"']/g, (c) => `&#${c.charCodeAt(0)};`);
 const page = (title: string, text: string) =>
-  `<!doctype html><meta charset="utf-8"><title>${title}</title><body style="font-family:system-ui;margin:3rem;max-width:36rem"><h1 style="font-size:1.3rem">${title}</h1><p>${text}</p><p><a href="/#/settings/integrations">Back to Settings → Integrations</a></p></body>`;
+  `<!doctype html><meta charset="utf-8"><title>${esc(title)}</title><body style="font-family:system-ui;margin:3rem;max-width:36rem"><h1 style="font-size:1.3rem">${esc(title)}</h1><p>${esc(text)}</p><p><a href="/#/settings/integrations">Back to Settings → Integrations</a></p></body>`;
 
 /** Connect (OAuth 2), callback, lists for the mapping, the mapping itself, and "Send now". */
 export function accountingRoutes(app: FastifyInstance, db: Db, o: IntegrationOptions, a: Adapter): void {
@@ -142,7 +143,7 @@ export function accountingRoutes(app: FastifyInstance, db: Db, o: IntegrationOpt
       return reply.status(400).type("text/html").send(page(`${a.name}: not connected`, (err as Error).message));
     }
     saveConfig(db, null, a.provider, next as unknown as Record<string, unknown>);
-    return reply.redirect(`${o.publicUrl.replace(/\/$/, "")}/#/settings/integrations?connected=${a.provider}`);
+    return reply.redirect(`${(o.appUrl ?? o.publicUrl).replace(/\/$/, "")}/#/settings/integrations?connected=${a.provider}`);
   });
 
   const connected = () => {
@@ -163,6 +164,15 @@ export function accountingRoutes(app: FastifyInstance, db: Db, o: IntegrationOpt
     const user = sessionUser(db, req);
     requireAction(user, "settings.manage");
     const cfg = connected();
+    // Zoho with several organizations: the organization first, then (with its taxes and items listed) the rest.
+    const only = z.object({ organizationId: z.string().trim().min(1) }).strict().safeParse(req.body);
+    if (only.success) {
+      const orgs = (await a.options(apiFor(db, a, o), cfg)).organizations ?? [];
+      const org = orgs.find((x) => x.id === only.data.organizationId);
+      if (!org) throw badRequest("That organization isn't in this Zoho account");
+      saveConfig(db, user.id, a.provider, { ...cfg, organizationId: org.id, label: org.name, mapping: null, needsSetup: true } as unknown as Record<string, unknown>);
+      return { status: statusOf(db) };
+    }
     const m = z.object({
       organizationId: z.string().trim().min(1).optional(),
       taxId: z.string().trim().min(1, "Pick the VAT 5% tax"),

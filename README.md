@@ -252,6 +252,20 @@ The accounting module (books, payables and bank, VAT return, payroll, fixed asse
 
     npm run e2e:promo                               # code → invoice → apply → issue → report → books health
 
+**Integrations (Settings → Integrations; run in Fleetfix Cloud only):**
+- **WhatsApp Business API** (Meta Cloud API): connect with the phone number ID, business account ID, a permanent token and
+  the app secret. Messages picked with a template that has an approved Meta template name are queued and sent by the
+  cloud (the PDF goes as the template's document header); delivered/read come back on the webhook
+  (`/api/hooks/<garage code>/whatsapp/webhook`, signed with the app secret). Others still open wa.me.
+- **Zoho Books / QuickBooks Online**: OAuth 2 with the garage's own developer app (redirect
+  `/api/hooks/<garage code>/<zoho|quickbooks>/callback`), then the VAT tax and the items for labour, parts and other
+  lines. Issued invoices, credit notes and payments (and their customers) are pushed one way, once each
+  (`integration_links`); refusals retry after 1, 5, 30, 120 and 360 minutes, then wait for Retry all.
+- Keys and tokens are settings secrets that never sync to PCs. The cloud needs `FFGP_PUBLIC_URL` (default
+  https://garagepro.fleetfix.ae). Migration 18: update the cloud before PCs.
+
+    npm run e2e:integrations                        # fake Meta + Zoho: connect, test, send via API, OAuth, map, push, disconnect
+
 ## Layout
 | Path | What |
 |---|---|

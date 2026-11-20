@@ -120,4 +120,6 @@ export interface Message {
   event: string; channel: "email" | "whatsapp"; recipient: string; subject: string | null; body: string;
   status: "queued" | "sending" | "sent" | "failed" | "opened"; attempts: number; nextAttemptAt: string | null; error: string | null;
   senderPlace: string | null; createdBy: string | null; createdAt: string; sentAt: string | null; fileName: string | null;
+  /** WhatsApp Business API: what Meta reported back. */
+  delivery?: "delivered" | "read" | null;
 }

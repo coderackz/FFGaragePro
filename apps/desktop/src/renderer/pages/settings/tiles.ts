@@ -176,6 +176,10 @@ export const TILES: Tile[] = [
     status: (c) => alert(`${c.syncIssues} to review`),
   },
   {
+    id: "integrations", group: "connections", title: "Integrations", blurb: "WhatsApp Business API, Zoho Books, QuickBooks", show: always,
+    status: () => muted("Connect in Fleetfix Cloud"),
+  },
+  {
     id: "about", group: "connections", title: "About & support", blurb: "Version, licence and Fleet Fix support", show: always,
     status: (c) => ok(`Version ${c.version}`),
   },

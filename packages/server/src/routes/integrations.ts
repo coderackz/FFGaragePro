@@ -20,6 +20,12 @@ export function integrationRoutes(app: FastifyInstance, db: Db, o: IntegrationOp
     if (!o) return { available: false, status: statusOf(db), failures: [] };
     return { available: true, hookBase: hookBase(o), status: statusOf(db), failures: failuresOf(db) };
   });
+  // What's connected, for everyone sending messages (no secrets; synced to PCs from the cloud).
+  app.get("/api/integrations/status", async (req) => {
+    sessionUser(db, req);
+    const s = statusOf(db);
+    return { whatsapp: !!s.whatsapp?.connected, zoho: !!s.zoho?.connected, quickbooks: !!s.quickbooks?.connected };
+  });
   if (!o) return;
   whatsappRoutes(app, db, o);
   accountingRoutes(app, db, o, zohoAdapter);

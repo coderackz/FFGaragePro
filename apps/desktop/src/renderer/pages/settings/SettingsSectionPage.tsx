@@ -14,6 +14,7 @@ import { BooksSection } from "./sections/BooksSection";
 import { PayrollSection } from "./sections/PayrollSection";
 import { TemplatesSection } from "./sections/TemplatesSection";
 import { PromoSection } from "./sections/PromoSection";
+import { IntegrationsSection } from "./sections/IntegrationsSection";
 import { CreditSection } from "./sections/CreditSection";
 import { GarageSection } from "./sections/GarageSection";
 import { InventorySection } from "./sections/InventorySection";
@@ -53,6 +54,7 @@ export const SECTIONS: Record<string, ComponentType> = {
   messages: MessagesSection,
   "message-templates": TemplatesSection,
   "promo-codes": PromoSection,
+  integrations: IntegrationsSection,
   books: BooksSection,
   payroll: PayrollSection,
   security: SecuritySection,

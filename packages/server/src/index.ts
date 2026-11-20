@@ -21,9 +21,9 @@ import { garage } from "./routes/setup";
 
 /** Starts a server on a given host/port (development and tests). */
 export async function startServer(options: {
-  dataDir: string; host?: string; port?: number; logger?: boolean; sendsMessages?: AppOptions["sendsMessages"]; postsBooks?: boolean;
+  dataDir: string; host?: string; port?: number; logger?: boolean; sendsMessages?: AppOptions["sendsMessages"]; postsBooks?: boolean; integrations?: AppOptions["integrations"];
 }) {
-  const app = await buildApp({ dataDir: options.dataDir, logger: options.logger, sendsMessages: options.sendsMessages, postsBooks: options.postsBooks });
+  const app = await buildApp({ dataDir: options.dataDir, logger: options.logger, sendsMessages: options.sendsMessages, postsBooks: options.postsBooks, integrations: options.integrations });
   const address = await app.listen({ host: options.host ?? "127.0.0.1", port: options.port ?? 0 });
   return { app, address };
 }

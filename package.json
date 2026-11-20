@@ -23,7 +23,8 @@
     "e2e:vat": "playwright test -c playwright.vat.config.ts",
     "e2e:payroll": "playwright test -c playwright.payroll.config.ts",
     "e2e:assets": "playwright test -c playwright.assets.config.ts",
-    "e2e:promo": "playwright test -c playwright.promo.config.ts"
+    "e2e:promo": "playwright test -c playwright.promo.config.ts",
+    "e2e:integrations": "playwright test -c playwright.integrations.config.ts"
   },
   "devDependencies": {
     "@playwright/test": "^1.65.1",

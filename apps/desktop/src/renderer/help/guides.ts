@@ -106,8 +106,20 @@ Settings → Promo codes: the code, % or AED off, labour, parts or both, the dat
 - WhatsApp Business API: messages go by themselves, using templates Meta has approved.
 - Zoho Books and QuickBooks: customers, invoices, credit notes and payments are sent one way from Fleetfix.
 
-## What you need
-Integrations run in Fleetfix Cloud. Each needs your own developer app with the provider (Meta, Zoho or Intuit). Settings → Integrations shows each card's status and errors.`,
+## Where
+Integrations run in Fleetfix Cloud: open your garage at garagepro.fleetfix.ae as the owner, then Settings → Integrations. Their keys stay in the cloud and never come to a PC.
+
+## WhatsApp Business API
+- In your Meta app (WhatsApp → API Setup) copy the phone number ID and the WhatsApp business account ID. Make a permanent token for a system user, and copy the app secret (Settings → Basic).
+- Paste them and press Connect WhatsApp. Then put the webhook URL and verify token shown on the card into Meta (WhatsApp → Configuration) so delivered and read come back.
+- On a message template (Settings → Message templates), fill the approved template name, its language and its body parameters in order (for example customer, plate).
+- In the Send dialog, pick that template: the button says Send on WhatsApp and the cloud sends it, with the PDF attached. Messages without an approved template still open WhatsApp as before.
+
+## Zoho Books and QuickBooks
+- Make a developer app (Zoho: api-console.zoho.com, server-based; QuickBooks: developer.intuit.com, Accounting) with the redirect URI shown on the card.
+- Paste its client ID and secret, choose from when to send (blank: from today) and press Connect. Sign in and allow access; you come back to the card.
+- Choose the VAT 5% tax and the items for labour, parts and other lines, then Save.
+- From then on, issued invoices, credit notes and payments are sent by themselves (Send now sends at once). Nothing there is changed afterwards; anything refused shows on the card with Retry all.`,
   },
   {
     slug: "backups-cloud", title: "Backups and the cloud", area: "Settings",

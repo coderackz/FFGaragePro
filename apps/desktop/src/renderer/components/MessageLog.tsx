@@ -11,7 +11,7 @@ import { EVENT_LABELS } from "../messages/labels";
 import { Button, Table } from "./ui";
 
 export function statusText(m: Message): string {
-  if (m.status === "sent") return "Sent";
+  if (m.status === "sent") return m.delivery === "read" ? "Sent · read" : m.delivery === "delivered" ? "Sent · delivered" : "Sent";
   if (m.status === "opened") return "Opened in WhatsApp";
   if (m.status === "failed") return `Failed: ${m.error ?? "unknown error"}`;
   if (m.status === "sending") return "Sending…";

@@ -9,7 +9,7 @@ import type { MessageTemplate } from "../pages/settings/sections/TemplatesSectio
 import type { Customer } from "../lib/types";
 import { EVENT_LABELS } from "./labels";
 import { makePdf } from "./pdf";
-import { compose, loadRecipients, logWhatsApp, onAskToSend, queueEmail, type SendRequest } from "./triggers";
+import { compose, loadRecipients, logWhatsApp, onAskToSend, queueEmail, queueWhatsAppApi, type SendRequest } from "./triggers";
 import { openWhatsApp, uaePhone } from "./whatsapp";
 
 /** Mounted once in the layout: opens the Send dialog whenever something asks to send a message. */
@@ -35,6 +35,10 @@ export function SendDialog({ request: r, onClose }: { request: SendRequest; onCl
   // The garage's own templates: "" is the default text for this message.
   const [templateId, setTemplateId] = useState("");
   const templates = useApi<{ templates: MessageTemplate[] }>("/api/message-templates");
+  // WhatsApp Business API connected (in the cloud) and this template mapped to an approved Meta one: sent by the app.
+  const integrations = useApi<{ whatsapp: boolean }>("/api/integrations/status");
+  const chosen = templates.data?.templates.find((x) => x.id === templateId);
+  const waApi = !!integrations.data?.whatsapp && !!chosen?.waTemplateName;
   const [done, setDone] = useState<{ email?: boolean; whatsapp?: boolean }>({});
   const pdf = useRef<Promise<{ fileName: string; base64: string }> | null>(null);
 
@@ -85,6 +89,18 @@ export function SendDialog({ request: r, onClose }: { request: SendRequest; onCl
   const sendWhatsApp = async () => {
     if (!to || !phone) return;
     setBusy("whatsapp");
+    if (waApi && chosen?.waTemplateName) {
+      try {
+        await queueWhatsAppApi(r, to, phone, body, await attachment(), { waTemplateName: chosen.waTemplateName, waLanguage: chosen.waLanguage, waParams: chosen.waParams }, language, data?.customer.balanceFils ?? null);
+        toast.success(`WhatsApp to ${to.name} is on its way`);
+        setDone((d) => ({ ...d, whatsapp: true }));
+      } catch (err) {
+        toast.error((err as Error).message);
+      } finally {
+        setBusy(null);
+      }
+      return;
+    }
     try {
       await openWhatsApp(phone, body, await attachment());
       await logWhatsApp(r, to, phone, body);
@@ -102,8 +118,8 @@ export function SendDialog({ request: r, onClose }: { request: SendRequest; onCl
         <>
           <Button onClick={onClose}>{done.email || done.whatsapp ? "Done" : "Not now"}</Button>
           {canWhatsApp && (
-            <Button variant={canEmail ? "secondary" : "primary"} icon={<MessageCircle className="size-4" />} busy={busy === "whatsapp"} disabled={!body.trim()} onClick={() => void sendWhatsApp()}>
-              {done.whatsapp ? "Open WhatsApp again" : "Open WhatsApp"}
+            <Button variant={canEmail ? "secondary" : "primary"} icon={<MessageCircle className="size-4" />} busy={busy === "whatsapp"} disabled={!body.trim() || (waApi && !!done.whatsapp)} onClick={() => void sendWhatsApp()}>
+              {waApi ? (done.whatsapp ? "Sent on WhatsApp" : "Send on WhatsApp") : done.whatsapp ? "Open WhatsApp again" : "Open WhatsApp"}
             </Button>
           )}
           {canEmail && (

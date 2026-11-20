@@ -33,6 +33,8 @@ export interface IntegrationOptions {
   garageCode?: string;
   endpoints?: Partial<Endpoints>;
   fetch?: typeof fetch;
+  /** Where the browser app is, to come back to after connecting (default: publicUrl; the dev web app is elsewhere). */
+  appUrl?: string;
   /** Push and send on a timer of its own (the dev server); the cloud's outbox round does it otherwise. */
   ownLoopMs?: number;
 }
