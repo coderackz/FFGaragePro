@@ -25,7 +25,7 @@ export async function startCloud(o: { maxOpen?: number; now?: () => number; webD
     await cloud.close();
     rmSync(dataDir, { recursive: true, force: true });
   });
-  return { url, admin: cloud.admin, dataDir, outbox: cloud.outbox };
+  return { url, admin: cloud.admin, dataDir, outbox: cloud.outbox, integrations: cloud.integrations };
 }
 
 export async function api(

@@ -1,7 +1,7 @@
 import { describe, expect, it } from "vitest";
 import { providerLine } from "../src/integrations/push";
 
-const line = (qty: number, unitFils: number, netFils: number, discountPct = 0) => ({ kind: "labour" as const, description: "Service", qty, unitFils, discountPct, netFils, vatFils: 0 });
+const line = (qty: number, unitFils: number, netFils: number, discountPct = 0) => ({ kind: "labour" as const, description: "Service", qty, unitFils, discountPct, netFils, vatFils: 0, grossFils: netFils });
 
 describe("lines as providers get them", () => {
   it("qty × unit only when that is exactly the net", () => {

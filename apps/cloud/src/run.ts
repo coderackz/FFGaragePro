@@ -16,7 +16,10 @@ export async function runCloud(o: { dataDir: string; webDir?: string; port: numb
     cloud.admin.addStaff(secret.startsWith("scrypt$") ? { username, name, passwordHash: secret } : { username, name, password: secret });
   }
   const stopBackups = o.backups ? scheduleBackups({ dataDir: o.dataDir, admin: cloud.admin }) : () => undefined;
-  if (o.messages) cloud.outbox.start();
+  if (o.messages) {
+    cloud.outbox.start();
+    cloud.integrations.start();
+  }
   await new Promise<void>((resolve) => cloud.server.listen(o.port, o.host, resolve));
   console.log(`Fleetfix Cloud on port ${o.port}  (data: ${o.dataDir}${o.webDir ? `, web: ${o.webDir}` : ", no web build"})`);
   const stop = async () => {

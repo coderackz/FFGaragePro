@@ -17,7 +17,11 @@ describe("integrations in the cloud", () => {
     const info = (await api(cloud.url, "GET", "/api/integrations/whatsapp", g)).body;
     expect(info.webhookUrl).toMatch(/^https:\/\/garagepro\.test\/api\/hooks\/[^/]+\/whatsapp\/webhook$/i);
     const q = (await api(cloud.url, "POST", "/api/messages", { ...g, body: { event: "test", channel: "whatsapp", recipient: "971501234567", body: "Hi", wa: { name: "hello_world", language: "en", params: [] } } })).body.message;
+    // Email's round leaves integrations alone (a slow provider never holds up every garage's email)…
     await cloud.outbox.runOnce();
+    expect((await api(cloud.url, "GET", `/api/messages/${q.id}`, g)).body.message.status).toBe("queued");
+    // …their own round sends it.
+    await cloud.integrations.runOnce();
     const sent = (await api(cloud.url, "GET", `/api/messages/${q.id}`, g)).body.message;
     expect(sent).toMatchObject({ status: "sent", senderPlace: "cloud" });
 

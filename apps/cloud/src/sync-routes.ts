@@ -55,6 +55,8 @@ export function syncRoutes(
     admin: AdminDb; host: GarageHost; now: () => number; dataDir: string; key: LicenceKey; throttleFor: (garageId: string) => LoginThrottle;
     /** Told when a PC pushes messages: the cloud sends them. */
     outbox?: { mark(garageId: string): void };
+    /** Integrations' round: anything a PC pushes may be an issued document or payment to send on. */
+    integrations?: { mark(garageId: string): void };
   },
 ): void {
   const { admin, host, now, key } = o;
@@ -220,6 +222,7 @@ export function syncRoutes(
         return applied;
       });
       if (input.entries.some((e) => e.table === "messages")) o.outbox?.mark(g.id);
+      if (input.entries.length) o.integrations?.mark(g.id);
       admin.synced(device, now());
       return { lastOriginSeq: result.lastOriginSeq, receivedAt: new Date(now()).toISOString(), issues: result.issues, licence: licence(g) };
     });

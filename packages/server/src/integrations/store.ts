@@ -35,10 +35,19 @@ export interface IntegrationOptions {
   fetch?: typeof fetch;
   /** Where the browser app is, to come back to after connecting (default: publicUrl; the dev web app is elsewhere). */
   appUrl?: string;
+  /** Each provider call gives up after this long (default 30 s). */
+  timeoutMs?: number;
+  /** At most this many documents/receipts per provider per round (default 20: well inside Zoho's ~100 calls a minute). */
+  perRound?: number;
   /** Push and send on a timer of its own (the dev server); the cloud's outbox round does it otherwise. */
   ownLoopMs?: number;
 }
 export const endpointsOf = (o: IntegrationOptions): Endpoints => ({ ...REAL_ENDPOINTS, ...o.endpoints });
+/** fetch that gives up after `timeoutMs`: a provider that hangs never holds a round. */
+export const timedFetch = (o: IntegrationOptions): typeof fetch => {
+  const http = o.fetch ?? fetch;
+  return (input, init) => http(input, { ...init, signal: AbortSignal.timeout(o.timeoutMs ?? 30_000) });
+};
 export const hookBase = (o: IntegrationOptions) =>
   o.garageCode ? `${o.publicUrl.replace(/\/$/, "")}/api/hooks/${o.garageCode}` : `${o.publicUrl.replace(/\/$/, "")}/api/integrations`;
 
@@ -88,11 +97,26 @@ export function saveConfig(db: Db, userId: string | null, p: Provider, cfg: (Bas
   });
 }
 
-export const linked = (db: Db, p: Provider, kind: string, localId: string) =>
-  db.get<{ e: string }>("SELECT external_id AS e FROM integration_links WHERE provider = ? AND kind = ? AND local_id = ?", [p, kind, localId])?.e ?? null;
-export function link(db: Db, p: Provider, kind: string, localId: string, externalId: string): void {
-  db.run("INSERT OR REPLACE INTO integration_links (provider, kind, local_id, external_id, created_at) VALUES (?, ?, ?, ?, ?)", [p, kind, localId, externalId, nowIso()]);
+export const linked = (db: Db, p: Provider, kind: string, localId: string, account = "") =>
+  db.get<{ e: string }>("SELECT external_id AS e FROM integration_links WHERE provider = ? AND account = ? AND kind = ? AND local_id = ?", [p, account, kind, localId])?.e ?? null;
+export function link(db: Db, p: Provider, kind: string, localId: string, externalId: string, account = ""): void {
+  db.run("INSERT OR REPLACE INTO integration_links (provider, account, kind, local_id, external_id, created_at) VALUES (?, ?, ?, ?, ?, ?)", [p, account, kind, localId, externalId, nowIso()]);
   clearFailure(db, p, kind, localId);
+}
+/** Disconnected, or now another company: what was waiting to be retried no longer applies. */
+export const clearFailures = (db: Db, p: Provider) => db.run("DELETE FROM integration_failures WHERE provider = ?", [p]);
+
+/**
+ * Merges `patch` into the provider's config only if it's still the same connection (not disconnected or reconnected
+ * meanwhile): a push or token refresh that took a while never brings back what the owner just removed.
+ */
+export function updateConfig(db: Db, p: Provider, since: string | undefined, patch: Record<string, unknown>): boolean {
+  return db.tx(() => {
+    const now = getConfig<BaseConfig & { connected?: boolean }>(db, p);
+    if (!now || now.connected === false || now.since !== since) return false;
+    saveConfig(db, null, p, { ...now, ...patch } as BaseConfig & Record<string, unknown>, { quiet: true });
+    return true;
+  });
 }
 
 /** Minutes to wait after the 1st…5th failed push; after the 6th it waits for "Retry all". */

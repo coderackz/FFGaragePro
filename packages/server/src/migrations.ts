@@ -1246,11 +1246,13 @@ ALTER TABLE document_lines ADD COLUMN promo_fils INTEGER NOT NULL DEFAULT 0;
     sql: `
 CREATE TABLE integration_links (
   provider TEXT NOT NULL,
+  -- The company it was sent to (Zoho organization; QuickBooks company, sandbox apart): another company starts afresh.
+  account TEXT NOT NULL,
   kind TEXT NOT NULL,
   local_id TEXT NOT NULL,
   external_id TEXT NOT NULL,
   created_at TEXT NOT NULL,
-  PRIMARY KEY (provider, kind, local_id)
+  PRIMARY KEY (provider, account, kind, local_id)
 );
 CREATE TABLE integration_failures (
   provider TEXT NOT NULL,

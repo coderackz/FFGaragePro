@@ -8,6 +8,7 @@ import { AdminDb, type GarageRow } from "./admin-db";
 import { GarageHost } from "./garages";
 import { loadOrCreateKey } from "./licence-token";
 import { CloudOutbox } from "./outbox";
+import { CloudIntegrations } from "./integrations-loop";
 
 export interface CloudOptions {
   dataDir: string;
@@ -28,6 +29,8 @@ export interface CloudServer {
   cloudApp: FastifyInstance;
   /** Sends linked garages' email; `runCloud` starts it (tests call `runOnce`). */
   outbox: CloudOutbox;
+  /** WhatsApp Business API sends and Zoho Books / QuickBooks pushes, in a round of their own. */
+  integrations: CloudIntegrations;
   close(): Promise<void>;
 }
 
@@ -72,14 +75,16 @@ export async function createCloudServer(o: CloudOptions): Promise<CloudServer> {
     }
   };
   let outbox: CloudOutbox | null = null;
+  let integrations: CloudIntegrations | null = null;
   const host = new GarageHost(o.dataDir, o.maxOpen ?? 50, (id) => {
     const code = admin.garageById(id)?.garage_code;
     return {
-      now, guard: guardFor(id), loginThrottle: throttleFor(id), onMessageQueued: () => outbox?.mark(id),
+      now, guard: guardFor(id), loginThrottle: throttleFor(id), onMessageQueued: () => { outbox?.mark(id); integrations?.mark(id); },
       ...(o.integrations && code ? { integrations: { ...o.integrations, garageCode: code } } : {}),
     };
   });
   outbox = new CloudOutbox(admin, host, { now, mailerFor: o.mailerFor });
+  integrations = new CloudIntegrations(admin, host, { now });
   const cloudApp = Fastify({ logger: false, bodyLimit: 1024 * 1024 });
 
   const garageFromHeader = (value: unknown): GarageRow | undefined => {
@@ -99,7 +104,7 @@ export async function createCloudServer(o: CloudOptions): Promise<CloudServer> {
   const { adminRoutes } = await import("./admin-routes");
   adminRoutes(cloudApp, { admin, host, now });
   const { syncRoutes } = await import("./sync-routes");
-  syncRoutes(cloudApp, { admin, host, now, dataDir: o.dataDir, key: loadOrCreateKey(o.dataDir), throttleFor, outbox });
+  syncRoutes(cloudApp, { admin, host, now, dataDir: o.dataDir, key: loadOrCreateKey(o.dataDir), throttleFor, outbox, integrations });
 
   if (o.webDir && existsSync(o.webDir)) {
     await cloudApp.register(fastifyStatic, { root: o.webDir, prefix: "/", index: ["index.html"] });
@@ -126,8 +131,8 @@ export async function createCloudServer(o: CloudOptions): Promise<CloudServer> {
     await host.whenFree(g.id);
     host.enter(g.id);
     res.once("close", () => host.leave(g.id));
-    // A change: its integrations may have something to push (the outbox round visits marked garages).
-    if (!READ_METHODS.has(req.method ?? "GET")) outbox?.mark(g.id);
+    // A change: its integrations may have something to send.
+    if (!READ_METHODS.has(req.method ?? "GET")) integrations?.mark(g.id);
     (await host.get(g.id)).routing(req, res);
   }
 
@@ -140,9 +145,10 @@ export async function createCloudServer(o: CloudOptions): Promise<CloudServer> {
   });
 
   return {
-    server, admin, host, cloudApp, outbox,
+    server, admin, host, cloudApp, outbox, integrations: integrations!,
     async close() {
       await outbox.stop();
+      await integrations!.stop();
       await new Promise<void>((r) => (server.listening ? server.close(() => r()) : r()));
       await host.closeAll();
       await cloudApp.close();

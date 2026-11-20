@@ -61,7 +61,7 @@ export const zohoAdapter: Adapter = {
   pusher(api, cfg) {
     const m: Mapping = cfg.mapping;
     const lines = (d: PushDoc) => d.lines.map((l) => {
-      const pl = providerLine(l);
+      const pl = providerLine(l, d.includeVat);
       const tax = l.vatFils > 0 ? m.taxId : m.zeroTaxId;
       return { item_id: m.items[l.kind], description: pl.description, quantity: pl.quantity, rate: aed(pl.rateFils), ...(tax ? { tax_id: tax } : {}) };
     });
@@ -81,16 +81,21 @@ export const zohoAdapter: Adapter = {
       async invoice(d, customerId) {
         const b = await api("POST", "/invoices", {
           query: { ignore_auto_number_generation: "true" },
-          body: { customer_id: customerId, invoice_number: d.number, date: d.date, ...(d.dueDate ? { due_date: d.dueDate } : {}), ...(d.reference ? { reference_number: d.reference } : {}), is_inclusive_tax: false, line_items: lines(d) },
+          body: { customer_id: customerId, invoice_number: d.number, date: d.date, ...(d.dueDate ? { due_date: d.dueDate } : {}), ...(d.reference ? { reference_number: d.reference } : {}), is_inclusive_tax: d.includeVat, line_items: lines(d) },
         });
-        return b.invoice.invoice_id as string;
+        const id = b.invoice.invoice_id as string;
+        // Made by the API it's a draft (not in receivables or VAT): it was issued in Fleetfix, so mark it sent. A
+        // refusal here isn't retried (a second invoice would be made): it's logged, and can be marked sent there.
+        await api("POST", `/invoices/${id}/status/sent`).catch((e: Error) => console.error(`Zoho Books: ${d.number} left as draft:`, e.message));
+        return id;
       },
       async creditNote(d, customerId, inv) {
         const b = await api("POST", "/creditnotes", {
           query: { ignore_auto_number_generation: "true" },
-          body: { customer_id: customerId, creditnote_number: d.number, date: d.date, reference_number: inv.number, is_inclusive_tax: false, line_items: lines(d) },
+          body: { customer_id: customerId, creditnote_number: d.number, date: d.date, reference_number: inv.number, is_inclusive_tax: d.includeVat, line_items: lines(d) },
         });
         const id = b.creditnote.creditnote_id as string;
+        await api("POST", `/creditnotes/${id}/status/open`).catch((e: Error) => console.error(`Zoho Books: ${d.number} left as draft:`, e.message));
         // Applied to its invoice, as in Fleetfix. The credit note exists either way: a refusal here isn't retried
         // (that would make a second credit note); it stays as customer credit in Zoho.
         try {

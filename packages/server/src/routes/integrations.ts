@@ -6,7 +6,7 @@ import { whatsappRoutes } from "../integrations/whatsapp";
 import { accountingRoutes } from "../integrations/oauth";
 import { zohoAdapter } from "../integrations/zoho";
 import { quickbooksAdapter } from "../integrations/quickbooks";
-import { failuresOf, hookBase, PROVIDERS, retryAll, saveConfig, statusOf, type IntegrationOptions, type Provider } from "../integrations/store";
+import { clearFailures, failuresOf, hookBase, PROVIDERS, retryAll, saveConfig, statusOf, type IntegrationOptions, type Provider } from "../integrations/store";
 
 export const providerOf = (p: string): Provider => {
   if (!(PROVIDERS as readonly string[]).includes(p)) throw badRequest("Unknown integration");
@@ -33,7 +33,9 @@ export function integrationRoutes(app: FastifyInstance, db: Db, o: IntegrationOp
   app.post<{ Params: { provider: string } }>("/api/integrations/:provider/disconnect", async (req) => {
     const user = sessionUser(db, req);
     requireAction(user, "settings.manage");
-    saveConfig(db, user.id, providerOf(req.params.provider), null);
+    const p = providerOf(req.params.provider);
+    saveConfig(db, user.id, p, null);
+    clearFailures(db, p);
     return { status: statusOf(db) };
   });
   app.post<{ Params: { provider: string } }>("/api/integrations/:provider/retry", async (req) => {

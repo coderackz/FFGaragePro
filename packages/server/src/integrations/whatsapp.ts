@@ -5,7 +5,7 @@ import { requireAction, sessionUser } from "../auth";
 import { now as nowIso, type Db } from "../db";
 import { badRequest, HttpError } from "../errors";
 import { MAY_HAVE_GONE } from "../messages/outbox";
-import { endpointsOf, getConfig, hookBase, saveConfig, statusOf, type IntegrationOptions } from "./store";
+import { endpointsOf, getConfig, hookBase, saveConfig, statusOf, timedFetch, type IntegrationOptions } from "./store";
 
 export interface WhatsAppConfig { phoneNumberId: string; businessAccountId: string; accessToken: string; appSecret: string; verifyToken: string; label: string | null }
 export interface WaTemplate { name: string; language: string; params: string[] }
@@ -36,7 +36,7 @@ async function graphError(res: Response): Promise<Error> {
 /** Meta's WhatsApp Cloud API (Graph): check the number, upload a PDF, send an approved template. */
 export function waClient(cfg: Pick<WhatsAppConfig, "phoneNumberId" | "accessToken">, o: IntegrationOptions) {
   const base = `${endpointsOf(o).graph}/${cfg.phoneNumberId}`;
-  const http = o.fetch ?? fetch;
+  const http = timedFetch(o);
   const auth = { authorization: `Bearer ${cfg.accessToken}` };
   return {
     async check(): Promise<string> {

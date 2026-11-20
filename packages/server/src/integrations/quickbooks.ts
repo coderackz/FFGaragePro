@@ -59,16 +59,20 @@ export const quickbooksAdapter: Adapter = {
   },
   pusher(api, cfg) {
     const m: Mapping = cfg.mapping;
+    // Prices typed with VAT go tax-inclusive: Amount is the net, TaxInclusiveAmt the line's total (Fleetfix's VAT).
     const lines = (d: PushDoc) => d.lines.map((l) => {
       const pl = providerLine(l);
       const tax = l.vatFils > 0 ? m.taxId : m.zeroTaxId;
       return {
         DetailType: "SalesItemLineDetail", Amount: aed(pl.quantity * pl.rateFils), Description: pl.description,
-        SalesItemLineDetail: { ItemRef: { value: m.items[l.kind] }, Qty: pl.quantity, UnitPrice: aed(pl.rateFils), ...(tax ? { TaxCodeRef: { value: tax } } : {}) },
+        SalesItemLineDetail: {
+          ItemRef: { value: m.items[l.kind] }, Qty: pl.quantity, UnitPrice: aed(pl.rateFils), ...(tax ? { TaxCodeRef: { value: tax } } : {}),
+          ...(d.includeVat ? { TaxInclusiveAmt: aed(l.grossFils) } : {}),
+        },
       };
     });
     const doc = (d: PushDoc, customerId: string) => ({
-      CustomerRef: { value: customerId }, DocNumber: d.number.slice(0, 21), TxnDate: d.date, GlobalTaxCalculation: "TaxExcluded", Line: lines(d),
+      CustomerRef: { value: customerId }, DocNumber: d.number.slice(0, 21), TxnDate: d.date, GlobalTaxCalculation: d.includeVat ? "TaxInclusive" : "TaxExcluded", Line: lines(d),
     });
     return {
       async customer(c) {

@@ -15,6 +15,8 @@ export interface FakeProviders {
   calls: FakeCall[];
   /** The next request whose path matches fails with this status and body. */
   failNext(path: RegExp, status: number, body: unknown): void;
+  /** The next request whose path matches never gets an answer. */
+  hangNext(path: RegExp): void;
   /** Access tokens issued so far stop working (the next call gets the provider's "expired" answer). */
   expireTokens(): void;
   close(): Promise<void>;
@@ -27,6 +29,7 @@ export async function startFakeProviders(port = 0): Promise<FakeProviders> {
     done(null, Object.fromEntries(new URLSearchParams(body as string))));
   const calls: FakeCall[] = [];
   const failures: { path: RegExp; status: number; body: unknown }[] = [];
+  const hangs: RegExp[] = [];
   let tokenGen = 1;
   let n = 0;
   const id = (prefix: string) => `${prefix}${++n}`;
@@ -36,6 +39,11 @@ export async function startFakeProviders(port = 0): Promise<FakeProviders> {
   app.addHook("preHandler", async (req, reply) => {
     const path = req.url.split("?")[0]!;
     calls.push({ method: req.method, path, query: req.query as Record<string, string>, body: Buffer.isBuffer(req.body) ? req.body.toString("latin1") : req.body, headers: req.headers });
+    const h = hangs.findIndex((x) => x.test(path));
+    if (h >= 0) {
+      hangs.splice(h, 1);
+      return new Promise<void>(() => undefined);
+    }
     const i = failures.findIndex((f) => f.path.test(path));
     if (i >= 0) {
       const f = failures.splice(i, 1)[0]!;
@@ -83,6 +91,8 @@ export async function startFakeProviders(port = 0): Promise<FakeProviders> {
   app.post("/zoho-api/books/v3/invoices", async () => ({ code: 0, invoice: { invoice_id: id("zi-") } }));
   app.post("/zoho-api/books/v3/creditnotes", async () => ({ code: 0, creditnote: { creditnote_id: id("zcn-") } }));
   app.post("/zoho-api/books/v3/creditnotes/:id/invoices", async () => ({ code: 0, message: "Credits have been applied to the invoice(s)." }));
+  app.post("/zoho-api/books/v3/invoices/:id/status/sent", async () => ({ code: 0, message: "Invoice status has been changed to Sent." }));
+  app.post("/zoho-api/books/v3/creditnotes/:id/status/open", async () => ({ code: 0, message: "Status of credit note changed from draft to open." }));
   app.post("/zoho-api/books/v3/customerpayments", async () => ({ code: 0, payment: { payment_id: id("zp-") } }));
 
   // ── QuickBooks Online ──
@@ -130,7 +140,8 @@ export async function startFakeProviders(port = 0): Promise<FakeProviders> {
     },
     calls,
     failNext: (path, status, body) => void failures.push({ path, status, body }),
+    hangNext: (path) => void hangs.push(path),
     expireTokens: () => void tokenGen++,
-    close: () => app.close(),
+    close: async () => { await app.close(); },
   };
 }

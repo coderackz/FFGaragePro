@@ -68,12 +68,10 @@ export class CloudOutbox {
           queueReminders(app.db, day);
         }
         await sendDue(app.db, (this.o.mailerFor ?? garageMailer)(app.db), t, "cloud");
-        // WhatsApp Business API messages, and pushes to Zoho Books or QuickBooks.
-        const integrations = app.integrations ? await app.integrations.runOnce(t) : { pending: false };
         // Browser-made attachments and a password changed in the browser: never sent to PCs, so not kept in the log.
         forgetPushed(app.db);
         const left = app.db.get("SELECT 1 FROM messages WHERE status = 'queued' AND channel = 'email' LIMIT 1");
-        if (!left && !integrations.pending) this.marked.delete(id);
+        if (!left) this.marked.delete(id);
       } catch (error) {
         console.error(`Messages for garage ${id}:`, error);
       } finally {
