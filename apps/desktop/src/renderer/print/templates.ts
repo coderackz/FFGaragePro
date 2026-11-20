@@ -362,7 +362,7 @@ function payslipBody(p: Payslip, garage: Garage, settings: Settings): string {
   const earnings = [
     row("Basic salary", p.basicFils), row("Housing allowance", p.allowances.housing), row("Transport allowance", p.allowances.transport),
     row("Other allowance", p.allowances.other), p.extrasFils > 0 ? row("Extras", p.extrasFils, p.extrasNote ?? "") : "",
-    p.bonusInWps ? row("Cash bonus", p.bonusFils) : "",
+    p.bonusInWps ? row("Bonus", p.bonusFils) : "",
   ].join("");
   const deductions = [
     row("Unpaid leave", p.unpaidDeductionFils, p.unpaidDays ? `${p.unpaidDays} day${p.unpaidDays === 1 ? "" : "s"}` : ""),
@@ -404,6 +404,8 @@ export interface SettlementLetter {
   employeeId: string; name: string; nameAr: string | null; job: string; language: DocLanguage; joinDate: string; lastDay: string;
   items: { key: string; label: string; proposedFils: number; amountFils: number; how: string; reason: string | null }[];
   totalFils: number;
+  /** Not approved yet: printed with DRAFT across it. */
+  draft?: boolean;
 }
 
 /** A leaver's final settlement letter: each amount, how it was worked out, any change and why, the total, signatures. */
@@ -411,16 +413,18 @@ export function renderSettlementHtml(s: SettlementLetter, garage: Garage, settin
   const lang = s.language;
   const t = (en: string) => L(en, lang);
   const title = `<div class="title"><div class="en">FINAL SETTLEMENT</div><div class="ar">المخالصة النهائية</div><div class="meta">${t("Last day")}: ${ymdDate(s.lastDay)}</div></div>`;
-  const rows = s.items.map((i) => `<tr><td><b>${esc(i.label)}</b><div style="color:#52525b;font-size:8.5pt">${esc(i.how)}</div>
-      ${i.reason ? `<div style="color:#b45309;font-size:8.5pt">Changed from ${money(i.proposedFils)}: ${esc(i.reason)}</div>` : ""}</td><td class="r b">${money(i.amountFils)}</td></tr>`).join("");
+  const rows = s.items.map((i) => `<tr><td><b>${t(i.label)}</b><div style="color:#52525b;font-size:8.5pt">${esc(i.how)}</div>
+      ${i.reason ? `<div style="color:#b45309;font-size:8.5pt">${t("Changed from")} ${money(i.proposedFils)}: ${esc(i.reason)}</div>` : ""}</td><td class="r b">${money(i.amountFils)}</td></tr>`).join("");
+  const owedBy = s.totalFils < 0;
   return shell(`Final settlement - ${s.name}`, `
   ${garageHeader(garage, settings, title, lang)}
   <div class="parties"><div class="party"><h3>${t("Employee")}</h3><div class="main">${esc(s.name)}</div>${lang === "en_ar" ? arLine(s.nameAr, "arl main") : ""}<div class="line">${esc(s.job)}</div></div>
     <div class="party"><h3>${t("Joined")}</h3><div class="main">${ymdDate(s.joinDate)}</div><div class="line">${t("Last day")}: ${ymdDate(s.lastDay)}</div></div></div>
   <table class="items"><thead><tr><th>${H("How it was worked out", lang)}</th><th class="r">AED</th></tr></thead><tbody>${rows}
-    <tr><td class="b">${t("Total due")}</td><td class="r b">${money(s.totalFils)}</td></tr></tbody></table>
-  ${wordsBlock(s.totalFils, lang)}
-  <div class="sigs two"><div><span></span>${t("Received by (employee)")}</div>${garageSignature(garage, settings, lang)}</div>
+    <tr><td class="b">${t(owedBy ? "Owed by the employee" : "Total due")}</td><td class="r b">${money(Math.abs(s.totalFils))}</td></tr></tbody></table>
+  ${s.draft ? `<div style="position:fixed;top:40%;left:0;right:0;text-align:center;font-size:72pt;font-weight:800;color:rgba(220,38,38,.18);transform:rotate(-20deg)">DRAFT</div>` : ""}
+  ${wordsBlock(Math.abs(s.totalFils), lang)}
+  <div class="sigs two"><div><span></span>${t(owedBy ? "Paid by (employee)" : "Received by (employee)")}</div>${garageSignature(garage, settings, lang)}</div>
   <footer><span>Final settlement · printed ${date(new Date().toISOString())}</span><span>Powered by Fleetfix Garage Pro</span></footer>`, lang);
 }
 

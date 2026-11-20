@@ -11,7 +11,7 @@ import { useApi } from "../../lib/useApi";
 import type { MoneyAccount } from "../../payables/types";
 import { AssetForm, day, POLICY, type Asset } from "./AssetsPage";
 
-interface AssetFull extends Asset { schedule: { month: string; chargeFils: number; totalFils: number; posted: boolean }[] }
+interface AssetFull extends Asset { schedule: { month: string; chargeFils: number; totalFils: number; status: "before" | "posted" | "coming" }[] }
 const monthName = (m: string) => new Intl.DateTimeFormat("en-GB", { month: "short", year: "numeric", timeZone: "UTC" }).format(new Date(`${m}-01T00:00:00Z`));
 
 /** One asset: details, its depreciation month by month, and selling or writing it off. */
@@ -52,7 +52,9 @@ export function AssetPage() {
               <td className="px-4 py-1.5">{monthName(m.month)}</td>
               <td className="py-1.5 text-right tabular">{formatAED(m.chargeFils)}</td>
               <td className="py-1.5 text-right tabular text-zinc-600">{formatAED(m.totalFils)}</td>
-              <td className="px-4 py-1.5 text-right">{m.posted ? <Badge>Posted</Badge> : <span className="text-xs text-zinc-500">Coming</span>}</td>
+              <td className="px-4 py-1.5 text-right">
+                {m.status === "posted" ? <Badge>Posted</Badge> : m.status === "before" ? <span className="text-xs text-zinc-500">Before the books</span> : <span className="text-xs text-zinc-500">Coming</span>}
+              </td>
             </tr>
           ))}
         </tbody></table>
@@ -72,7 +74,13 @@ function SellModal({ open, asset, onClose, onDone }: { open: boolean; asset: Ass
   const [note, setNote] = useState("");
   const [busy, setBusy] = useState(false);
   const account = into || usable[0]?.id || "";
+  // What it will post: depreciation runs through the sale month, so the book value is the straight line to then.
+  const sched = (asset as AssetFull).schedule ?? [];
+  const depreciated = Math.max(asset.openingDepreciationFils, [...sched].reverse().find((m) => m.month <= date.slice(0, 7))?.totalFils ?? 0);
+  const bookValue = asset.costFils - depreciated;
+  const gain = proceeds - bookValue;
   const save = async () => {
+    if (!window.confirm(`${proceeds ? "Sell" : "Write off"} ${asset.name}? Book value ${formatAED(bookValue)}: ${gain >= 0 ? "gain" : "loss"} ${formatAED(Math.abs(gain))}. This can't be undone.`)) return;
     setBusy(true);
     try {
       await post(`/api/assets/${asset.id}/dispose`, { date, proceedsFils: proceeds, proceedsAccountId: proceeds ? account : null, note: note || null });
@@ -90,6 +98,7 @@ function SellModal({ open, asset, onClose, onDone }: { open: boolean; asset: Ass
         {proceeds > 0 && <Field label="Into"><Select value={account} onChange={(e) => setInto(e.target.value)} aria-label="Into">{usable.map((x) => <option key={x.id} value={x.id}>{x.code} {x.name}</option>)}</Select></Field>}
         <Field label="Note"><Input value={note} onChange={(e) => setNote(e.target.value)} aria-label="Note" /></Field>
       </div>
+      <p className="mt-3 text-sm" data-testid="sale-preview">Book value at the sale {formatAED(bookValue)} · {gain >= 0 ? "gain" : "loss"} {formatAED(Math.abs(gain))}</p>
     </Modal>
   );
 }

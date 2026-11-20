@@ -1,6 +1,6 @@
 import { dubaiDate, type MessageInput } from "@ffgp/shared";
 import { newId, now as nowIso, type Db } from "../db";
-import { badRequest, notFound } from "../errors";
+import { badRequest, conflict, notFound } from "../errors";
 import { getSettings } from "../settings";
 import type { Mailer } from "./mailer";
 import { queueReminders } from "./reminders";
@@ -57,7 +57,8 @@ export const payslipMessages = (db: Db, runId: string): MessageOut[] =>
 export function queueMessage(db: Db, input: MessageInput, userId: string | null): MessageOut {
   return db.tx(() => {
     if (input.dedupeKey) {
-      const existing = db.get<{ id: string }>("SELECT id FROM messages WHERE dedupe_key = ?", [input.dedupeKey]);
+      const existing = db.get<{ id: string; event: string }>("SELECT id, event FROM messages WHERE dedupe_key = ?", [input.dedupeKey]);
+      if (existing && existing.event !== input.event) throw conflict("That message key is already used by another message");
       if (existing) return getMessage(db, existing.id)!;
     }
     if (input.customerId && !db.get("SELECT 1 FROM customers WHERE id = ?", [input.customerId])) throw notFound("Customer not found");

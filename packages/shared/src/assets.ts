@@ -5,7 +5,8 @@ export const ASSET_CATEGORIES = ["tools", "equipment", "vehicle", "fit_out"] as 
 export type AssetCategory = (typeof ASSET_CATEGORIES)[number];
 export const ASSET_CATEGORY_LABELS: Record<AssetCategory, string> = { tools: "Tools", equipment: "Equipment", vehicle: "Vehicle", fit_out: "Fit-out and furniture" };
 
-const ymd = z.string().regex(/^\d{4}-\d{2}-\d{2}$/, "Use a date like 2026-01-31");
+const ymd = z.string().regex(/^\d{4}-\d{2}-\d{2}$/, "Use a date like 2026-01-31")
+  .refine((d) => new Date(`${d}T00:00:00Z`).toISOString().slice(0, 10) === d, "That isn't a real date");
 const fils = z.number().int().min(0).max(10_000_000_00);
 const optText = (max: number) => z.string().trim().max(max).nullable().optional().transform((v) => v || null);
 
@@ -43,7 +44,9 @@ export function monthsBetween(from: string, to: string): number {
 }
 
 /** The monthly charge: (cost − residual) ÷ life, rounded to the fil (the last month takes the rounding). */
-export const monthlyDepreciation = (a: { costFils: number; residualFils: number; lifeMonths: number }) => Math.round((a.costFils - a.residualFils) / a.lifeMonths);
+export const monthlyDepreciation = (a: { costFils: number; residualFils: number; lifeMonths: number }) =>
+  // At least a fil a month, so a tiny amount still spreads instead of landing all in the last month.
+  (a.costFils > a.residualFils ? Math.max(Math.round((a.costFils - a.residualFils) / a.lifeMonths), 1) : 0);
 
 /**
  * Depreciation due on an asset from when it went into use through `month` (YYYY-MM), straight line: a full month's

@@ -1071,7 +1071,11 @@ CREATE INDEX journal_entries_source ON journal_entries(source_type, source_id);
 CREATE TABLE final_settlements (
   id TEXT PRIMARY KEY,
   employee_id TEXT NOT NULL UNIQUE REFERENCES employees(id),
-  edits_json TEXT NOT NULL DEFAULT '{}',
+  -- The accountant's change to each amount ({"amountFils","reason"}), one column each: edits to different items merge.
+  edit_salary TEXT,
+  edit_leave TEXT,
+  edit_gratuity TEXT,
+  edit_advances TEXT,
   created_by TEXT REFERENCES users(id),
   created_at TEXT NOT NULL,
   updated_at TEXT NOT NULL

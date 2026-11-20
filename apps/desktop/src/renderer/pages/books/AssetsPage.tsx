@@ -65,7 +65,7 @@ const blank = (): Draft => ({ name: "", category: "equipment", accountId: "", co
 export function AssetForm({ open, asset, onClose, onSaved }: { open: boolean; asset: Asset | null; onClose: () => void; onSaved: () => void }) {
   const { settings } = useAuth();
   const accounts = useApi<{ accounts: Account[] }>(open ? "/api/books/accounts" : null);
-  const usable = (accounts.data?.accounts ?? []).filter((a) => a.type === "asset" && a.active && !a.systemKey && !a.moneyKind);
+  const usable = (accounts.data?.accounts ?? []).filter((a) => a.type === "asset" && a.active && !a.systemKey && !a.moneyKind && a.code.startsWith("15"));
   const [d, setD] = useState<Draft>(blank());
   const [busy, setBusy] = useState(false);
   useEffect(() => { if (open) setD(asset ? { ...asset } : blank()); }, [open, asset]);
@@ -75,7 +75,9 @@ export function AssetForm({ open, asset, onClose, onSaved }: { open: boolean; as
   // What straight line says was taken before the books: offered, since the opening balances should hold the same.
   const monthBefore = start ? new Date(Date.UTC(Number(start.slice(0, 4)), Number(start.slice(5, 7)) - 2, 1)).toISOString().slice(0, 7) : null;
   const suggested = monthBefore && d.costFils > 0 && d.lifeMonths > 0 ? depreciationThrough({ costFils: d.costFils, residualFils: d.residualFils, lifeMonths: d.lifeMonths, inUseFrom: d.inUseFrom }, monthBefore) : null;
-  const account = d.accountId || usable.find((a) => a.code === "1500")?.id || usable[0]?.id || "";
+  // Until one is chosen, the account that goes with the category.
+  const CATEGORY_CODE: Record<AssetCategory, string> = { tools: "1500", equipment: "1500", vehicle: "1510", fit_out: "1520" };
+  const account = d.accountId || usable.find((a) => a.code === CATEGORY_CODE[d.category])?.id || usable[0]?.id || "";
   const save = async () => {
     setBusy(true);
     try {

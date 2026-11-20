@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { annualLeaveBalance, buildSif, can, gratuityOwed, MESSAGE_EVENTS, proposeLine, runLineEditSchema, serviceDays, settingsSchemas, settlementEditSchema, settlementProposal, settlementTotal, SYSTEM_ACCOUNTS } from "../src";
+import { annualLeaveBalance, buildSif, can, gratuityOwed, MESSAGE_EVENTS, proposeLine, runLineEditSchema, serviceDays, settingsSchemas, settlementEditSchema, settlementProposal, serviceYears, settlementTotal, SYSTEM_ACCOUNTS } from "../src";
 
 const emp = { basicFils: 300000, housingFils: 100000, transportFils: 50000, otherAllowanceFils: 0, joinDate: "2024-01-01", leftDate: null };
 const sifLine = { name: "Ravi", personId: "10012345678901", routingCode: "803320101", account: "AE070331234567890123456", from: "2026-10-01", to: "2026-10-31", days: 31, fixedFils: 450000, variableFils: 0, leaveDays: 0 };
@@ -71,7 +71,7 @@ describe("payroll maths", () => {
     const by = Object.fromEntries(items.map((i) => [i.key, i.amountFils]));
     expect(by.salary).toBe(180000);
     expect(by.leave).toBe(Math.round(2.5 * 33 * 10000));
-    expect(by.gratuity).toBe(gratuityOwed({ basicFils: 300000, grossFils: 450000, serviceDays: serviceDays("2024-01-01", "2026-10-12", []), dayRate: "basic_30", cap: "basic" }));
+    expect(by.gratuity).toBe(gratuityOwed({ basicFils: 300000, grossFils: 450000, serviceYears: serviceYears("2024-01-01", "2026-10-12", []), dayRate: "basic_30", cap: "basic" }));
     expect(by.advances).toBe(-20000);
     expect(items.every((i) => i.how.length > 0 && i.amountFils === i.proposedFils && i.reason === null)).toBe(true);
     expect(settlementTotal(items)).toBe(by.salary! + by.leave! + by.gratuity! - 20000);

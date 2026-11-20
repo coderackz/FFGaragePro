@@ -5,7 +5,19 @@ export type SalaryDayRate = "gross_30" | "gross_365";
 export type GratuityDayRate = "basic_30" | "basic_365";
 export type DayRateRule = SalaryDayRate | GratuityDayRate;
 
-const ymd = z.string().regex(/^\d{4}-\d{2}-\d{2}$/, "Use a date like 2026-01-31");
+/** A real calendar date (2026-02-31 is refused). */
+export const isRealDate = (d: string) => /^\d{4}-\d{2}-\d{2}$/.test(d) && new Date(`${d}T00:00:00Z`).toISOString().slice(0, 10) === d;
+const ymd = z.string().regex(/^\d{4}-\d{2}-\d{2}$/, "Use a date like 2026-01-31").refine(isRealDate, "That isn't a real date");
+
+/** IBAN check digits (ISO 13616, mod 97). */
+export function ibanValid(iban: string): boolean {
+  const moved = iban.slice(4) + iban.slice(0, 4);
+  const digits = moved.replace(/[A-Z]/g, (ch) => String(ch.charCodeAt(0) - 55));
+  let rest = 0;
+  for (const d of digits) rest = (rest * 10 + Number(d)) % 97;
+  return rest === 1;
+}
+const noSpaces = (v: unknown) => (typeof v === "string" ? v.replace(/\s/g, "") : v);
 const fils = z.number().int().min(0).max(10_000_000_00);
 const optText = (max: number) => z.string().trim().max(max).nullable().optional().transform((v) => v || null);
 const optDate = ymd.nullable().optional().transform((v) => v ?? null);
@@ -23,10 +35,11 @@ export const employeeSchema = z
     transportFils: fils.default(0),
     otherAllowanceFils: fils.default(0),
     payMethod: z.enum(["bank", "salary_card"]).default("bank"),
-    iban: z.string().trim().toUpperCase().regex(/^AE\d{21}$/, "Use a UAE IBAN like AE07 0331 2345 6789 0123 456").nullable().optional().transform((v) => v ?? null),
+    iban: z.preprocess(noSpaces, z.string().toUpperCase().regex(/^AE\d{21}$/, "Use a UAE IBAN like AE07 0331 2345 6789 0123 456")
+      .refine(ibanValid, "That IBAN's check digits are wrong: check it against the bank's letter").nullable().optional()).transform((v) => v ?? null),
     cardNumber: optText(30),
-    routingCode: z.string().trim().regex(/^\d{9}$/, "The bank routing code has 9 digits").nullable().optional().transform((v) => v ?? null),
-    personId: z.string().trim().regex(/^\d{14}$/, "The MOHRE person ID has 14 digits").nullable().optional().transform((v) => v ?? null),
+    routingCode: z.preprocess(noSpaces, z.string().regex(/^\d{9}$/, "The bank routing code has 9 digits").nullable().optional()).transform((v) => v ?? null),
+    personId: z.preprocess(noSpaces, z.string().regex(/^\d{14}$/, "The MOHRE person ID has 14 digits").nullable().optional()).transform((v) => v ?? null),
     emiratesId: optText(30), emiratesIdExpiry: optDate,
     labourCard: optText(30), labourCardExpiry: optDate,
     passport: optText(30), passportExpiry: optDate,
@@ -121,15 +134,46 @@ export function proposeLine(input: { month: string; employee: PayEmployee; unpai
 /** Calendar days of service from joining up to `asOf` (inclusive), less unpaid leave (it doesn't count as service). */
 export function serviceDays(joinDate: string, asOf: string, unpaidLeave: { from: string; to: string }[]): number {
   const span = { from: joinDate, to: asOf };
-  return Math.max(daysIn(span, span) - unpaidLeave.reduce((s, l) => s + daysIn(l, span), 0), 0);
+  return Math.max(daysIn(span, span) - mergeRanges(unpaidLeave).reduce((s, l) => s + daysIn(l, span), 0), 0);
+}
+
+/** Date ranges as one set: overlapping or touching ranges merge (leave entered twice counts once). */
+export function mergeRanges(ranges: { from: string; to: string }[]): { from: string; to: string }[] {
+  const out: { from: string; to: string }[] = [];
+  for (const r of [...ranges].sort((a, b) => a.from.localeCompare(b.from))) {
+    const last = out.at(-1);
+    if (last && t(r.from) <= t(last.to) + DAY) { if (r.to > last.to) last.to = r.to; } else out.push({ ...r });
+  }
+  return out;
+}
+
+const addYears = (ymd: string, n: number) => {
+  const [y, m, d] = ymd.split("-").map(Number) as [number, number, number];
+  return new Date(Date.UTC(y + n, m - 1, d)).toISOString().slice(0, 10);
+};
+
+/**
+ * Years of service by anniversary: from joining (moved on by the unpaid days, which don't count) through `asOf`
+ * inclusive. Whole years, plus the part of the year after the last anniversary.
+ */
+export function serviceYears(joinDate: string, asOf: string, unpaidLeave: { from: string; to: string }[]): number {
+  const span = { from: joinDate, to: asOf };
+  const unpaid = mergeRanges(unpaidLeave).reduce((s, l) => s + daysIn(l, span), 0);
+  const start = fromT(t(joinDate) + unpaid * DAY);
+  const end = fromT(t(asOf) + DAY);
+  if (end <= start) return 0;
+  let full = 0;
+  while (addYears(start, full + 1) <= end) full++;
+  const from = addYears(start, full);
+  return full + (t(end) - t(from)) / (t(addYears(start, full + 1)) - t(from));
 }
 
 /**
  * End-of-service gratuity (Decree-Law 33 of 2021): 21 days of basic for each of the first five years, 30 days for each
  * year after, pro rata, capped at two years of basic or gross (the garage's choice).
  */
-export function gratuityOwed(i: { basicFils: number; grossFils: number; serviceDays: number; dayRate: GratuityDayRate; cap: "basic" | "gross" }): number {
-  const years = i.serviceDays / 365;
+export function gratuityOwed(i: { basicFils: number; grossFils: number; serviceDays?: number; serviceYears?: number; dayRate: GratuityDayRate; cap: "basic" | "gross" }): number {
+  const years = i.serviceYears ?? (i.serviceDays ?? 0) / 365;
   const days = 21 * Math.min(years, 5) + 30 * Math.max(years - 5, 0);
   const owed = Math.round(dayRate(i.basicFils, i.dayRate) * days);
   return Math.min(owed, 24 * (i.cap === "basic" ? i.basicFils : i.grossFils));
@@ -202,27 +246,33 @@ export function settlementProposal(i: {
 
   const month = i.lastDay.slice(0, 7);
   const pay = proposeLine({ month, employee: { ...e, leftDate: i.lastDay }, unpaidLeave: i.unpaidLeave, salaryDayRate: i.rules.salaryDayRate, advanceDueFils: 0 });
+  const fullMonth = pay.workedDays === monthDays(month).days;
+  const unpaidText = pay.unpaidDays ? `, less ${pay.unpaidDays} unpaid day${pay.unpaidDays === 1 ? "" : "s"} at ${RATE_TEXT[i.rules.salaryDayRate]}` : "";
   const salary = i.salaryAlreadyPaid
     ? item("salary", "Salary to the last day", 0, `Paid in the ${monthText(i.lastDay)} payroll`)
     : item("salary", "Salary to the last day", pay.basicFils + pay.allowancesFils - pay.unpaidDeductionFils,
-      `${pay.workedDays} days of ${aedText(gross)} a month at ${RATE_TEXT[i.rules.salaryDayRate]}, less ${pay.unpaidDays} unpaid day${pay.unpaidDays === 1 ? "" : "s"}`);
+      fullMonth ? `Full month (${pay.workedDays} days) of ${aedText(gross)}${unpaidText}`
+        : `${pay.workedDays} days of ${aedText(gross)} a month at ${RATE_TEXT[i.rules.salaryDayRate]}${unpaidText}`);
 
-  const days = annualLeaveBalance(e.joinDate, i.lastDay, i.annualTaken, i.leaveOpening);
+  // Leave booked past the last day isn't taken.
+  const taken = i.annualTaken.filter((l) => l.from <= i.lastDay).map((l) => ({ from: l.from, to: l.to > i.lastDay ? i.lastDay : l.to }));
+  const days = annualLeaveBalance(e.joinDate, i.lastDay, mergeRanges(taken), i.leaveOpening);
   const unknownBefore = !i.leaveOpening && !!i.booksStart && e.joinDate < i.booksStart;
   const leaveBase = i.rules.leaveBasis === "basic" ? e.basicFils : gross;
   const leaveRule = (i.rules.salaryDayRate.endsWith("_30") ? `${i.rules.leaveBasis}_30` : `${i.rules.leaveBasis}_365`) as DayRateRule;
   const perDay = dayRate(leaveBase, leaveRule);
   const leave = item("leave", days >= 0 ? "Leave not taken" : "Leave taken ahead", Math.round(days * perDay),
-    `${Math.abs(days)} day${Math.abs(days) === 1 ? "" : "s"} ${days >= 0 ? "not taken" : "taken ahead"} × ${aedText(Math.round(perDay))} a day (${RATE_TEXT[leaveRule]})`
+    `${Math.abs(days)} day${Math.abs(days) === 1 ? "" : "s"} ${days >= 0 ? "not taken" : "taken ahead"} × (${aedText(leaveBase)} ${leaveRule.endsWith("_30") ? "÷ 30" : "× 12 ÷ 365"}) a day`
       + (unknownBefore ? `. Counted from joining: no leave balance was entered for before ${monthText(i.booksStart!)}, so leave taken then isn't known: check the days` : ""));
 
-  const service = serviceDays(e.joinDate, i.lastDay, i.unpaidLeave);
-  const years = Math.floor(service / 365);
-  const rest = service - years * 365;
-  const gratuity = service < 365
+  const service = serviceDays(e.joinDate, i.lastDay, mergeRanges(i.unpaidLeave));
+  const yearsOfService = serviceYears(e.joinDate, i.lastDay, i.unpaidLeave);
+  const years = Math.floor(yearsOfService);
+  const rest = Math.round((yearsOfService - years) * 365);
+  const gratuity = yearsOfService < 1
     ? item("gratuity", "End-of-service gratuity", 0, `Under one year of service (${service} days): no gratuity`)
     : item("gratuity", "End-of-service gratuity",
-      gratuityOwed({ basicFils: e.basicFils, grossFils: gross, serviceDays: service, dayRate: i.rules.gratuityDayRate, cap: i.rules.gratuityCap }),
+      gratuityOwed({ basicFils: e.basicFils, grossFils: gross, serviceYears: yearsOfService, dayRate: i.rules.gratuityDayRate, cap: i.rules.gratuityCap }),
       `${years} year${years === 1 ? "" : "s"} ${rest} days: 21 days of basic a year (30 after five), at ${RATE_TEXT[i.rules.gratuityDayRate]}, capped at 2 years of ${i.rules.gratuityCap}`);
 
   const advances = item("advances", "Advances still owed", -i.advancesOwedFils, i.advancesOwedFils ? "Taken from the settlement" : "None owed");

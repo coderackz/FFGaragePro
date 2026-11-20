@@ -1,9 +1,10 @@
 import { createHash } from "node:crypto";
-import { dubaiDate, gratuityOwed, monthDays, proposeLine, runLineEditSchema, serviceDays, type PayLine } from "@ffgp/shared";
+import { dubaiDate, gratuityOwed, monthDays, proposeLine, runLineEditSchema, serviceYears, type PayLine } from "@ffgp/shared";
 import { postPending } from "../books/pending";
 import { addDays } from "../books/post";
 import { checkNotLocked } from "../books/journals";
 import { newId, now, type Db } from "../db";
+import { audit } from "../audit";
 import { badRequest, conflict, notFound } from "../errors";
 import { getSettings } from "../settings";
 import { advancesOf, unpaidLeaveOf } from "./employees";
@@ -212,7 +213,7 @@ export function gratuityAtStart(db: Db, e: EmpRow): number {
   const asOf = e.left_date && e.left_date < before ? e.left_date : before;
   return gratuityOwed({
     basicFils: e.basic_fils, grossFils: e.basic_fils + e.housing_fils + e.transport_fils + e.other_allowance_fils,
-    serviceDays: serviceDays(e.join_date, asOf, unpaidLeaveOf(db, e.id)), dayRate: s.payroll.gratuityDayRate, cap: s.payroll.gratuityCap,
+    serviceYears: serviceYears(e.join_date, asOf, unpaidLeaveOf(db, e.id)), dayRate: s.payroll.gratuityDayRate, cap: s.payroll.gratuityCap,
   });
 }
 
@@ -252,7 +253,7 @@ export function approveRun(db: Db, runId: string, userId: string, o: { netWpsFil
       const asOf = e.left_date && e.left_date < m.to ? e.left_date : m.to;
       const owed = gratuityOwed({
         basicFils: e.basic_fils, grossFils: e.basic_fils + e.housing_fils + e.transport_fils + e.other_allowance_fils,
-        serviceDays: serviceDays(e.join_date, asOf, unpaidLeaveOf(db, e.id)), dayRate: rules.gratuityDayRate!, cap: rules.gratuityCap!,
+        serviceYears: serviceYears(e.join_date, asOf, unpaidLeaveOf(db, e.id)), dayRate: rules.gratuityDayRate!, cap: rules.gratuityCap!,
       });
       // Someone already settled: the settlement released their gratuity, so this month puts none aside.
       const settled = db.get("SELECT 1 FROM settlement_approvals a JOIN final_settlements f ON f.id = a.settlement_id WHERE f.employee_id = ?", [e.id]);
@@ -260,6 +261,7 @@ export function approveRun(db: Db, runId: string, userId: string, o: { netWpsFil
     }
     const snapshot: Snapshot = { month: r.month, lines };
     db.run("INSERT INTO payroll_approvals (id, run_id, snapshot_json, approved_by, approved_at) VALUES (?, ?, ?, ?, ?)", [newId(), r.id, JSON.stringify(snapshot), userId, now()]);
+    audit(db, { action: "payroll.approve", entity: "payroll_runs", entityId: r.id, after: { month: r.month, people: lines.length, netWpsFils: totalsOf(lines).netWpsFils }, userId });
     return getRun(db, r.id);
   });
 }

@@ -1,5 +1,5 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
-import { gratuityOwed, serviceDays, SYSTEM_ACCOUNTS } from "@ffgp/shared";
+import { gratuityOwed, serviceYears, SYSTEM_ACCOUNTS } from "@ffgp/shared";
 import { postPending } from "../src/books/pending";
 import { addUser, call, EMPLOYEE, makeApp, setUp, type App } from "./helpers";
 
@@ -84,15 +84,15 @@ describe("monthly payroll runs", () => {
     expect((await g.approve(oct.id)).status).toBe(200);
     postPending(g.app.db);
     const unpaid = [{ from: "2026-10-12", to: "2026-10-13" }];
-    const gOct = gratuityOwed({ basicFils: 300000, grossFils: 450000, serviceDays: serviceDays("2024-01-01", "2026-10-31", unpaid), dayRate: "basic_30", cap: "basic" });
+    const gOct = gratuityOwed({ basicFils: 300000, grossFils: 450000, serviceYears: serviceYears("2024-01-01", "2026-10-31", unpaid), dayRate: "basic_30", cap: "basic" });
     // Service before the books started (1 Sep 2026) is brought forward in the opening position; October puts aside the rest.
-    const atStart = gratuityOwed({ basicFils: 300000, grossFils: 450000, serviceDays: serviceDays("2024-01-01", "2026-08-31", []), dayRate: "basic_30", cap: "basic" });
+    const atStart = gratuityOwed({ basicFils: 300000, grossFils: 450000, serviceYears: serviceYears("2024-01-01", "2026-08-31", []), dayRate: "basic_30", cap: "basic" });
     const month = gOct - atStart;
     expect(byCode(g.app, `payroll_run:${oct.id}`)).toEqual({ "6000": 280000, "6001": 140000, "6003": month, "2200": -410000, "1410": -10000, "2210": -month });
     const nov = await g.open("2026-11");
     expect((await g.approve(nov.id)).status).toBe(200);
     postPending(g.app.db);
-    const gNov = gratuityOwed({ basicFils: 300000, grossFils: 450000, serviceDays: serviceDays("2024-01-01", "2026-11-30", unpaid), dayRate: "basic_30", cap: "basic" });
+    const gNov = gratuityOwed({ basicFils: 300000, grossFils: 450000, serviceYears: serviceYears("2024-01-01", "2026-11-30", unpaid), dayRate: "basic_30", cap: "basic" });
     expect(byCode(g.app, `payroll_run:${nov.id}`)["6003"]).toBe(gNov - gOct);
   });
 });

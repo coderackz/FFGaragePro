@@ -29,7 +29,10 @@ export function EmployeePage() {
   // Opens the leaver's final settlement, starting it the first time.
   const settlement = async () => {
     try {
-      await get(`/api/employees/${id}/settlement`).catch(() => post(`/api/employees/${id}/settlement`, {}));
+      await get(`/api/employees/${id}/settlement`).catch((err: Error & { status?: number }) => {
+        if (err.status !== 404) throw err;
+        return post(`/api/employees/${id}/settlement`, {});
+      });
       navigate(`/employees/${id}/settlement`);
     } catch (err) { toast.error((err as Error).message); }
   };

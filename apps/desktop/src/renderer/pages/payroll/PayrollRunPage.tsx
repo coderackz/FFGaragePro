@@ -113,18 +113,20 @@ export function PayrollRunPage() {
           </table>
         </div>
       </Card>
-      <PayModal kind={paying} runId={r.id} onClose={() => setPaying(null)} onDone={() => void reload()} />
+      <PayModal key={paying ?? "none"} kind={paying} runId={r.id} month={r.month} onClose={() => setPaying(null)} onDone={() => void reload()} />
       <SendPayslips open={sending} runId={r.id} month={r.month} onClose={() => setSending(false)} />
       <LineModal line={editing} runId={r.id} onClose={() => setEditing(null)} onDone={() => void reload()} />
     </>
   );
 }
 
-function PayModal({ kind, runId, onClose, onDone }: { kind: "wps" | "bonus" | null; runId: string; onClose: () => void; onDone: () => void }) {
+function PayModal({ kind, runId, month, onClose, onDone }: { kind: "wps" | "bonus" | null; runId: string; month: string; onClose: () => void; onDone: () => void }) {
   const accounts = useApi<{ accounts: MoneyAccount[] }>(kind ? "/api/money-accounts" : null);
   const usable = (accounts.data?.accounts ?? []).filter((a) => a.moneyKind === (kind === "wps" ? "bank" : "cash"));
   const [account, setAccount] = useState("");
-  const [date, setDate] = useState(today());
+  // Paid on or after the month end: today, or the month end if that's still ahead.
+  const monthEnd = new Date(Date.UTC(Number(month.slice(0, 4)), Number(month.slice(5, 7)), 0)).toISOString().slice(0, 10);
+  const [date, setDate] = useState(today() > monthEnd ? today() : monthEnd);
   const [busy, setBusy] = useState(false);
   const chosen = account || usable[0]?.id || "";
   const label = kind === "wps" ? "Paid from" : "Cash box";

@@ -61,6 +61,14 @@ export function openingProposal(db: Db): { date: string; lines: ProposalLine[] }
     [startDate, startDate],
   )!.v ?? 0;
   if (issued) lines.push(line(A.cheques_issued.id, -issued, "Our cheques not yet cleared"));
+  // Fixed assets from before the books: their cost in their account, the depreciation already taken against it.
+  for (const a of db.all<{ name: string; account_id: string; cost_fils: number; opening_depreciation_fils: number }>(
+    "SELECT name, account_id, cost_fils, opening_depreciation_fils FROM fixed_assets WHERE in_use_from < ? AND (disposed_on IS NULL OR disposed_on >= ?) ORDER BY in_use_from, name",
+    [startDate, startDate],
+  )) {
+    lines.push(line(a.account_id, a.cost_fils, `Fixed asset: ${a.name}`));
+    if (a.opening_depreciation_fils) lines.push(line(A.accumulated_depreciation.id, -a.opening_depreciation_fils, `Depreciation to date: ${a.name}`));
+  }
   const clearing = db.get<{ b: number | null }>("SELECT SUM(debit_fils - credit_fils) AS b FROM journal_lines WHERE account_id = ?", [A.opening_clearing.id])!.b ?? 0;
   if (clearing) lines.push(line(A.opening_clearing.id, -clearing, "Opening items the books already hold (customer opening balances, opening stock)"));
   return { date, lines };

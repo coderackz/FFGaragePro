@@ -1,6 +1,6 @@
 import { join } from "node:path";
 import { afterEach, describe, expect, it, vi } from "vitest";
-import { gratuityOwed, serviceDays, SYSTEM_ACCOUNTS } from "@ffgp/shared";
+import { gratuityOwed, serviceYears, SYSTEM_ACCOUNTS } from "@ffgp/shared";
 import { postPending } from "../src/books/pending";
 import { Db } from "../src/db";
 import { call, EMPLOYEE, makeApp, setUp, tempDir, type App } from "./helpers";
@@ -53,14 +53,14 @@ describe("payroll review fixes", () => {
     const adv = await call(g.app, "POST", `/api/employees/${g.e.id}/advances`, g.owner, { amountFils: 60000, paidOn: "2026-09-20", paidFromAccountId: A.cash.id, instalmentFils: 20000 });
     expect(adv.status).toBe(200);
     postPending(g.app.db);
-    const opening = gratuityOwed({ basicFils: 300000, grossFils: 450000, serviceDays: serviceDays("2024-01-01", "2026-09-30", []), dayRate: "basic_30", cap: "basic" });
+    const opening = gratuityOwed({ basicFils: 300000, grossFils: 450000, serviceYears: serviceYears("2024-01-01", "2026-09-30", []), dayRate: "basic_30", cap: "basic" });
     expect(byKey(g.app, `payroll_opening:${g.e.id}%`)).toEqual({ "2210": -opening, "2900": opening });
     expect(byKey(g.app, `staff_advance:${adv.body.advance.id}`)).toEqual({ "1410": 60000, "2900": -60000 });
     const oct = (await g.open("2026-10")).body.run;
     expect(oct.lines[0].advanceRepaymentFils).toBe(20000);
     expect((await g.approve(oct.id)).status).toBe(200);
     postPending(g.app.db);
-    const owedOct = gratuityOwed({ basicFils: 300000, grossFils: 450000, serviceDays: serviceDays("2024-01-01", "2026-10-31", []), dayRate: "basic_30", cap: "basic" });
+    const owedOct = gratuityOwed({ basicFils: 300000, grossFils: 450000, serviceYears: serviceYears("2024-01-01", "2026-10-31", []), dayRate: "basic_30", cap: "basic" });
     expect(byKey(g.app, `payroll_run:${oct.id}`)["6003"]).toBe(owedOct - opening);
     // The opening balances clear 2900 as usual.
     const p = (await call(g.app, "GET", "/api/books/opening/proposal", g.owner)).body;

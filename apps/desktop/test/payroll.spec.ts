@@ -50,7 +50,7 @@ test("a month's payroll: employees, approval, WPS, bonus, payslips", async ({ pa
   await form.getByRole("button", { name: "Save employee" }).click();
   await expect(page.getByRole("heading", { name: "Ravi Kumar" })).toBeVisible();
   await request.post(`${API}/api/employees`, { headers, data: {
-    name: "Sami Haddad", job: "Electrician", joinDate: "2025-03-01", basicFils: 250000, payMethod: "bank", iban: "AE070331234567890123457", routingCode: "803320101", personId: "10012345678902",
+    name: "Sami Haddad", job: "Electrician", joinDate: "2025-03-01", basicFils: 250000, payMethod: "bank", iban: "AE770331234567890123457", routingCode: "803320101", personId: "10012345678902",
   } });
 
   // An advance to Ravi last month, taken back at 100.00 a month.

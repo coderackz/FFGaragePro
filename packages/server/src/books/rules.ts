@@ -503,16 +503,28 @@ export function postSettlements(c: PostCtx): number {
   )) {
     if (c.full()) break;
     const x = JSON.parse(s.snapshot_json) as SettlementSnapshot;
-    if (x.lastDay < c.start) continue;
     const amt = (k: string) => x.items.find((i) => i.key === k)?.amountFils ?? 0;
     const salary = amt("salary");
+    const forgiven = (x.advancesOwedFils ?? -amt("advances")) + amt("advances");
+    // A leaver from before the books: what they were owed was part of the opening position (opening clearing), posted at the start.
+    const before = x.lastDay < c.start;
+    if (before && c.post({
+      date: c.start, narration: `Final settlement: ${x.name} (left ${x.lastDay}, before the books)`, sourceType: "final_settlement", sourceId: s.id,
+      postKey: `final_settlement:${s.id}`, userId: null,
+      lines: [
+        debit(A.gratuity_provision.id, x.gratuityHeldFils),
+        debit(A.opening_clearing.id, salary + amt("leave") + amt("gratuity") - x.gratuityHeldFils + forgiven),
+        credit(A.staff_advances.id, x.advancesOwedFils ?? -amt("advances")), credit(A.salaries_payable.id, x.totalFils),
+      ],
+    })) { n++; continue; }
+    if (before) continue;
     if (c.post({
       date: x.lastDay, narration: `Final settlement: ${x.name}`, sourceType: "final_settlement", sourceId: s.id, postKey: `final_settlement:${s.id}`, userId: null,
       lines: [
         debit(A.salaries.id, x.salaryBasicFils), debit(A.allowances.id, salary - x.salaryBasicFils), debit(A.salaries.id, amt("leave")),
         debit(A.gratuity_provision.id, x.gratuityHeldFils), debit(A.gratuity_expense.id, amt("gratuity") - x.gratuityHeldFils),
         // All advances still owed are cleared: what wasn't taken back is forgiven, a cost of pay.
-        debit(A.salaries.id, (x.advancesOwedFils ?? -amt("advances")) + amt("advances")),
+        debit(A.salaries.id, forgiven),
         credit(A.staff_advances.id, x.advancesOwedFils ?? -amt("advances")), credit(A.salaries_payable.id, x.totalFils),
       ],
     })) n++;
@@ -623,7 +635,9 @@ export function postDisposals(c: PostCtx): number {
     const date = r.disposed_on!;
     const catchUp = depreciationLines([r], postedByAsset(c, [r]), r.disposed_on!.slice(0, 7));
     if (catchUp.length) {
-      c.post({ date, narration: `Depreciation to disposal: ${r.name}`, sourceType: "depreciation", sourceId: r.id, postKey: `depreciation_disposal:${r.id}`, userId: null, lines: catchUp });
+      const ok = c.post({ date, narration: `Depreciation to disposal: ${r.name}`, sourceType: "depreciation", sourceId: r.id, postKey: `depreciation_disposal:${r.id}`, userId: null, lines: catchUp });
+      // Without its depreciation to date the disposal would leave a balance on accumulated depreciation: wait.
+      if (!ok && !c.db.get("SELECT 1 FROM journal_entries WHERE post_key = ?", [`depreciation_disposal:${r.id}`])) continue;
     }
     const accumulated = postedDepreciation(c.db, r);
     const proceeds = r.proceeds_fils ?? 0;

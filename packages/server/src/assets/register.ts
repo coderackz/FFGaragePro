@@ -32,7 +32,8 @@ const out = (db: Db, r: AssetRow) => {
     proceedsFils: r.proceeds_fils, proceedsAccountId: r.proceeds_account_id, disposalNote: r.disposal_note,
     postedFils: posted, bookValueFils: r.cost_fils - posted, monthlyFils: monthlyDepreciation(assetFigures(r)),
     // On disposal, depreciation runs through the disposal month (posted just after): the gain is against that book value.
-    gainFils: r.disposed_on && r.proceeds_fils !== null ? r.proceeds_fils - (r.cost_fils - Math.max(posted, dueThrough(r, r.disposed_on.slice(0, 7)))) : null,
+    gainFils: r.disposed_on && r.proceeds_fils !== null
+      ? r.proceeds_fils - (r.cost_fils - Math.max(dueThrough(r, r.disposed_on.slice(0, 7)), r.opening_depreciation_fils)) : null,
   };
 };
 const row = (db: Db, id: string) => db.get<AssetRow>("SELECT * FROM fixed_assets WHERE id = ?", [id]);
@@ -46,8 +47,13 @@ export function getAsset(db: Db, id: string) {
   if (!r) throw notFound("Asset not found");
   const first = r.in_use_from.slice(0, 7);
   const end = r.disposed_on?.slice(0, 7);
-  const lastMonth = today().slice(0, 7);
-  const months: { month: string; chargeFils: number; totalFils: number; posted: boolean }[] = [];
+  const startMonth = getSettings(db).books.startDate?.slice(0, 7) ?? null;
+  // Months the books have depreciation for: up to the last monthly entry (or the disposal, once posted).
+  const lastPosted = [
+    db.get<{ m: string | null }>("SELECT MAX(source_id) AS m FROM journal_entries WHERE source_type = 'depreciation' AND post_key LIKE 'depreciation:%'")!.m,
+    db.get("SELECT 1 FROM journal_entries WHERE post_key = ?", [`asset_disposal:${r.id}`]) ? end : null,
+  ].filter(Boolean).sort().at(-1) ?? null;
+  const months: { month: string; chargeFils: number; totalFils: number; status: "before" | "posted" | "coming" }[] = [];
   let prev = 0;
   for (let i = 0; i < Math.min(r.life_months + 1, 700); i++) {
     const [y, m] = first.split("-").map(Number) as [number, number];
@@ -55,7 +61,8 @@ export function getAsset(db: Db, id: string) {
     if (end && month > end) break;
     const total = depreciationThrough(assetFigures(r), month);
     if (total === prev && i > 0) break;
-    months.push({ month, chargeFils: total - prev, totalFils: total, posted: month < lastMonth || (!!end && month <= end) });
+    const status = startMonth && month < startMonth ? "before" : lastPosted && month <= lastPosted ? "posted" : "coming";
+    months.push({ month, chargeFils: total - prev, totalFils: total, status });
     prev = total;
   }
   return { ...out(db, r), schedule: months };
@@ -63,8 +70,11 @@ export function getAsset(db: Db, id: string) {
 
 /** Assets sit in an asset account of their own (not money, not one the app keeps). */
 function checkAccount(db: Db, accountId: string) {
-  const a = db.get<{ type: string; active: number; system_key: string | null; money_kind: string | null }>("SELECT type, active, system_key, money_kind FROM accounts WHERE id = ?", [accountId]);
-  if (!a?.active || a.type !== "asset" || a.system_key || a.money_kind) throw badRequest("An asset sits in an asset account of its own (e.g. 1500 Tools and equipment)");
+  const a = db.get<{ code: string; type: string; active: number; system_key: string | null; money_kind: string | null }>("SELECT code, type, active, system_key, money_kind FROM accounts WHERE id = ?", [accountId]);
+  // A fixed asset account (15xx): Books health compares the whole account with the register.
+  if (!a?.active || a.type !== "asset" || a.system_key || a.money_kind || !a.code.startsWith("15")) {
+    throw badRequest("An asset sits in a fixed asset account (15xx, e.g. 1500 Tools and equipment)");
+  }
 }
 
 const COLS = ["name", "category", "account_id", "cost_fils", "in_use_from", "life_months", "residual_fils", "opening_depreciation_fils", "serial", "note"] as const;

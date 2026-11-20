@@ -2,7 +2,8 @@ import { newId, now, type Db } from "./db";
 
 export type AuditAction =
   | "settings.change" | "discount.approve" | "user.create" | "user.update" | "backup.restore"
-  | "credit.override" | "receipt.create" | "receipt.allocate" | "credit_note.issue";
+  | "credit.override" | "receipt.create" | "receipt.allocate" | "credit_note.issue"
+  | "payroll.approve" | "payroll.paid" | "settlement.approve" | "settlement.paid";
 
 export interface AuditEntry {
   action: AuditAction;

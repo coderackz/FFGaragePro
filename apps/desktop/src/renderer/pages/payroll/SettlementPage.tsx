@@ -35,7 +35,7 @@ export function SettlementPage() {
   };
   const print = async () => {
     const e = (await get<{ employee: EmployeeFull }>(`/api/employees/${id}`)).employee;
-    const letter: SettlementLetter = { employeeId: e.id, name: s.name, nameAr: e.nameAr, job: s.job, language: e.language, joinDate: s.joinDate, lastDay: s.lastDay, items: s.items, totalFils: s.totalFils };
+    const letter: SettlementLetter = { employeeId: e.id, name: s.name, nameAr: e.nameAr, job: s.job, language: e.language, joinDate: s.joinDate, lastDay: s.lastDay, items: s.items, totalFils: s.totalFils, draft };
     await printSettlement(letter, garage, settings, "print");
   };
   return (
@@ -65,12 +65,12 @@ export function SettlementPage() {
                 <td className="w-24 pr-4 text-right">{draft && <Button size="sm" variant="ghost" onClick={() => setChanging(i)}>Change</Button>}</td>
               </tr>
             ))}
-            <tr className="font-semibold"><td className="px-4 py-3">Total due</td><td className="px-4 py-3 text-right tabular" data-testid="settlement-total">{formatAED(s.totalFils)}</td><td /></tr>
+            <tr className="font-semibold"><td className="px-4 py-3">{s.totalFils < 0 ? "Owed by the employee" : "Total due"}</td><td className="px-4 py-3 text-right tabular" data-testid="settlement-total">{formatAED(Math.abs(s.totalFils))}</td><td /></tr>
           </tbody>
         </table>
       </Card>
       <ChangeModal item={changing} settlementId={s.id} onClose={() => setChanging(null)} onDone={() => void reload()} />
-      <PayModal open={paying} settlementId={s.id} lastDay={s.lastDay} onClose={() => setPaying(false)} onDone={() => void reload()} />
+      <PayModal open={paying} settlementId={s.id} lastDay={s.lastDay} owedBy={s.totalFils < 0} onClose={() => setPaying(false)} onDone={() => void reload()} />
     </>
   );
 }
@@ -99,7 +99,7 @@ function ChangeModal({ item, settlementId, onClose, onDone }: { item: Item | nul
   );
 }
 
-function PayModal({ open, settlementId, lastDay, onClose, onDone }: { open: boolean; settlementId: string; lastDay: string; onClose: () => void; onDone: () => void }) {
+function PayModal({ open, settlementId, lastDay, owedBy, onClose, onDone }: { open: boolean; settlementId: string; lastDay: string; owedBy: boolean; onClose: () => void; onDone: () => void }) {
   const accounts = useApi<{ accounts: MoneyAccount[] }>(open ? "/api/money-accounts" : null);
   const usable = (accounts.data?.accounts ?? []).filter((a) => a.moneyKind === "bank" || a.moneyKind === "cash");
   const [account, setAccount] = useState("");
@@ -111,10 +111,10 @@ function PayModal({ open, settlementId, lastDay, onClose, onDone }: { open: bool
     try { await post(`/api/settlements/${settlementId}/paid`, { date, accountId: chosen }); toast.success("Settlement marked paid"); onClose(); onDone(); } catch (err) { toast.error((err as Error).message); } finally { setBusy(false); }
   };
   return (
-    <Modal open={open} title="Settlement paid" onClose={onClose}
+    <Modal open={open} title={owedBy ? "Received from the employee" : "Settlement paid"} onClose={onClose}
       footer={<><Button variant="ghost" onClick={onClose}>Cancel</Button><Button variant="primary" busy={busy} disabled={!chosen} onClick={() => void save()}>Mark paid</Button></>}>
       <div className="grid grid-cols-2 gap-3">
-        <Field label="Paid from"><Select value={chosen} onChange={(e) => setAccount(e.target.value)} aria-label="Paid from">{usable.map((a) => <option key={a.id} value={a.id}>{a.code} {a.name}</option>)}</Select></Field>
+        <Field label={owedBy ? "Received into" : "Paid from"}><Select value={chosen} onChange={(e) => setAccount(e.target.value)} aria-label={owedBy ? "Received into" : "Paid from"}>{usable.map((a) => <option key={a.id} value={a.id}>{a.code} {a.name}</option>)}</Select></Field>
         <Field label="Date"><Input type="date" value={date} min={lastDay} max={today()} onChange={(e) => setDate(e.target.value)} aria-label="Date" /></Field>
       </div>
     </Modal>

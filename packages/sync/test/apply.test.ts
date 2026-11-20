@@ -540,3 +540,24 @@ describe("fixed assets across places (review fixes)", () => {
   });
 });
 
+describe("settlement edits across places (minor fixes)", () => {
+  it("two places changing different amounts both keep their change", async () => {
+    const now = new Date(Date.now() + 4 * 3_600_000).toISOString().slice(0, 10);
+    const start = new Date(Date.UTC(Number(now.slice(0, 4)), Number(now.slice(5, 7)) - 3, 1)).toISOString().slice(0, 10);
+    let employeeId = "";
+    const { A, C, token, sync } = await pair(async (app, t) => {
+      await call(app, "PUT", "/api/settings/books", t, { startDate: start });
+      await call(app, "PUT", "/api/settings/payroll", t, { gratuityDayRate: "basic_30", gratuityCap: "basic", leaveBasis: "basic", salaryDayRate: "gross_30" });
+      employeeId = (await call(app, "POST", "/api/employees", t, { name: "Ravi", job: "Mechanic", joinDate: start, leftDate: `${start.slice(0, 8)}20`, basicFils: 300000 })).body.employee.id;
+    });
+    const s = (await call(A, "POST", `/api/employees/${employeeId}/settlement`, token, {})).body.settlement;
+    sync();
+    await call(A, "PATCH", `/api/settlements/${s.id}`, token, { key: "leave", amountFils: 1000, reason: "Agreed" });
+    await call(C, "PATCH", `/api/settlements/${s.id}`, token, { key: "salary", amountFils: 2000, reason: "Checked" });
+    sync();
+    const items = (await call(C, "GET", `/api/employees/${employeeId}/settlement`, token)).body.settlement.items;
+    expect(items.find((i: { key: string }) => i.key === "leave").amountFils).toBe(1000);
+    expect(items.find((i: { key: string }) => i.key === "salary").amountFils).toBe(2000);
+  });
+});
+
