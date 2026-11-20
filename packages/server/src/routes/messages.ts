@@ -1,5 +1,5 @@
 import type { FastifyInstance } from "fastify";
-import { dubaiDate, MESSAGE_STATUSES, messageInputSchema } from "@ffgp/shared";
+import { can, dubaiDate, MESSAGE_STATUSES, messageInputSchema, type Role } from "@ffgp/shared";
 import { z } from "zod";
 import { requireAction, sessionUser } from "../auth";
 import type { Db } from "../db";
@@ -17,9 +17,11 @@ const testInput = z.object({ to: z.string().trim().regex(/^[^\s@]+@[^\s@]+\.[^\s
 
 /** Messages: queue an email or log a WhatsApp message, the log, retry, test email, and statements to send. */
 export function messageRoutes(app: FastifyInstance, db: Db, onQueued: () => void = () => {}): void {
+  // Payslips carry salaries: only people who run payroll see or send them.
+  const seesPayslips = (user: { role: Role }) => can(user.role, "payroll.manage");
   app.get("/api/messages", async (req) => {
-    sessionUser(db, req);
-    return { messages: listMessages(db, listQuery.parse(req.query)) };
+    const user = sessionUser(db, req);
+    return { messages: listMessages(db, listQuery.parse(req.query), { payslips: seesPayslips(user) }) };
   });
 
   app.get("/api/messages/statements-due", async (req) => {
@@ -28,9 +30,9 @@ export function messageRoutes(app: FastifyInstance, db: Db, onQueued: () => void
   });
 
   app.get<{ Params: { id: string } }>("/api/messages/:id", async (req) => {
-    sessionUser(db, req);
+    const user = sessionUser(db, req);
     const m = getMessage(db, req.params.id);
-    if (!m) throw notFound("Message not found");
+    if (!m || (m.event === "payslip" && !seesPayslips(user))) throw notFound("Message not found");
     return { message: m };
   });
 
@@ -38,7 +40,9 @@ export function messageRoutes(app: FastifyInstance, db: Db, onQueued: () => void
   app.post("/api/messages", { bodyLimit: 10 * 1024 * 1024 }, async (req) => {
     const user = sessionUser(db, req);
     requireAction(user, "messages.send");
-    const message = queueMessage(db, messageInputSchema.parse(req.body), user.id);
+    const input = messageInputSchema.parse(req.body);
+    if (input.event === "payslip") requireAction(user, "payroll.manage");
+    const message = queueMessage(db, input, user.id);
     if (message.status === "queued") onQueued();
     return { message };
   });
@@ -46,6 +50,7 @@ export function messageRoutes(app: FastifyInstance, db: Db, onQueued: () => void
   app.post<{ Params: { id: string } }>("/api/messages/:id/retry", async (req) => {
     const user = sessionUser(db, req);
     requireAction(user, "messages.send");
+    if (getMessage(db, req.params.id)?.event === "payslip") requireAction(user, "payroll.manage");
     const message = retryMessage(db, req.params.id);
     if (message.status === "queued") onQueued();
     return { message };

@@ -1,6 +1,6 @@
 import { dubaiDate, type MessageInput } from "@ffgp/shared";
 import { newId, now as nowIso, type Db } from "../db";
-import { notFound } from "../errors";
+import { badRequest, notFound } from "../errors";
 import { getSettings } from "../settings";
 import type { Mailer } from "./mailer";
 import { queueReminders } from "./reminders";
@@ -12,7 +12,7 @@ export const RETRY_MINUTES = [1, 5, 30];
 export const NOT_SET_UP = "Email isn't set up: Settings → Messages";
 
 interface MessageRow {
-  id: string; customer_id: string | null; contact_id: string | null; document_id: string | null; receipt_id: string | null;
+  id: string; customer_id: string | null; employee_id: string | null; contact_id: string | null; document_id: string | null; receipt_id: string | null;
   event: string; channel: string; recipient: string; subject: string | null; body: string; status: string; attempts: number;
   next_attempt_at: string | null; error: string | null; sender_place: string | null; created_at: string; sent_at: string | null;
   created_by_name?: string | null; file_name?: string | null;
@@ -22,7 +22,7 @@ const SELECT = `SELECT m.*, u.name AS created_by_name, (SELECT file_name FROM me
   FROM messages m LEFT JOIN users u ON u.id = m.created_by`;
 
 export const messageOut = (m: MessageRow) => ({
-  id: m.id, customerId: m.customer_id, contactId: m.contact_id, documentId: m.document_id, receiptId: m.receipt_id, event: m.event,
+  id: m.id, customerId: m.customer_id, employeeId: m.employee_id, contactId: m.contact_id, documentId: m.document_id, receiptId: m.receipt_id, event: m.event,
   channel: m.channel, recipient: m.recipient, subject: m.subject, body: m.body, status: m.status, attempts: m.attempts,
   nextAttemptAt: m.next_attempt_at, error: m.error, senderPlace: m.sender_place, createdBy: m.created_by_name ?? null,
   createdAt: m.created_at, sentAt: m.sent_at, fileName: m.file_name ?? null,
@@ -34,16 +34,21 @@ export function getMessage(db: Db, id: string): MessageOut | null {
   return m ? messageOut(m) : null;
 }
 
-export function listMessages(db: Db, q: { customerId?: string; documentId?: string; receiptId?: string; status?: string }): MessageOut[] {
+/** Messages, newest first. Payslips (salary details) only when `payslips` is true: for people who run payroll. */
+export function listMessages(db: Db, q: { customerId?: string; documentId?: string; receiptId?: string; status?: string }, o: { payslips: boolean }): MessageOut[] {
   return db
     .all<MessageRow>(
       `${SELECT} WHERE (:customer IS NULL OR m.customer_id = :customer) AND (:document IS NULL OR m.document_id = :document)
-         AND (:receipt IS NULL OR m.receipt_id = :receipt) AND (:status IS NULL OR m.status = :status)
+         AND (:receipt IS NULL OR m.receipt_id = :receipt) AND (:status IS NULL OR m.status = :status) AND (:payslips = 1 OR m.event <> 'payslip')
        ORDER BY m.created_at DESC, m.rowid DESC LIMIT 200`,
-      { customer: q.customerId ?? null, document: q.documentId ?? null, receipt: q.receiptId ?? null, status: q.status ?? null },
+      { customer: q.customerId ?? null, document: q.documentId ?? null, receipt: q.receiptId ?? null, status: q.status ?? null, payslips: o.payslips ? 1 : 0 },
     )
     .map(messageOut);
 }
+
+/** One payroll's payslip messages (their dedupe keys are payslip:<run>:<employee>). */
+export const payslipMessages = (db: Db, runId: string): MessageOut[] =>
+  db.all<MessageRow>(`${SELECT} WHERE m.event = 'payslip' AND m.dedupe_key LIKE ? ORDER BY m.created_at`, [`payslip:${runId}:%`]).map(messageOut);
 
 /**
  * Queues an email (sent by this garage's one sender: the cloud when linked, else its server) or logs a WhatsApp
@@ -58,13 +63,14 @@ export function queueMessage(db: Db, input: MessageInput, userId: string | null)
     if (input.customerId && !db.get("SELECT 1 FROM customers WHERE id = ?", [input.customerId])) throw notFound("Customer not found");
     if (input.documentId && !db.get("SELECT 1 FROM documents WHERE id = ?", [input.documentId])) throw notFound("Document not found");
     if (input.receiptId && !db.get("SELECT 1 FROM receipts WHERE id = ?", [input.receiptId])) throw notFound("Receipt not found");
+    if (input.event === "payslip" && !(input.employeeId && db.get("SELECT 1 FROM employees WHERE id = ?", [input.employeeId]))) throw badRequest("A payslip goes to an employee");
     const id = newId();
     const t = nowIso();
     const email = input.channel === "email";
     db.run(
-      `INSERT INTO messages (id, customer_id, contact_id, document_id, receipt_id, event, channel, recipient, subject, body, status, dedupe_key,
-         created_by, created_at, sent_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
-      [id, input.customerId, input.contactId, input.documentId, input.receiptId, input.event, input.channel, input.recipient, input.subject,
+      `INSERT INTO messages (id, customer_id, employee_id, contact_id, document_id, receipt_id, event, channel, recipient, subject, body, status, dedupe_key,
+         created_by, created_at, sent_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+      [id, input.customerId, input.employeeId, input.contactId, input.documentId, input.receiptId, input.event, input.channel, input.recipient, input.subject,
         input.body, email ? "queued" : "opened", input.dedupeKey, userId, t, email ? null : t, t],
     );
     if (input.attachment) {

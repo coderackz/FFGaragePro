@@ -4,6 +4,7 @@ import type { Db } from "../db";
 import { addAdvance, addLeave, cancelAdvance, cancelLeave, createEmployee, expiringDocuments, getEmployee, listEmployees, updateEmployee } from "../payroll/employees";
 import { approveRun, editLine, getRun, listRuns, openRun, refreshRun } from "../payroll/runs";
 import { bonusVoucher, markBonusPaid, markWpsPaid, payslips, wpsFile } from "../payroll/pay";
+import { payslipMessages } from "../messages/outbox";
 import { approveSettlement, editSettlement, getSettlement, markSettlementPaid, openSettlement } from "../payroll/settlements";
 
 export interface PayrollRouteOptions { posts: boolean }
@@ -110,6 +111,10 @@ export function payrollRoutes(app: FastifyInstance, db: Db, options: PayrollRout
   app.post<{ Params: { id: string }; Body: { date?: string; accountId?: string } }>("/api/settlements/:id/paid", async (req) => {
     const user = manager(req);
     return { settlement: markSettlementPaid(db, req.params.id, req.body ?? {}, user.id) };
+  });
+  app.get<{ Params: { id: string } }>("/api/payroll/runs/:id/messages", async (req) => {
+    manager(req);
+    return { messages: payslipMessages(db, req.params.id) };
   });
   app.get("/api/payroll/expiring", async (req) => {
     manager(req);
