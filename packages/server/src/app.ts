@@ -16,6 +16,7 @@ import { payablesRoutes } from "./routes/payables";
 import { vatRoutes } from "./routes/vat";
 import { payrollRoutes } from "./routes/payroll";
 import { assetRoutes } from "./routes/assets";
+import { templateRoutes } from "./routes/templates";
 import { messageRoutes } from "./routes/messages";
 import { customerRoutes } from "./routes/customers";
 import { documentRoutes } from "./routes/documents";
@@ -124,6 +125,7 @@ export async function buildApp(options: AppOptions): Promise<FastifyInstance & {
   vatRoutes(app, db, { posts: !!options.postsBooks });
   payrollRoutes(app, db, { posts: !!options.postsBooks });
   assetRoutes(app, db);
+  templateRoutes(app, db);
   if (options.postsBooks) {
     // The books catch up after every change made here (idempotent: each event posts once).
     app.addHook("onResponse", async (req, reply) => {

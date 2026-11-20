@@ -1193,6 +1193,27 @@ ALTER TABLE sync_issues_new RENAME TO sync_issues;
 CREATE INDEX sync_issues_device ON sync_issues(for_device);
 `,
   },
+  {
+    id: 17,
+    // Message templates (the garage's own), promo codes.
+    sql: `
+CREATE TABLE message_templates (
+  id TEXT PRIMARY KEY,
+  name TEXT NOT NULL,
+  channel TEXT NOT NULL CHECK (channel IN ('email', 'whatsapp', 'both')),
+  subject_en TEXT,
+  subject_ar TEXT,
+  text_en TEXT NOT NULL,
+  text_ar TEXT NOT NULL,
+  wa_template_name TEXT,
+  wa_language TEXT,
+  wa_params_json TEXT NOT NULL DEFAULT '[]',
+  archived_at TEXT,
+  created_at TEXT NOT NULL,
+  updated_at TEXT NOT NULL
+);
+`,
+  },
 ];
 
 /** The newest migration this code knows: the garage database's schema version. */

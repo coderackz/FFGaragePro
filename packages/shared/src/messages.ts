@@ -178,3 +178,27 @@ export function messageValues(v: {
     garage_phone: v.garagePhone ?? "",
   };
 }
+
+// ── The garage's own message templates (picked in the Send dialog) ─────────────────────────────────────────────────
+export const TEMPLATE_CHANNELS = ["email", "whatsapp", "both"] as const;
+const templateText = (max: number, label: string) =>
+  z.string().trim().max(max).superRefine((v, ctx) => {
+    const unknown = unknownPlaceholders(v);
+    if (unknown.length) ctx.addIssue({ code: "custom", message: `${label}: ${unknown.map((n) => `{${n}}`).join(", ")} isn't a placeholder the app knows` });
+  });
+export const messageTemplateSchema = z
+  .object({
+    name: z.string().trim().min(1, "Name the template").max(80),
+    channel: z.enum(TEMPLATE_CHANNELS),
+    subjectEn: templateText(200, "Subject").nullable().optional().transform((v) => v || null),
+    subjectAr: templateText(200, "Arabic subject").nullable().optional().transform((v) => v || null),
+    textEn: templateText(1000, "Text").pipe(z.string().min(1, "Write the text")),
+    textAr: templateText(1000, "Arabic text").pipe(z.string().min(1, "Write the Arabic text")),
+    /** WhatsApp Business API: the Meta-approved template this one sends as, its language and its body parameters in order. */
+    waTemplateName: z.string().trim().max(512).nullable().optional().transform((v) => v || null),
+    waLanguage: z.string().trim().max(15).nullable().optional().transform((v) => v || null),
+    waParams: z.array(z.enum(PLACEHOLDERS)).max(20).default([]),
+  })
+  .refine((t) => t.channel === "whatsapp" || !!t.subjectEn, { message: "An email template needs a subject", path: ["subjectEn"] });
+export type MessageTemplateInput = z.infer<typeof messageTemplateSchema>;
+
