@@ -110,6 +110,7 @@ export async function startFakeProviders(port = 0): Promise<FakeProviders> {
       qboCustomers.set(name, cid);
       return { Customer: { Id: cid, DisplayName: name } };
     });
+    app.get<{ Params: { realm: string } }>(`${prefix}/v3/company/:realm/companyinfo/:id`, async (req) => ({ CompanyInfo: { Id: req.params.realm, CompanyName: "Al Quoz Auto Care LLC" } }));
     app.post(`${prefix}/v3/company/:realm/invoice`, async () => ({ Invoice: { Id: id("qi-") } }));
     app.post(`${prefix}/v3/company/:realm/creditmemo`, async () => ({ CreditMemo: { Id: id("qcm-") } }));
     app.post(`${prefix}/v3/company/:realm/payment`, async () => ({ Payment: { Id: id("qp-") } }));

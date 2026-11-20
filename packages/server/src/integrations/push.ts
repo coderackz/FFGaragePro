@@ -20,7 +20,9 @@ export interface Pusher {
  * line at its net (discounts and promo shares are inside it), with the quantity, price and discount in the words.
  */
 export function providerLine(l: PushLine): { description: string; quantity: number; rateFils: number } {
-  if (l.netFils === Math.round(l.qty * l.unitFils) && !l.discountPct) return { description: l.description, quantity: l.qty, rateFils: l.unitFils };
+  // Exactly, with no rounding: providers check that quantity × price is the line's amount.
+  const exact = l.qty * l.unitFils;
+  if (!l.discountPct && Math.abs(exact - Math.round(exact)) < 1e-9 && l.netFils === Math.round(exact)) return { description: l.description, quantity: l.qty, rateFils: l.unitFils };
   const aed = `AED ${(l.unitFils / 100).toFixed(2)}`;
   return { description: `${l.description} (${l.qty} × ${aed}${l.discountPct ? `, less ${l.discountPct}%` : ""})`, quantity: 1, rateFils: l.netFils };
 }
