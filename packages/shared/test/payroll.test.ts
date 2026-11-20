@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { annualLeaveBalance, buildSif, can, gratuityOwed, proposeLine, serviceDays, settingsSchemas, SYSTEM_ACCOUNTS } from "../src";
+import { annualLeaveBalance, buildSif, can, runLineEditSchema, gratuityOwed, proposeLine, serviceDays, settingsSchemas, SYSTEM_ACCOUNTS } from "../src";
 
 const emp = { basicFils: 300000, housingFils: 100000, transportFils: 50000, otherAllowanceFils: 0, joinDate: "2024-01-01", leftDate: null };
 const sifLine = { name: "Ravi", personId: "10012345678901", routingCode: "803320101", account: "AE070331234567890123456", from: "2026-10-01", to: "2026-10-31", days: 31, fixedFils: 450000, variableFils: 0, leaveDays: 0 };
@@ -51,4 +51,16 @@ describe("payroll maths", () => {
     expect(SYSTEM_ACCOUNTS.salaries_payable.code).toBe("2200");
     expect(SYSTEM_ACCOUNTS.staff_advances.code).toBe("1410");
   });
+  it("I4: a whole month unpaid pays nothing, never less", () => {
+    for (const [month, rule] of [["2026-02", "gross_30"], ["2026-10", "gross_30"], ["2026-10", "gross_365"]] as const) {
+      const m = month === "2026-02" ? { from: "2026-02-01", to: "2026-02-28" } : { from: "2026-10-01", to: "2026-10-31" };
+      const l = proposeLine({ month, employee: emp, unpaidLeave: [m], salaryDayRate: rule, advanceDueFils: 0 });
+      expect(l.netFils).toBe(0);
+    }
+  });
+  it("I10: editing one field of a line leaves the note alone", () => {
+    expect(runLineEditSchema.parse({ bonusFils: 100 })).not.toHaveProperty("extrasNote");
+    expect(runLineEditSchema.parse({ extrasNote: "" }).extrasNote).toBeNull();
+  });
 });
+

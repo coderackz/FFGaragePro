@@ -2,6 +2,7 @@ import { advanceSchema, annualLeaveBalance, dubaiDate, employeeSchema, leaveSche
 import { checkNotLocked } from "../books/journals";
 import { addDays } from "../books/post";
 import { newId, now, type Db } from "../db";
+import { getSettings } from "../settings";
 import { badRequest, conflict, notFound } from "../errors";
 
 const today = () => dubaiDate(new Date().toISOString());
@@ -62,8 +63,9 @@ export function updateEmployee(db: Db, id: string, input: unknown) {
 }
 
 interface LeaveRow { id: string; kind: string; from_date: string; to_date: string; note: string | null }
+/** Leave that stands (cancelled leave counts for nothing). */
 const leaveOf = (db: Db, employeeId: string) =>
-  db.all<LeaveRow>("SELECT id, kind, from_date, to_date, note FROM employee_leave WHERE employee_id = ? ORDER BY from_date", [employeeId])
+  db.all<LeaveRow>("SELECT id, kind, from_date, to_date, note FROM employee_leave WHERE employee_id = ? AND cancelled_at IS NULL ORDER BY from_date", [employeeId])
     .map((l) => ({ id: l.id, kind: l.kind as "annual" | "sick" | "unpaid", from: l.from_date, to: l.to_date, note: l.note }));
 
 export const unpaidLeaveOf = (db: Db, employeeId: string) => leaveOf(db, employeeId).filter((l) => l.kind === "unpaid");
@@ -72,25 +74,43 @@ export function addLeave(db: Db, employeeId: string, input: unknown, userId: str
   if (!row(db, employeeId)) throw notFound("Employee not found");
   const l = leaveSchema.parse(input);
   const clash = db.get<{ from_date: string; to_date: string }>(
-    "SELECT from_date, to_date FROM employee_leave WHERE employee_id = ? AND from_date <= ? AND to_date >= ?", [employeeId, l.to, l.from]);
+    "SELECT from_date, to_date FROM employee_leave WHERE employee_id = ? AND cancelled_at IS NULL AND from_date <= ? AND to_date >= ?", [employeeId, l.to, l.from]);
   if (clash) throw conflict(`That overlaps leave from ${clash.from_date} to ${clash.to_date}`);
   const id = newId();
-  db.run("INSERT INTO employee_leave (id, employee_id, kind, from_date, to_date, note, created_by, created_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?)", [
-    id, employeeId, l.kind, l.from, l.to, l.note, userId, now(),
+  const t = now();
+  db.run("INSERT INTO employee_leave (id, employee_id, kind, from_date, to_date, note, created_by, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)", [
+    id, employeeId, l.kind, l.from, l.to, l.note, userId, t, t,
   ]);
   return { id, ...l };
 }
 
-/** Advances paid to an employee, with what's still owed on each (repayments in approved runs go oldest first). */
+/** Leave entered by mistake: cancelled, it no longer counts (a payroll already approved keeps what it paid). */
+export function cancelLeave(db: Db, employeeId: string, leaveId: string) {
+  const l = db.get<{ cancelled_at: string | null }>("SELECT cancelled_at FROM employee_leave WHERE id = ? AND employee_id = ?", [leaveId, employeeId]);
+  if (!l) throw notFound("Leave not found");
+  if (l.cancelled_at) throw conflict("That leave is already cancelled");
+  db.run("UPDATE employee_leave SET cancelled_at = ?, updated_at = ? WHERE id = ?", [now(), now(), leaveId]);
+  return { id: leaveId };
+}
+
+/** What approved payrolls took back from someone's salary towards advances. */
+const repaidFromSalary = (db: Db, employeeId: string) =>
+  db.all<{ snapshot_json: string }>("SELECT snapshot_json FROM payroll_approvals").reduce((s, a) =>
+    s + (JSON.parse(a.snapshot_json) as { lines: { employeeId: string; advanceRepaymentFils: number }[] }).lines
+      .filter((l) => l.employeeId === employeeId).reduce((t, l) => t + l.advanceRepaymentFils, 0), 0);
+
+/** Advances paid to an employee, with what's still owed on each (repayments go oldest first; cancelled ones owe nothing). */
 export function advancesOf(db: Db, employeeId: string) {
-  const list = db.all<{ id: string; amount_fils: number; paid_on: string; instalment_fils: number; note: string | null }>(
-    "SELECT id, amount_fils, paid_on, instalment_fils, note FROM staff_advances WHERE employee_id = ? ORDER BY paid_on, created_at", [employeeId]);
-  let repaid = db.get<{ r: number | null }>(
-    "SELECT SUM(l.advance_repayment_fils) AS r FROM payroll_lines l JOIN payroll_runs p ON p.id = l.run_id WHERE l.employee_id = ? AND p.status = 'approved'", [employeeId])!.r ?? 0;
+  const list = db.all<{ id: string; amount_fils: number; paid_on: string; instalment_fils: number; note: string | null; cancelled_on: string | null }>(
+    "SELECT id, amount_fils, paid_on, instalment_fils, note, cancelled_on FROM staff_advances WHERE employee_id = ? ORDER BY paid_on, created_at", [employeeId]);
+  let repaid = repaidFromSalary(db, employeeId);
   return list.map((a) => {
-    const used = Math.min(repaid, a.amount_fils);
+    const used = a.cancelled_on ? 0 : Math.min(repaid, a.amount_fils);
     repaid -= used;
-    return { id: a.id, amountFils: a.amount_fils, paidOn: a.paid_on, instalmentFils: a.instalment_fils, note: a.note, owedFils: a.amount_fils - used };
+    return {
+      id: a.id, amountFils: a.amount_fils, paidOn: a.paid_on, instalmentFils: a.instalment_fils, note: a.note, cancelled: !!a.cancelled_on,
+      repaidFils: used, owedFils: a.cancelled_on ? 0 : a.amount_fils - used,
+    };
   });
 }
 
@@ -99,13 +119,28 @@ export function addAdvance(db: Db, employeeId: string, input: unknown, userId: s
   const a = advanceSchema.parse(input);
   const from = db.get<{ money_kind: string | null; active: number }>("SELECT money_kind, active FROM accounts WHERE id = ?", [a.paidFromAccountId]);
   if (!from?.money_kind || !from.active || !["cash", "bank"].includes(from.money_kind)) throw badRequest("Pay an advance from a cash or bank account");
-  checkNotLocked(db, a.paidOn);
+  // One paid before the books started is part of the opening position (it posts against opening balance clearing).
+  const start = getSettings(db).books.startDate;
+  if (!start || a.paidOn >= start) checkNotLocked(db, a.paidOn);
   const id = newId();
+  const t = now();
   db.run(
-    "INSERT INTO staff_advances (id, employee_id, amount_fils, paid_on, paid_from_account_id, instalment_fils, note, created_by, created_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)",
-    [id, employeeId, a.amountFils, a.paidOn, a.paidFromAccountId, a.instalmentFils, a.note, userId, now()],
+    "INSERT INTO staff_advances (id, employee_id, amount_fils, paid_on, paid_from_account_id, instalment_fils, note, created_by, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+    [id, employeeId, a.amountFils, a.paidOn, a.paidFromAccountId, a.instalmentFils, a.note, userId, t, t],
   );
   return { id, ...a };
+}
+
+/** An advance paid by mistake and given back: cancelled today, its payment is reversed. Not once salary has repaid any of it. */
+export function cancelAdvance(db: Db, employeeId: string, advanceId: string) {
+  const a = advancesOf(db, employeeId).find((x) => x.id === advanceId);
+  if (!a) throw notFound("Advance not found");
+  if (a.cancelled) throw conflict("That advance is already cancelled");
+  if (a.repaidFils > 0) throw conflict("Salary has already repaid part of this advance: it can't be cancelled");
+  const day = today();
+  checkNotLocked(db, day);
+  db.run("UPDATE staff_advances SET cancelled_on = ?, updated_at = ? WHERE id = ?", [day, now(), advanceId]);
+  return { id: advanceId, cancelledOn: day };
 }
 
 const DOCUMENTS = [["emirates_id_expiry", "Emirates ID"], ["labour_card_expiry", "Labour card"], ["passport_expiry", "Passport"], ["visa_expiry", "Visa"]] as const;

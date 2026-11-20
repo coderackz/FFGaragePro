@@ -1,6 +1,6 @@
 import { buildSif, monthDays } from "@ffgp/shared";
 import { checkNotLocked } from "../books/journals";
-import { now, type Db } from "../db";
+import { newId, now, type Db } from "../db";
 import { badRequest, conflict } from "../errors";
 import { formatDay } from "../books/post";
 import { getSettings } from "../settings";
@@ -41,21 +41,27 @@ export function wpsFile(db: Db, runId: string) {
 }
 
 /** The salaries went out through WPS: once, from a bank account, on or after the month end. */
-export function markWpsPaid(db: Db, runId: string, input: { date?: unknown; bankAccountId?: unknown }) {
+/** A payment made: recorded once per run and kind (insert-only, so the first place to record it wins). */
+const record = (db: Db, runId: string, kind: "wps" | "bonus", date: string, accountId: string, amountFils: number, userId: string) =>
+  db.run("INSERT INTO payroll_payments (id, run_id, kind, paid_on, account_id, amount_fils, created_by, created_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?)", [
+    newId(), runId, kind, date, accountId, amountFils, userId, now(),
+  ]);
+
+export function markWpsPaid(db: Db, runId: string, input: { date?: unknown; bankAccountId?: unknown }, userId: string) {
   const run = approved(db, runId);
   if (run.wpsPaidOn) throw conflict(`Already marked paid on ${formatDay(run.wpsPaidOn)}`);
   const bank = moneyKind(db, input.bankAccountId);
   if (bank?.money_kind !== "bank" || !bank.active) throw badRequest("Salaries are paid from a bank account");
   if (!isYmd(input.date) || input.date < monthDays(run.month).to) throw badRequest("Use a date on or after the month end");
   checkNotLocked(db, input.date);
-  db.run("UPDATE payroll_runs SET wps_paid_on = ?, wps_bank_account_id = ?, updated_at = ? WHERE id = ?", [input.date, input.bankAccountId as string, now(), run.id]);
+  record(db, run.id, "wps", input.date, input.bankAccountId as string, run.totals.netWpsFils, userId);
   return getRun(db, run.id);
 }
 
 const cashBonuses = (run: ReturnType<typeof getRun>) => run.lines.filter((l) => l.bonusFils > 0 && !l.bonusInWps);
 
 /** The cash bonuses were handed out (on the signed voucher): once, from a cash box. */
-export function markBonusPaid(db: Db, runId: string, input: { date?: unknown; cashAccountId?: unknown }) {
+export function markBonusPaid(db: Db, runId: string, input: { date?: unknown; cashAccountId?: unknown }, userId: string) {
   const run = approved(db, runId);
   if (!cashBonuses(run).length) throw conflict("There are no cash bonuses in this payroll");
   if (run.bonusPaidOn) throw conflict(`Already marked paid on ${formatDay(run.bonusPaidOn)}`);
@@ -63,7 +69,7 @@ export function markBonusPaid(db: Db, runId: string, input: { date?: unknown; ca
   if (cash?.money_kind !== "cash" || !cash.active) throw badRequest("Cash bonuses are paid from a cash account");
   if (!isYmd(input.date) || input.date < monthDays(run.month).to) throw badRequest("Use a date on or after the month end");
   checkNotLocked(db, input.date);
-  db.run("UPDATE payroll_runs SET bonus_paid_on = ?, bonus_cash_account_id = ?, updated_at = ? WHERE id = ?", [input.date, input.cashAccountId as string, now(), run.id]);
+  record(db, run.id, "bonus", input.date, input.cashAccountId as string, run.totals.cashBonusFils, userId);
   return getRun(db, run.id);
 }
 

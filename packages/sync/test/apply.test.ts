@@ -447,3 +447,48 @@ describe("Part 2 review fixes: the same thing done in two places", () => {
   });
 });
 
+describe("payroll across places (review fixes)", () => {
+  const RULES = { gratuityDayRate: "basic_30", gratuityCap: "basic", leaveBasis: "basic", salaryDayRate: "gross_30", establishmentId: "1234567890123", employerRoutingCode: "803320101" };
+  const now = new Date(Date.now() + 4 * 3_600_000).toISOString().slice(0, 10);
+  const month = new Date(Date.UTC(Number(now.slice(0, 4)), Number(now.slice(5, 7)) - 2, 1)).toISOString().slice(0, 7);
+  const seed = async (app: App, t: string) => {
+    await call(app, "PUT", "/api/settings/books", t, { startDate: `${month}-01` });
+    await call(app, "PUT", "/api/settings/payroll", t, RULES);
+    await call(app, "POST", "/api/employees", t, { name: "Ravi", job: "Mechanic", joinDate: `${month}-01`, basicFils: 300000, iban: "AE070331234567890123456", routingCode: "803320101", personId: "10012345678901" });
+  };
+  const open = async (app: App, token: string) => (await call(app, "POST", "/api/payroll/runs", token, { month })).body.run;
+  const sif = async (app: App, token: string, runId: string) => (await call(app, "GET", `/api/payroll/runs/${runId}/wps`, token)).body.text as string;
+
+  it("C1: an approved payroll can't be changed by a PC's late edit", async () => {
+    const { A, C, token, sync } = await pair(seed);
+    const run = await open(A, token);
+    sync();
+    expect((await call(C, "GET", `/api/payroll/runs/${run.id}/wps`, token)).status).toBe(409);
+    await call(A, "PATCH", `/api/payroll/runs/${run.id}/lines/${run.lines[0].employeeId}`, token, { extrasFils: 50000, extrasNote: "Late" });
+    expect((await call(C, "POST", `/api/payroll/runs/${run.id}/approve`, token, {})).status).toBe(200);
+    const approvedSif = await sif(C, token, run.id);
+    const { pushed } = sync();
+    expect(pushed.result.issues.map((i: { kind: string }) => i.kind)).toContain("frozen_payroll");
+    expect(await sif(C, token, run.id)).toBe(approvedSif);
+    expect((await call(C, "GET", `/api/payroll/runs/${run.id}`, token)).body.run.lines[0].extrasFils).toBe(0);
+  });
+
+  it("I1: the same month opened in two places is one payroll; paid is marked once", async () => {
+    const { A, C, token, sync } = await pair(seed);
+    const a = await open(A, token);
+    const c = await open(C, token);
+    expect(a.id).toBe(c.id);
+    const first = sync();
+    expect(first.pushed.result.issues).toEqual([]);
+    expect(C.db.get("SELECT COUNT(*) AS n FROM payroll_lines")).toEqual({ n: 1 });
+    expect((await call(C, "POST", `/api/payroll/runs/${c.id}/approve`, token, {})).status).toBe(200);
+    sync();
+    const bank = "00000000-0000-4000-8000-0000000a1020";
+    expect((await call(C, "POST", `/api/payroll/runs/${c.id}/wps-paid`, token, { date: now, bankAccountId: bank })).status).toBe(200);
+    expect((await call(A, "POST", `/api/payroll/runs/${a.id}/wps-paid`, token, { date: now, bankAccountId: bank })).status).toBe(200);
+    const second = sync();
+    expect(second.pushed.result.issues.length).toBe(1);
+    expect(C.db.get("SELECT COUNT(*) AS n FROM payroll_payments")).toEqual({ n: 1 });
+  });
+});
+

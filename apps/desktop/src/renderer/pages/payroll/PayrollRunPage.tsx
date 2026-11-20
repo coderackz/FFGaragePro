@@ -1,5 +1,5 @@
 import { ArrowLeft, CheckCircle2, Download, Printer, RefreshCw } from "lucide-react";
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { Link, useParams } from "react-router";
 import { toast } from "sonner";
 import { Badge, Button, Card, Field, Input, Modal, MoneyInput, PageHeader, Select, Spinner } from "../../components/ui";
@@ -18,7 +18,7 @@ interface Line {
 }
 interface Run {
   id: string; month: string; status: "draft" | "approved"; wpsPaidOn: string | null; bonusPaidOn: string | null; lines: Line[];
-  totals: { grossFils: number; deductionsFils: number; advancesFils: number; bonusFils: number; gratuityFils: number; netWpsFils: number };
+  totals: { grossFils: number; deductionsFils: number; advancesFils: number; bonusFils: number; cashBonusFils: number; gratuityFils: number; netWpsFils: number };
 }
 const today = () => new Date(Date.now() + 4 * 3_600_000).toISOString().slice(0, 10);
 
@@ -29,6 +29,7 @@ export function PayrollRunPage() {
   const { data, reload } = useApi<{ run: Run }>(`/api/payroll/runs/${id}`);
   const [busy, setBusy] = useState<string | null>(null);
   const [paying, setPaying] = useState<"wps" | "bonus" | null>(null);
+  const [editing, setEditing] = useState<Line | null>(null);
   if (!data || !garage || !settings) return <Spinner />;
   const r = data.run;
   const draft = r.status === "draft";
@@ -37,10 +38,11 @@ export function PayrollRunPage() {
     setBusy(key);
     try { await fn(); if (done) toast.success(done); await reload(); } catch (err) { toast.error((err as Error).message); } finally { setBusy(null); }
   };
-  const editBonus = (l: Line, fils: number) => fils !== l.bonusFils && void run(`bonus:${l.employeeId}`, () => patch(`/api/payroll/runs/${r.id}/lines/${l.employeeId}`, { bonusFils: fils }));
+  const editBonus = (l: Line, fils: number) => run(`bonus:${l.employeeId}`, () => patch(`/api/payroll/runs/${r.id}/lines/${l.employeeId}`, { bonusFils: fils }));
   const approve = () => {
-    if (!window.confirm(`Approve ${monthLabel(r.month)}? WPS ${formatAED(r.totals.netWpsFils)}, cash bonus ${formatAED(r.lines.filter((l) => !l.bonusInWps).reduce((s, l) => s + l.bonusFils, 0))}. It can't change afterwards.`)) return;
-    void run("approve", () => post(`/api/payroll/runs/${r.id}/approve`, {}), "Payroll approved");
+    if (!window.confirm(`Approve ${monthLabel(r.month)}? WPS ${formatAED(r.totals.netWpsFils)}, cash bonus ${formatAED(r.totals.cashBonusFils)}. It can't change afterwards.`)) return;
+    // The totals shown go with the approval: if the payroll moved since (leave, advances, pay), it stops and shows the new figures.
+    void run("approve", () => post(`/api/payroll/runs/${r.id}/approve`, { netWpsFils: r.totals.netWpsFils }), "Payroll approved");
   };
   const wps = () => run("wps", async () => {
     const f = await get<{ fileName: string; text: string }>(`/api/payroll/runs/${r.id}/wps`);
@@ -78,7 +80,7 @@ export function PayrollRunPage() {
             <thead><tr className="border-b border-zinc-200 text-left text-xs uppercase text-zinc-500">
               <th className="px-4 py-2">Employee</th><th className="px-2 py-2 text-right">Days</th><th className="px-2 py-2 text-right">Basic</th><th className="px-2 py-2 text-right">Allowances</th>
               <th className="px-2 py-2 text-right">Unpaid leave</th><th className="px-2 py-2 text-right">Advance</th><th className="px-2 py-2 text-right">Extras</th>
-              <th className="px-2 py-2 text-right">Bonus</th><th className="px-4 py-2 text-right">Net (WPS)</th>
+              <th className="px-2 py-2 text-right">Bonus</th><th className="px-4 py-2 text-right">Net (WPS)</th><th />
             </tr></thead>
             <tbody>
               {r.lines.map((l) => (
@@ -91,23 +93,25 @@ export function PayrollRunPage() {
                   <td className={num} data-testid="advance">{l.advanceRepaymentFils ? formatAED(l.advanceRepaymentFils) : ""}</td>
                   <td className={num} title={l.extrasNote ?? ""}>{l.extrasFils ? formatAED(l.extrasFils) : ""}</td>
                   <td className="px-2 py-1 text-right">
-                    {draft ? <MoneyInput fils={l.bonusFils} onChange={(f) => editBonus(l, f)} aria-label={`Bonus, ${l.name}`} className="ml-auto w-28 text-right" />
+                    {draft ? <BonusInput line={l} busy={busy === `bonus:${l.employeeId}`} onSave={(f) => editBonus(l, f)} />
                       : <span className="tabular">{l.bonusFils ? `${formatAED(l.bonusFils)}${l.bonusInWps ? "" : " cash"}` : ""}</span>}
                   </td>
                   <td className="px-4 py-2 text-right font-medium tabular">{formatAED(l.netFils + (l.bonusInWps ? l.bonusFils : 0))}</td>
+                  <td className="pr-3">{draft && <Button size="sm" variant="ghost" onClick={() => setEditing(l)}>Edit</Button>}</td>
                 </tr>
               ))}
               <tr className="font-semibold">
                 <td className="px-4 py-2" colSpan={5}>Total · gratuity put aside {draft ? "on approval" : formatAED(r.totals.gratuityFils)}</td>
                 <td className={num}>{formatAED(r.totals.advancesFils)}</td><td />
                 <td className={num} data-testid="total-bonus">{formatAED(r.totals.bonusFils)}</td>
-                <td className="px-4 py-2 text-right tabular">{formatAED(r.totals.netWpsFils)}</td>
+                <td className="px-4 py-2 text-right tabular">{formatAED(r.totals.netWpsFils)}</td><td />
               </tr>
             </tbody>
           </table>
         </div>
       </Card>
       <PayModal kind={paying} runId={r.id} onClose={() => setPaying(null)} onDone={() => void reload()} />
+      <LineModal line={editing} runId={r.id} onClose={() => setEditing(null)} onDone={() => void reload()} />
     </>
   );
 }
@@ -139,3 +143,49 @@ function PayModal({ kind, runId, onClose, onDone }: { kind: "wps" | "bonus" | nu
     </Modal>
   );
 }
+
+/** The bonus box: typed freely, saved once when it's left (or on Enter), only if it changed. */
+function BonusInput({ line, busy, onSave }: { line: Line; busy: boolean; onSave: (fils: number) => Promise<unknown> }) {
+  const [fils, setFils] = useState(line.bonusFils);
+  useEffect(() => setFils(line.bonusFils), [line.bonusFils]);
+  const commit = () => { if (fils !== line.bonusFils && !busy) void onSave(fils); };
+  return (
+    <span onBlur={commit} onKeyDown={(e) => e.key === "Enter" && commit()}>
+      <MoneyInput fils={fils} onChange={setFils} aria-label={`Bonus, ${line.name}`} className="ml-auto w-28 text-right" disabled={busy} />
+    </span>
+  );
+}
+
+/** One person's extras (with a note; minus for a deduction) and this month's advance repayment. */
+function LineModal({ line, runId, onClose, onDone }: { line: Line | null; runId: string; onClose: () => void; onDone: () => void }) {
+  const [extras, setExtras] = useState("");
+  const [note, setNote] = useState("");
+  const [advance, setAdvance] = useState(0);
+  const [busy, setBusy] = useState(false);
+  useEffect(() => {
+    if (!line) return;
+    setExtras(line.extrasFils ? (line.extrasFils / 100).toFixed(2) : "");
+    setNote(line.extrasNote ?? "");
+    setAdvance(line.advanceRepaymentFils);
+  }, [line]);
+  const extrasFils = Math.round(Number(extras.replace(/,/g, "") || 0) * 100);
+  const save = async () => {
+    if (!line) return;
+    setBusy(true);
+    try {
+      await patch(`/api/payroll/runs/${runId}/lines/${line.employeeId}`, { extrasFils, extrasNote: note, advanceRepaymentFils: advance });
+      toast.success("Saved"); onClose(); onDone();
+    } catch (err) { toast.error((err as Error).message); } finally { setBusy(false); }
+  };
+  return (
+    <Modal open={!!line} title={`${line?.name ?? ""}: extras and advance`} onClose={onClose}
+      footer={<><Button variant="ghost" onClick={onClose}>Cancel</Button><Button variant="primary" busy={busy} disabled={!Number.isFinite(extrasFils)} onClick={() => void save()}>Save</Button></>}>
+      <div className="grid grid-cols-2 gap-3">
+        <Field label="Extras" hint="Added to pay; minus for a deduction"><Input inputMode="decimal" value={extras} onChange={(e) => setExtras(e.target.value)} aria-label="Extras" placeholder="0.00" /></Field>
+        <Field label="Extras note"><Input value={note} onChange={(e) => setNote(e.target.value)} aria-label="Extras note" placeholder="e.g. Friday call-out" /></Field>
+        <Field label="Advance taken back this month"><MoneyInput fils={advance} onChange={setAdvance} aria-label="Advance taken back this month" /></Field>
+      </div>
+    </Modal>
+  );
+}
+

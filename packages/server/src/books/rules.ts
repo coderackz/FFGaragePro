@@ -1,3 +1,5 @@
+import { gratuityAtStart, type Snapshot } from "../payroll/runs";
+import { getSettings } from "../settings";
 import { SYSTEM_ACCOUNTS as A, type Settings } from "@ffgp/shared";
 import type { Db } from "../db";
 import type { PostInput, PostLine } from "./post";
@@ -380,23 +382,54 @@ export function postMoneyMovements(c: PostCtx): number {
   return n;
 }
 
-/** Advances paid to staff: Dr Staff advances / Cr the cash or bank they were paid from. */
+/**
+ * Advances paid to staff: Dr Staff advances / Cr the cash or bank they came from. One paid before the books started is
+ * part of the opening position: Cr opening balance clearing, dated the start. A cancelled advance is reversed.
+ */
 export function postStaffAdvances(c: PostCtx): number {
   let n = 0;
-  for (const a of c.db.all<{ id: string; paid_on: string; amount_fils: number; paid_from: string; name: string }>(
-    `SELECT a.id, a.paid_on, a.amount_fils, a.paid_from_account_id AS paid_from, e.name FROM staff_advances a JOIN employees e ON e.id = a.employee_id
-     WHERE a.paid_on >= ? AND ${unposted("'staff_advance:' || a.id")} ORDER BY a.created_at`,
-    [c.start],
+  for (const a of c.db.all<{ id: string; paid_on: string; amount_fils: number; paid_from: string; name: string; cancelled_on: string | null }>(
+    `SELECT a.id, a.paid_on, a.amount_fils, a.paid_from_account_id AS paid_from, e.name, a.cancelled_on FROM staff_advances a JOIN employees e ON e.id = a.employee_id
+     WHERE ${unposted("'staff_advance:' || a.id")} OR (a.cancelled_on IS NOT NULL AND ${unposted("'staff_advance_cancel:' || a.id")}) ORDER BY a.created_at`,
   )) {
     if (c.full()) break;
-    if (c.post({
-      date: a.paid_on, narration: `Advance to ${a.name}`, sourceType: "staff_advance", sourceId: a.id, postKey: `staff_advance:${a.id}`, userId: null,
-      lines: [debit(A.staff_advances.id, a.amount_fils), credit(a.paid_from, a.amount_fils)],
+    const before = a.paid_on < c.start;
+    const other = before ? A.opening_clearing.id : a.paid_from;
+    const posted = c.post({
+      date: before ? c.start : a.paid_on, narration: `Advance to ${a.name}${before ? ` (paid ${a.paid_on}, before the books)` : ""}`, sourceType: "staff_advance",
+      sourceId: a.id, postKey: `staff_advance:${a.id}`, userId: null, lines: [debit(A.staff_advances.id, a.amount_fils), credit(other, a.amount_fils)],
+    });
+    if (posted) n++;
+    if (a.cancelled_on && c.post({
+      date: a.cancelled_on > c.start ? a.cancelled_on : c.start, narration: `Advance to ${a.name} cancelled`, sourceType: "staff_advance", sourceId: a.id,
+      postKey: `staff_advance_cancel:${a.id}`, userId: null, lines: [debit(other, a.amount_fils), credit(A.staff_advances.id, a.amount_fils)],
     })) n++;
   }
   return n;
 }
 
+/**
+ * Gratuity already owed when the books start, for staff who joined before: part of the opening position (Dr opening
+ * balance clearing / Cr gratuity provision, dated the start), so the first payroll only puts aside its own month.
+ * Once the pay rules are chosen; once per person.
+ */
+export function postPayrollOpenings(c: PostCtx): number {
+  const rules = getSettings(c.db).payroll;
+  if (!rules.gratuityDayRate || !rules.gratuityCap) return 0;
+  let n = 0;
+  for (const e of c.db.all<{ id: string; name: string; join_date: string; left_date: string | null; basic_fils: number; housing_fils: number; transport_fils: number; other_allowance_fils: number }>(
+    `SELECT * FROM employees WHERE join_date < ? AND ${unposted("'payroll_opening:' || employees.id")} ORDER BY created_at`, [c.start],
+  )) {
+    if (c.full()) break;
+    const fils = gratuityAtStart(c.db, e);
+    if (fils <= 0) continue;
+    if (c.post({
+      date: c.start, narration: `Gratuity brought forward: ${e.name}`, sourceType: "payroll_opening", sourceId: e.id, postKey: `payroll_opening:${e.id}`, userId: null,
+      lines: [debit(A.opening_clearing.id, fils), credit(A.gratuity_provision.id, fils)],
+    })) n++;
+  }
+  return n;
+}
 /**
  * An approved payroll, dated its month end: salaries and allowances (less unpaid leave, split between them pro rata),
  * extras, a bonus paid through WPS and the gratuity put aside, against salaries payable, advances taken back and the
@@ -404,24 +437,24 @@ export function postStaffAdvances(c: PostCtx): number {
  */
 export function postPayrollRuns(c: PostCtx): number {
   let n = 0;
-  for (const r of c.db.all<{ id: string; month: string }>(
-    `SELECT id, month FROM payroll_runs WHERE status = 'approved' AND month || '-31' >= ? AND ${unposted("'payroll_run:' || payroll_runs.id")} ORDER BY month`,
+  for (const r of c.db.all<{ id: string; month: string; snapshot_json: string }>(
+    `SELECT r.id, r.month, a.snapshot_json FROM payroll_approvals a JOIN payroll_runs r ON r.id = a.run_id
+     WHERE r.month || '-31' >= ? AND ${unposted("'payroll_run:' || r.id")} ORDER BY r.month`,
     [c.start],
   )) {
     if (c.full()) break;
-    const lines = c.db.all<{ basic_fils: number; allowances_fils: number; unpaid_deduction_fils: number; extras_fils: number; bonus_fils: number; bonus_in_wps: number; net_fils: number; advance_repayment_fils: number; gratuity_fils: number }>(
-      "SELECT * FROM payroll_lines WHERE run_id = ?", [r.id]);
+    const lines = (JSON.parse(r.snapshot_json) as Snapshot).lines;
     let salaries = 0, allowances = 0, bonus = 0, payable = 0, advances = 0, gratuity = 0;
     for (const l of lines) {
-      const gross = l.basic_fils + l.allowances_fils;
-      const fromBasic = gross ? Math.round((l.unpaid_deduction_fils * l.basic_fils) / gross) : 0;
-      salaries += l.basic_fils - fromBasic + l.extras_fils;
-      allowances += l.allowances_fils - (l.unpaid_deduction_fils - fromBasic);
-      const wpsBonus = l.bonus_in_wps ? l.bonus_fils : 0;
+      const gross = l.basicFils + l.allowancesFils;
+      const fromBasic = gross ? Math.round((l.unpaidDeductionFils * l.basicFils) / gross) : 0;
+      salaries += l.basicFils - fromBasic + l.extrasFils;
+      allowances += l.allowancesFils - (l.unpaidDeductionFils - fromBasic);
+      const wpsBonus = l.bonusInWps ? l.bonusFils : 0;
       bonus += wpsBonus;
-      payable += l.net_fils + wpsBonus;
-      advances += l.advance_repayment_fils;
-      gratuity += l.gratuity_fils;
+      payable += l.netFils + wpsBonus;
+      advances += l.advanceRepaymentFils;
+      gratuity += l.gratuityFils;
     }
     const [y, m] = r.month.split("-").map(Number) as [number, number];
     const monthEnd = new Date(Date.UTC(y, m, 0)).toISOString().slice(0, 10);
@@ -440,31 +473,18 @@ export function postPayrollRuns(c: PostCtx): number {
 /** Salaries paid through WPS (Dr Salaries payable / Cr the bank), and cash bonuses handed out (Dr Staff bonus / Cr cash). */
 export function postPayrollPayments(c: PostCtx): number {
   let n = 0;
-  const net = (runId: string, cash: boolean) => c.db.get<{ v: number | null }>(
-    cash ? "SELECT SUM(bonus_fils) AS v FROM payroll_lines WHERE run_id = ? AND bonus_in_wps = 0"
-      : "SELECT SUM(net_fils + CASE WHEN bonus_in_wps = 1 THEN bonus_fils ELSE 0 END) AS v FROM payroll_lines WHERE run_id = ?",
-    [runId],
-  )!.v ?? 0;
-  for (const r of c.db.all<{ id: string; month: string; paid_on: string; account: string }>(
-    `SELECT id, month, wps_paid_on AS paid_on, wps_bank_account_id AS account FROM payroll_runs
-     WHERE status = 'approved' AND wps_paid_on IS NOT NULL AND wps_paid_on >= ? AND ${unposted("'wps_paid:' || payroll_runs.id")} ORDER BY month`,
+  for (const p of c.db.all<{ id: string; run_id: string; kind: "wps" | "bonus"; paid_on: string; account_id: string; amount_fils: number; month: string }>(
+    `SELECT p.*, r.month FROM payroll_payments p JOIN payroll_runs r ON r.id = p.run_id
+     WHERE p.paid_on >= ? AND ${unposted("CASE p.kind WHEN 'wps' THEN 'wps_paid:' ELSE 'bonus_paid:' END || p.run_id")} ORDER BY p.created_at`,
     [c.start],
   )) {
     if (c.full()) break;
-    const v = net(r.id, false);
-    if (c.post({ date: r.paid_on, narration: `Salaries for ${r.month} paid (WPS)`, sourceType: "wps_paid", sourceId: r.id, postKey: `wps_paid:${r.id}`, userId: null,
-      lines: [debit(A.salaries_payable.id, v), credit(r.account, v)] })) n++;
-  }
-  for (const r of c.db.all<{ id: string; month: string; paid_on: string; account: string }>(
-    `SELECT id, month, bonus_paid_on AS paid_on, bonus_cash_account_id AS account FROM payroll_runs
-     WHERE status = 'approved' AND bonus_paid_on IS NOT NULL AND bonus_paid_on >= ? AND ${unposted("'bonus_paid:' || payroll_runs.id")} ORDER BY month`,
-    [c.start],
-  )) {
-    if (c.full()) break;
-    const v = net(r.id, true);
-    if (c.post({ date: r.paid_on, narration: `Cash bonus for ${r.month}`, sourceType: "bonus_paid", sourceId: r.id, postKey: `bonus_paid:${r.id}`, userId: null,
-      lines: [debit(A.staff_bonus.id, v), credit(r.account, v)] })) n++;
+    const wps = p.kind === "wps";
+    if (c.post({
+      date: p.paid_on, narration: wps ? `Salaries for ${p.month} paid (WPS)` : `Cash bonus for ${p.month}`, sourceType: wps ? "wps_paid" : "bonus_paid", sourceId: p.run_id,
+      postKey: `${wps ? "wps_paid" : "bonus_paid"}:${p.run_id}`, userId: null,
+      lines: [debit(wps ? A.salaries_payable.id : A.staff_bonus.id, p.amount_fils), credit(p.account_id, p.amount_fils)],
+    })) n++;
   }
   return n;
 }
-

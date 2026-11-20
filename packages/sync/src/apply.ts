@@ -4,7 +4,7 @@ import { recomputeDocument, recomputePart, recomputePurchaseOrder } from "./reco
 import { numState, setState } from "./state";
 import { tableInfo, type SyncTable } from "./tables";
 
-export type IssueKind = "unique_rename" | "frozen_invoice" | "apply_failed";
+export type IssueKind = "unique_rename" | "frozen_invoice" | "apply_failed" | "frozen_payroll";
 
 export interface SyncIssue {
   id: string;
@@ -335,6 +335,21 @@ function applyEntry(c: Ctx, e: ChangeEntry): boolean {
         fields: Object.fromEntries(refused.map((k) => [k, values[k]])),
       });
       return false;
+    }
+  }
+  // An approved payroll is kept as approved: its lines don't take later changes from another place.
+  if (c.mode === "cloud" && t.name === "payroll_lines") {
+    const runId = String((current ?? data).run_id ?? "");
+    if (runId && c.db.get("SELECT 1 FROM payroll_approvals WHERE run_id = ?", [runId])) {
+      const differs = current ? Object.keys(values).filter((k) => k !== "updated_at" && !same(current[k], values[k])) : Object.keys(values);
+      if (differs.length) {
+        if (current) logOwn(c, t, e.rowId, differs);
+        const month = c.db.get<{ month: string }>("SELECT month FROM payroll_runs WHERE id = ?", [runId])?.month ?? "";
+        addIssue(c, "frozen_payroll", "payroll_runs", runId, `The payroll for ${month} had already been approved, so changes from ${c.from} were not applied.`, {
+          fields: Object.fromEntries(differs.map((k) => [k, values[k]])),
+        });
+        return false;
+      }
     }
   }
   upsert(c, t, e.rowId, data, values, current);

@@ -7,13 +7,14 @@ import { Button, Card } from "./ui";
 interface Issue {
   id: string;
   at: string;
-  kind: "unique_rename" | "frozen_invoice" | "apply_failed";
+  kind: "unique_rename" | "frozen_invoice" | "apply_failed" | "frozen_payroll";
   message: string;
 }
 
 const KIND: Record<Issue["kind"], string> = {
   unique_rename: "Added in two places",
   frozen_invoice: "Issued invoice kept",
+  frozen_payroll: "Approved payroll kept",
   apply_failed: "Change not applied",
 };
 

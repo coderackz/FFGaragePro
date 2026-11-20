@@ -8,7 +8,7 @@ export interface Employee {
 }
 export interface EmployeeFull extends Employee {
   leave: { id: string; kind: "annual" | "sick" | "unpaid"; from: string; to: string; note: string | null }[];
-  advances: { id: string; amountFils: number; paidOn: string; instalmentFils: number; note: string | null; owedFils: number }[];
+  advances: { id: string; amountFils: number; paidOn: string; instalmentFils: number; note: string | null; owedFils: number; repaidFils: number; cancelled: boolean }[];
   advanceOwedFils: number; annualLeaveDays: number;
   expiring: Expiring[];
 }

@@ -51,7 +51,8 @@ export const advanceSchema = z.object({
 export const runLineEditSchema = z.object({
   bonusFils: fils.optional(),
   extrasFils: z.number().int().min(-10_000_000_00).max(10_000_000_00).optional(),
-  extrasNote: optText(120),
+  // Left out, the note stays as it is; sent empty, it's cleared.
+  extrasNote: z.string().trim().max(120).nullable().optional().transform((v) => (v === undefined ? undefined : v || null)),
   advanceRepaymentFils: fils.optional(),
 });
 
@@ -103,7 +104,10 @@ export function proposeLine(input: { month: string; employee: PayEmployee; unpai
     allowancesFils = total - basicFils;
   }
   const unpaidDays = workedDays ? input.unpaidLeave.reduce((s, l) => s + daysIn(l, worked), 0) : 0;
-  const unpaidDeductionFils = Math.round(dayRate(gross, input.salaryDayRate) * unpaidDays);
+  // A whole month unpaid takes everything; otherwise the day rate, never more than the pay itself.
+  const unpaidDeductionFils = unpaidDays >= workedDays && workedDays > 0
+    ? basicFils + allowancesFils
+    : Math.min(Math.round(dayRate(gross, input.salaryDayRate) * unpaidDays), basicFils + allowancesFils);
   const advanceRepaymentFils = input.advanceDueFils;
   return {
     workedDays, basicFils, allowancesFils, unpaidDays, unpaidDeductionFils, advanceRepaymentFils, extrasFils: 0, bonusFils: 0,

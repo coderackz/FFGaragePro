@@ -21,6 +21,10 @@ export function EmployeePage() {
   const [editing, setEditing] = useState(false);
   const [leave, setLeave] = useState(false);
   const [advance, setAdvance] = useState(false);
+  const cancel = async (what: string, question: string) => {
+    if (!window.confirm(question)) return;
+    try { await post(`/api/employees/${id}/${what}/cancel`, {}); toast.success("Cancelled"); await reload(); } catch (err) { toast.error((err as Error).message); }
+  };
   if (!data) return <Spinner />;
   const e = data.employee;
   const docs = [["Emirates ID", e.emiratesId, e.emiratesIdExpiry], ["Labour card", e.labourCard, e.labourCardExpiry], ["Passport", e.passport, e.passportExpiry], ["Visa", e.visa, e.visaExpiry]] as const;
@@ -64,13 +68,17 @@ export function EmployeePage() {
             columns={[
               { header: "Kind", cell: (l) => <Badge tone={l.kind === "unpaid" ? "red" : "zinc"}>{KIND[l.kind]}</Badge> },
               { header: "From", cell: (l) => day(l.from) }, { header: "To", cell: (l) => day(l.to) }, { header: "Note", cell: (l) => l.note ?? "" },
+              { header: "", cell: (l) => <Button size="sm" variant="ghost" onClick={() => void cancel(`leave/${l.id}`, `Cancel this ${KIND[l.kind].toLowerCase()} leave (${day(l.from)} – ${day(l.to)})?`)}>Cancel</Button> },
             ]} />
         </Card>
         <Card title="Advances" padded={false} actions={<Button size="sm" icon={<Plus className="size-3.5" />} onClick={() => setAdvance(true)}>Pay an advance</Button>}>
           <Table rows={e.advances} rowKey={(a) => a.id} empty={<div className="px-4 py-3 text-sm text-zinc-600">No advances</div>}
             columns={[
               { header: "Paid", cell: (a) => day(a.paidOn) }, { header: "Amount", cell: (a) => formatAED(a.amountFils), align: "right" },
-              { header: "Monthly", cell: (a) => formatAED(a.instalmentFils), align: "right" }, { header: "Owed", cell: (a) => formatAED(a.owedFils), align: "right" },
+              { header: "Monthly", cell: (a) => formatAED(a.instalmentFils), align: "right" },
+              { header: "Owed", cell: (a) => (a.cancelled ? <Badge>Cancelled</Badge> : formatAED(a.owedFils)), align: "right" },
+              { header: "", cell: (a) => (!a.cancelled && a.repaidFils === 0
+                ? <Button size="sm" variant="ghost" onClick={() => void cancel(`advances/${a.id}`, `Cancel the advance of ${formatAED(a.amountFils)}? Its payment is reversed (the money came back).`)}>Cancel</Button> : null) },
             ]} />
         </Card>
       </div>

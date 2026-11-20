@@ -881,7 +881,7 @@ CREATE TABLE journal_entries_new (
   narration TEXT NOT NULL,
   source_type TEXT NOT NULL CHECK (source_type IN ('invoice', 'credit_note', 'receipt', 'goods_receipt', 'stock', 'cogs', 'customer_opening',
     'opening', 'manual', 'reversal', 'year_close', 'revaluation', 'supplier_bill', 'bill_cancel', 'supplier_payment', 'supplier_opening', 'expense',
-    'transfer', 'cheque_deposit', 'cheque_clear', 'vat_return', 'payroll_run', 'wps_paid', 'bonus_paid', 'staff_advance')),
+    'transfer', 'cheque_deposit', 'cheque_clear', 'vat_return', 'payroll_run', 'wps_paid', 'bonus_paid', 'staff_advance', 'payroll_opening')),
   source_id TEXT,
   post_key TEXT UNIQUE,
   reverses_id TEXT REFERENCES journal_entries(id),
@@ -897,7 +897,12 @@ ALTER TABLE journal_entries_new RENAME TO journal_entries;
 CREATE INDEX journal_entries_date ON journal_entries(date);
 CREATE INDEX journal_entries_source ON journal_entries(source_type, source_id);
 
--- The payroll accounts: 6000 Salaries and 2200 Salaries payable already exist; the rest are new.
+-- The payroll accounts: 6000 Salaries and 2200 Salaries payable already exist; the rest are new. A garage's own
+-- account that already took one of the new codes keeps its name and moves to the code with ".1" after it.
+UPDATE accounts SET code = code || '.1', updated_at = strftime('%Y-%m-%dT%H:%M:%fZ','now')
+  WHERE code IN ('1410', '2210', '6001', '6002', '6003') AND system_key IS NULL
+    AND id NOT IN ('00000000-0000-4000-8000-0000000a1410', '00000000-0000-4000-8000-0000000a2210', '00000000-0000-4000-8000-0000000a6001',
+                   '00000000-0000-4000-8000-0000000a6002', '00000000-0000-4000-8000-0000000a6003');
 UPDATE accounts SET system_key = 'salaries' WHERE id = '00000000-0000-4000-8000-0000000a6000';
 UPDATE accounts SET system_key = 'salaries_payable' WHERE id = '00000000-0000-4000-8000-0000000a2200';
 INSERT OR IGNORE INTO accounts (id, code, name, type, system_key, active, created_at, updated_at) VALUES ('00000000-0000-4000-8000-0000000a1410', '1410', 'Staff advances', 'asset', 'staff_advances', 1, strftime('%Y-%m-%dT%H:%M:%fZ','now'), strftime('%Y-%m-%dT%H:%M:%fZ','now'));
@@ -940,8 +945,11 @@ CREATE TABLE employee_leave (
   from_date TEXT NOT NULL,
   to_date TEXT NOT NULL,
   note TEXT,
+  -- Entered by mistake: cancelled leave counts for nothing (pay, service, the leave balance).
+  cancelled_at TEXT,
   created_by TEXT REFERENCES users(id),
-  created_at TEXT NOT NULL
+  created_at TEXT NOT NULL,
+  updated_at TEXT NOT NULL
 );
 CREATE INDEX employee_leave_employee ON employee_leave(employee_id, from_date);
 CREATE TABLE staff_advances (
@@ -952,20 +960,17 @@ CREATE TABLE staff_advances (
   paid_from_account_id TEXT NOT NULL REFERENCES accounts(id),
   instalment_fils INTEGER NOT NULL CHECK (instalment_fils > 0),
   note TEXT,
+  -- Paid by mistake and given back before any of it was taken from salary: the payment is reversed.
+  cancelled_on TEXT,
   created_by TEXT REFERENCES users(id),
-  created_at TEXT NOT NULL
+  created_at TEXT NOT NULL,
+  updated_at TEXT NOT NULL
 );
 CREATE INDEX staff_advances_employee ON staff_advances(employee_id);
+-- A month's payroll while it's prepared. Its id comes from the month, so two places opening the same month make one run.
 CREATE TABLE payroll_runs (
   id TEXT PRIMARY KEY,
   month TEXT NOT NULL UNIQUE,
-  status TEXT NOT NULL DEFAULT 'draft' CHECK (status IN ('draft', 'approved')),
-  approved_by TEXT REFERENCES users(id),
-  approved_at TEXT,
-  wps_paid_on TEXT,
-  wps_bank_account_id TEXT REFERENCES accounts(id),
-  bonus_paid_on TEXT,
-  bonus_cash_account_id TEXT REFERENCES accounts(id),
   created_by TEXT REFERENCES users(id),
   created_at TEXT NOT NULL,
   updated_at TEXT NOT NULL
@@ -980,16 +985,54 @@ CREATE TABLE payroll_lines (
   unpaid_days INTEGER NOT NULL DEFAULT 0,
   unpaid_deduction_fils INTEGER NOT NULL DEFAULT 0,
   advance_repayment_fils INTEGER NOT NULL DEFAULT 0,
+  -- 1 once the accountant typed the repayment: a refresh keeps it; otherwise the instalments are proposed afresh.
+  advance_typed INTEGER NOT NULL DEFAULT 0,
   extras_fils INTEGER NOT NULL DEFAULT 0,
   extras_note TEXT,
   bonus_fils INTEGER NOT NULL DEFAULT 0,
   net_fils INTEGER NOT NULL,
-  gratuity_fils INTEGER NOT NULL DEFAULT 0,
-  bonus_in_wps INTEGER NOT NULL DEFAULT 0,
   created_at TEXT NOT NULL,
   updated_at TEXT NOT NULL,
   UNIQUE (run_id, employee_id)
 );
+-- The owner's approval, with the payroll exactly as approved: the books, the WPS file and the payslips read this, so
+-- nothing that changes the draft afterwards (a late edit from another place) changes what was approved. Once per run.
+CREATE TABLE payroll_approvals (
+  id TEXT PRIMARY KEY,
+  run_id TEXT NOT NULL UNIQUE REFERENCES payroll_runs(id),
+  snapshot_json TEXT NOT NULL,
+  approved_by TEXT REFERENCES users(id),
+  approved_at TEXT NOT NULL
+);
+-- Salaries paid through WPS, and the cash bonus handed out: each once per run (the first place to record it wins).
+CREATE TABLE payroll_payments (
+  id TEXT PRIMARY KEY,
+  run_id TEXT NOT NULL REFERENCES payroll_runs(id),
+  kind TEXT NOT NULL CHECK (kind IN ('wps', 'bonus')),
+  paid_on TEXT NOT NULL,
+  account_id TEXT NOT NULL REFERENCES accounts(id),
+  amount_fils INTEGER NOT NULL,
+  created_by TEXT REFERENCES users(id),
+  created_at TEXT NOT NULL,
+  UNIQUE (run_id, kind)
+);
+
+-- Sync issues gain "an approved payroll was kept".
+CREATE TABLE sync_issues_new (
+  id TEXT PRIMARY KEY,
+  at TEXT NOT NULL,
+  kind TEXT NOT NULL CHECK (kind IN ('unique_rename','frozen_invoice','apply_failed','frozen_payroll')),
+  table_name TEXT NOT NULL,
+  row_id TEXT NOT NULL,
+  message TEXT NOT NULL,
+  detail TEXT,
+  dismissed_at TEXT,
+  for_device TEXT
+);
+INSERT INTO sync_issues_new SELECT id, at, kind, table_name, row_id, message, detail, dismissed_at, for_device FROM sync_issues;
+DROP TABLE sync_issues;
+ALTER TABLE sync_issues_new RENAME TO sync_issues;
+CREATE INDEX sync_issues_device ON sync_issues(for_device);
 `,
   },
 ];

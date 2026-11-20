@@ -63,6 +63,16 @@ test("a month's payroll: employees, approval, WPS, bonus, payslips", async ({ pa
   await adv.getByRole("button", { name: "Pay advance" }).click();
   await expect(page.getByTestId("advance-owed")).toHaveText("AED 300.00");
 
+  // Leave typed wrong, cancelled, then entered right.
+  await page.getByRole("button", { name: "Add leave" }).click();
+  const leave = page.getByRole("dialog");
+  await leave.getByLabel("Kind").selectOption("unpaid");
+  await leave.getByLabel("From").fill(addDays(start, 11));
+  await leave.getByLabel("To").fill(addDays(start, 25));
+  await leave.getByRole("button", { name: "Save leave" }).click();
+  await page.getByRole("row", { name: /Unpaid/ }).getByRole("button", { name: "Cancel" }).click();
+  await expect(page.getByRole("row", { name: /Unpaid/ })).toHaveCount(0);
+
   // The dashboard reminds about the visa.
   await nav(page, "Dashboard");
   await expect(page.getByTestId("expiring-documents")).toContainText("Ravi Kumar: Visa");
@@ -74,9 +84,18 @@ test("a month's payroll: employees, approval, WPS, bonus, payslips", async ({ pa
   await expect(page.getByRole("row", { name: /Ravi Kumar/ })).toBeVisible();
   await expect(page.getByRole("row", { name: /Sami Haddad/ })).toBeVisible();
   await expect(page.getByRole("row", { name: /Ravi Kumar/ }).getByTestId("advance")).toHaveText("AED 100.00");
-  await page.getByLabel("Bonus, Ravi Kumar").fill("250");
+  // Typed key by key: saved once, when the box is left.
+  await page.getByLabel("Bonus, Ravi Kumar").click();
+  await page.getByLabel("Bonus, Ravi Kumar").pressSequentially("250");
   await page.getByLabel("Bonus, Ravi Kumar").blur();
   await expect(page.getByTestId("total-bonus")).toHaveText("AED 250.00");
+  // Extras for Sami, from the row's editor.
+  await page.getByRole("row", { name: /Sami Haddad/ }).getByRole("button", { name: "Edit" }).click();
+  const line = page.getByRole("dialog");
+  await line.getByLabel("Extras", { exact: true }).fill("75");
+  await line.getByLabel("Extras note").fill("Friday call-out");
+  await line.getByRole("button", { name: "Save" }).click();
+  await expect(page.getByRole("row", { name: /Sami Haddad/ })).toContainText("AED 2,575.00");
   await page.getByRole("button", { name: "Approve" }).click();
   await expect(page.getByTestId("run-status")).toContainText("Approved");
   await shot("01-run");
@@ -98,6 +117,11 @@ test("a month's payroll: employees, approval, WPS, bonus, payslips", async ({ pa
   await expect(page.getByTestId("run-status")).toContainText("Bonus paid");
   await page.getByRole("button", { name: "Print payslips" }).click();
   await shot("02-paid");
+
+  // The opening balances (they clear what was brought forward: Ravi's gratuity and advance from before the books).
+  const proposal = await (await request.get(`${API}/api/books/opening/proposal`, { headers })).json();
+  const opening = (await (await request.post(`${API}/api/books/drafts`, { headers, data: { kind: "opening", date: proposal.date, narration: "Opening balances", lines: proposal.lines } })).json()).draft;
+  expect((await request.post(`${API}/api/books/drafts/${opening.id}/post`, { headers })).status()).toBe(200);
 
   // The books agree.
   await nav(page, "Books");
