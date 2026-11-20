@@ -1,5 +1,5 @@
 import clsx from "clsx";
-import { Banknote, BookOpen, Car, ChartBar, FileMinus, FileText, IdCard, Landmark, LayoutDashboard, LogOut, Package, Receipt, Settings, ShoppingCart, Truck, Users, Wallet, Wrench } from "lucide-react";
+import { LogOut } from "lucide-react";
 import type { ReactNode } from "react";
 import { NavLink } from "react-router";
 import { ROLE_LABELS } from "@ffgp/shared";
@@ -8,6 +8,7 @@ import { useAuth } from "../lib/auth";
 import { UnsavedProvider, useUnsaved } from "../lib/unsaved";
 import { IdleLock } from "./IdleLock";
 import { SendDialogHost } from "../messages/SendDialog";
+import { navGroups } from "./nav";
 
 export function Layout({ children }: { children: ReactNode }) {
   return (
@@ -20,43 +21,8 @@ export function Layout({ children }: { children: ReactNode }) {
 function Frame({ children }: { children: ReactNode }) {
   const { confirmLeave } = useUnsaved();
   const { user, garage, settings, canSee: can, signOut, licence } = useAuth();
-  const nav = [
-    { to: "/", label: "Dashboard", icon: LayoutDashboard, end: true },
-    { section: "Workshop" },
-    { to: "/estimates", label: "Estimates", icon: FileText },
-    { to: "/jobcards", label: "Job Cards", icon: Wrench },
-    { to: "/invoices", label: "Invoices", icon: Receipt },
-    { section: "Money" },
-    { to: "/receipts", label: "Receipts", icon: Banknote },
-    { to: "/credit-notes", label: "Credit Notes", icon: FileMinus },
-    ...(can("reports.view") ? [{ to: "/reports/aging", label: "Aging", icon: ChartBar }] : []),
-    ...(can("books.view") ? [{ to: "/books", label: "Books", icon: BookOpen }] : []),
-    ...(can("payables.manage")
-      ? [
-          { section: "Payables" },
-          { to: "/bills", label: "Bills", icon: FileText },
-          { to: "/expenses", label: "Expenses", icon: Wallet },
-          { to: "/bank", label: "Bank & cash", icon: Landmark },
-          { to: "/reports/payables-aging", label: "Payables aging", icon: ChartBar },
-        ]
-      : []),
-    ...(can("payroll.manage")
-      ? [
-          { section: "Payroll" },
-          { to: "/employees", label: "Employees", icon: IdCard },
-          { to: "/payroll", label: "Payroll", icon: Banknote },
-        ]
-      : []),
-    { section: "Records" },
-    { to: "/customers", label: "Customers", icon: Users },
-    { to: "/vehicles", label: "Vehicles", icon: Car },
-    { section: "Inventory" },
-    { to: "/parts", label: "Parts", icon: Package },
-    { to: "/purchase-orders", label: "Purchases", icon: ShoppingCart },
-    { to: "/suppliers", label: "Suppliers", icon: Truck },
-    // Users & roles live inside Settings.
-    ...(can("settings.manage") ? [{ section: "Admin" }, { to: "/settings", label: "Settings", icon: Settings }] : []),
-  ] as const;
+  // Headings, then their items: the same flat list the menu has always drawn.
+  const nav = navGroups(can).flatMap((g) => [...(g.section ? [{ section: g.section }] : []), ...g.items]);
 
   return (
     <div className="flex h-full">

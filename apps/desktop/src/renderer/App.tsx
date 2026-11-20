@@ -23,6 +23,7 @@ import { SuppliersPage } from "./pages/SuppliersPage";
 import { AccountsPage } from "./pages/books/AccountsPage";
 import { BooksHome } from "./pages/books/BooksHome";
 import { HealthPage } from "./pages/books/HealthPage";
+import { KnowledgePage } from "./pages/KnowledgePage";
 import { VatReturnPage } from "./pages/books/VatReturnPage";
 import { AssetPage } from "./pages/books/AssetPage";
 import { AssetsPage } from "./pages/books/AssetsPage";
@@ -133,6 +134,8 @@ export function App() {
         )}
         <Route path="/documents/new/:type" element={<DocumentPage />} />
         <Route path="/documents/:id" element={<DocumentPage />} />
+        <Route path="/knowledge" element={<KnowledgePage />} />
+        <Route path="/knowledge/:slug" element={<KnowledgePage />} />
         <Route path="/customers" element={<CustomersPage />} />
         <Route path="/customers/:id" element={<CustomerPage />} />
         <Route path="/vehicles" element={<VehiclesPage />} />
