@@ -119,4 +119,48 @@ describe("VAT returns", () => {
     expect(oct.filed.figures.recoverableFils).toBe(2000);
     expect(oct.changedSinceFiled).toBe(false);
   });
+
+  it("I1: the lock can't move back below a filed VAT period", async () => {
+    const g = await garage();
+    await g.later();
+    await g.file("2026-09-01", "2026-09-30");
+    await g.file("2026-10-01", "2026-10-31");
+    const books = (await call(g.app, "GET", "/api/settings", g.owner)).body.settings.books;
+    const back = await call(g.app, "PUT", "/api/settings/books", g.owner, { ...books, lockDate: "2026-09-30" });
+    expect(back.status).toBe(400);
+    expect(back.body.error).toMatch(/VAT return is filed up to/);
+    expect((await call(g.app, "PUT", "/api/settings/books", g.owner, { ...books, lockDate: "2026-11-10" })).status).toBe(200);
+  });
+
+  it("I2: VAT periods can't be changed to overlap filed returns; filed ones stay listed", async () => {
+    const g = await garage();
+    await g.bill(40000);
+    await g.later();
+    await g.file("2026-09-01", "2026-09-30");
+    await g.file("2026-10-01", "2026-10-31");
+    const quarterly = await call(g.app, "PUT", "/api/settings/tax", g.owner, { returnPeriod: "quarterly", firstPeriodStart: "2026-08-01" });
+    expect(quarterly.status).toBe(400);
+    expect(quarterly.body.error).toMatch(/start the new VAT periods on 01 Nov 2026/);
+    expect((await call(g.app, "PUT", "/api/settings/tax", g.owner, { returnPeriod: "quarterly", firstPeriodStart: "2026-09-01" })).status).toBe(400);
+    expect((await call(g.app, "PUT", "/api/settings/tax", g.owner, { returnPeriod: "quarterly", firstPeriodStart: "2026-11-01" })).status).toBe(200);
+    const list = await g.periods();
+    expect(list.map((p) => [p.from, p.status])).toEqual([["2026-11-01", "open"], ["2026-10-01", "filed"], ["2026-09-01", "filed"]]);
+    expect((await g.getReturn("2026-10-01", "2026-10-31")).filed.figures.recoverableFils).toBe(2000);
+  });
+
+  it("I3: an opening Output VAT balance can be moved to VAT payable", async () => {
+    const g = await garage();
+    const d = (await call(g.app, "POST", "/api/books/drafts", g.owner, { date: "2026-10-01", narration: "VAT from before the books", lines: [
+      { accountId: "00000000-0000-4000-8000-0000000a2100", debitFils: 3000 }, { accountId: "00000000-0000-4000-8000-0000000a2110", creditFils: 3000 },
+    ] })).body.draft;
+    expect((await call(g.app, "POST", `/api/books/drafts/${d.id}/post`, g.owner)).status).toBe(200);
+    const bank = (await call(g.app, "POST", "/api/books/drafts", g.owner, { date: "2026-10-01", narration: "Not a VAT transfer", lines: [
+      { accountId: "00000000-0000-4000-8000-0000000a2100", debitFils: 3000 }, { accountId: "00000000-0000-4000-8000-0000000a1020", creditFils: 3000 },
+    ] })).body.draft;
+    expect((await call(g.app, "POST", `/api/books/drafts/${bank.id}/post`, g.owner)).status).toBe(400);
+    // A transfer between VAT accounts is in no box: the return lists it, it changes no figure.
+    const r = await g.getReturn("2026-10-01", "2026-10-31");
+    expect(r.dueFils).toBe(0);
+  });
 });
+

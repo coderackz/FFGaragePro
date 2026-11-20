@@ -1,7 +1,4 @@
-import {
-  dubaiDate, formatNumberOf, LOCAL_SETTING_PREFIXES, NUMBER_KINDS, prefixOf, readSettings, sectionRows, startOf, type NumberKind,
-  type Settings, type SettingsSection,
-} from "@ffgp/shared";
+import { dubaiDate, formatNumberOf, LOCAL_SETTING_PREFIXES, NUMBER_KINDS, prefixOf, readSettings, sectionRows, startOf, type NumberKind, type Settings, type SettingsSection, vatPeriods } from "@ffgp/shared";
 import { audit } from "./audit";
 import type { Db } from "./db";
 import { badRequest } from "./errors";
@@ -106,12 +103,36 @@ const dayLabel = (ymd: string) =>
 registerSectionCheck("books", (db, next) => {
   const current = getSettings(db).books;
   if (next.lockDate && next.lockDate >= dubaiDate(new Date().toISOString())) throw badRequest("Lock the books up to a date before today");
+  // A filed VAT return keeps its period locked: anything posted there now would be in no return.
+  const filedTo = db.get<{ t: string | null }>("SELECT MAX(period_to) AS t FROM vat_returns")!.t;
+  if (filedTo && (!next.lockDate || next.lockDate < filedTo)) {
+    throw badRequest(`A VAT return is filed up to ${dayLabel(filedTo)}: the books stay locked up to that day at least`);
+  }
   for (const [method, id] of Object.entries(next.methodAccounts)) {
     const a = db.get<{ type: string; active: number }>("SELECT type, active FROM accounts WHERE id = ?", [id]);
     if (!a || a.type !== "asset" || !a.active) throw badRequest(`Payments by ${method.replace("_", " ")} must go to an asset account in use (cash, bank, card or cheques)`);
   }
   if (next.startDate !== current.startDate && current.startDate && db.get("SELECT 1 FROM journal_entries LIMIT 1")) {
     throw badRequest(`The books have started on ${dayLabel(current.startDate)}: the start date can't change`);
+  }
+});
+
+/**
+ * VAT periods: once returns are filed, a new schedule may not cut across them (that would leave VAT undeclared or
+ * settle it twice). It can match the filed periods exactly, or start after the last one.
+ */
+registerSectionCheck("tax", (db, next) => {
+  const filed = db.all<{ period_from: string; period_to: string }>("SELECT period_from, period_to FROM vat_returns ORDER BY period_to");
+  if (!filed.length) return;
+  const last = filed[filed.length - 1]!.period_to;
+  const restart = new Date(Date.parse(`${last}T00:00:00Z`) + 86_400_000).toISOString().slice(0, 10);
+  if (!next.firstPeriodStart) throw badRequest(`VAT returns are filed: start the new VAT periods on ${dayLabel(restart)}`);
+  const until = [last, dubaiDate(new Date().toISOString())].sort()[1]!;
+  for (const p of vatPeriods(next, until)) {
+    const clash = filed.find((f) => f.period_from <= p.to && f.period_to >= p.from && (f.period_from !== p.from || f.period_to !== p.to));
+    if (clash) {
+      throw badRequest(`The VAT periods would cut across the return filed for ${dayLabel(clash.period_from)} – ${dayLabel(clash.period_to)}: start the new VAT periods on ${dayLabel(restart)}`);
+    }
   }
 });
 

@@ -35,7 +35,8 @@ export function VatReturnPage() {
   const [chosen, setChosen] = useState<string>("");
   const list = periods.data?.periods ?? [];
   useEffect(() => {
-    if (!chosen && list.length) setChosen((list.find((p) => p.status === "due") ?? list[0]!).from);
+    // The oldest due period: returns are filed in order (the list is newest first).
+    if (!chosen && list.length) setChosen((list.filter((p) => p.status === "due").at(-1) ?? list[0]!).from);
   }, [list, chosen]);
   const period = list.find((p) => p.from === chosen);
   const ret = useApi<VatReturn>(period ? `/api/vat/return?from=${period.from}&to=${period.to}` : null);
@@ -99,7 +100,12 @@ export function VatReturnPage() {
             {r.changedSinceFiled && <span className="ml-1 text-amber-700">The books changed after filing: the period now shows {formatAED(r.payableFils)}.</span>}
           </p>
         )}
-        {f && f.countedFrom > f.from && <p className="mt-3 text-sm text-zinc-600">Counted from {day(f.countedFrom)}: the books start then.</p>}
+        {f && f.countedFrom > f.from && (
+          <p className="mt-3 text-sm text-zinc-600">
+            Counted from {day(f.countedFrom)}: the books start then. VAT from before that sits in the opening balances: move it to VAT payable with a
+            journal between the VAT accounts (Output VAT, Input VAT, VAT payable).
+          </p>
+        )}
       </Card>
 
       {!f ? <Spinner /> : (

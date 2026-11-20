@@ -133,9 +133,14 @@ function checkVatBox(l: JournalLineInput): void {
   if (info.vatOnly && !output && !input) throw badRequest(`${info.label} is VAT only: put it on Output VAT or Input VAT`);
 }
 
+/** Accounts a "VAT transfer" journal moves between (VAT from before the books, brought into VAT payable). */
+const VAT_ACCOUNTS = new Set([SYSTEM_ACCOUNTS.vat_output.id, SYSTEM_ACCOUNTS.vat_input.id, SYSTEM_ACCOUNTS.vat_payable.id]);
+
 function checkAccounts(db: Db, lines: JournalLineInput[], opening: boolean): void {
+  // Moving VAT between the VAT accounts changes no return (it shows as "not in any box") and no invoice's VAT.
+  const vatTransfer = lines.every((l) => VAT_ACCOUNTS.has(l.accountId));
   for (const l of lines) {
-    const taggedVat = l.accountId === SYSTEM_ACCOUNTS.vat_output.id && !!l.vatBox;
+    const taggedVat = l.accountId === SYSTEM_ACCOUNTS.vat_output.id && (!!l.vatBox || vatTransfer);
     if (!opening && CONTROL[l.accountId] && !taggedVat) throw badRequest(CONTROL[l.accountId]!);
     if (!opening) checkVatBox(l);
     const a = db.get<{ active: number }>("SELECT active FROM accounts WHERE id = ?", [l.accountId]);

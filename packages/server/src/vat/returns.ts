@@ -11,16 +11,21 @@ const today = () => dubaiDate(new Date().toISOString());
 const isYmd = (v: unknown): v is string => typeof v === "string" && /^\d{4}-\d{2}-\d{2}$/.test(v) && !Number.isNaN(Date.parse(`${v}T00:00:00Z`));
 
 interface ReturnRow { id: string; period_from: string; period_to: string; figures_json: string; reference: string | null; entry_id: string | null; filed_at: string }
-const filedRow = (db: Db, from: string) => db.get<ReturnRow>("SELECT * FROM vat_returns WHERE period_from = ?", [from]);
+const filedRow = (db: Db, from: string, to: string) => db.get<ReturnRow>("SELECT * FROM vat_returns WHERE period_from = ? AND period_to = ?", [from, to]);
+const overlapping = (db: Db, from: string, to: string) =>
+  db.get<ReturnRow>("SELECT * FROM vat_returns WHERE period_from <= ? AND period_to >= ? ORDER BY period_from LIMIT 1", [to, from]);
 
 /** The VAT periods the books cover, newest first, with whether each is still open, due to file, or filed. */
 export function listPeriods(db: Db, on: string = today()) {
   const s = getSettings(db);
   const start = s.books.startDate;
-  return vatPeriods(s.tax, on)
-    .filter((p) => !start || p.to >= start)
+  // Filed returns always show, even when the VAT periods in Settings → Tax changed after them.
+  const filed = db.all<{ period_from: string; period_to: string }>("SELECT period_from, period_to FROM vat_returns").map((r) => ({ from: r.period_from, to: r.period_to }));
+  const scheduled = vatPeriods(s.tax, on).filter((p) => (!start || p.to >= start) && !filed.some((f) => f.from <= p.to && f.to >= p.from));
+  return [...scheduled, ...filed]
+    .sort((a, b) => b.from.localeCompare(a.from))
     .map((p) => {
-      const r = filedRow(db, p.from);
+      const r = filedRow(db, p.from, p.to);
       const figures = r ? (JSON.parse(r.figures_json) as VatFigures) : null;
       return {
         ...p, status: r ? ("filed" as const) : p.to < on ? ("due" as const) : ("open" as const),
@@ -33,7 +38,7 @@ export function listPeriods(db: Db, on: string = today()) {
 export function getReturn(db: Db, from: unknown, to: unknown) {
   if (!isYmd(from) || !isYmd(to) || to < from) throw badRequest("Choose a VAT period");
   const figures = vatFigures(db, from, to);
-  const r = filedRow(db, from);
+  const r = filedRow(db, from, to);
   const filed = r ? { figures: JSON.parse(r.figures_json) as VatFigures, reference: r.reference, filedAt: r.filed_at, entryId: r.entry_id } : null;
   const changedSinceFiled = !!filed && (filed.figures.dueFils !== figures.dueFils || filed.figures.recoverableFils !== figures.recoverableFils);
   return { ...figures, filed, changedSinceFiled };
@@ -52,9 +57,11 @@ export function fileReturn(db: Db, input: { from?: unknown; to?: unknown; refere
   if (!period) throw badRequest("That isn't a VAT period in Settings → Tax");
   if (period.to >= on) throw badRequest("A return can be filed once its period has ended");
   if (!s.garage.emirate) throw badRequest("Choose the garage's emirate in Settings → Garage first");
-  if (filedRow(db, period.from)) throw conflict("That return is already filed");
+  if (filedRow(db, period.from, period.to)) throw conflict("That return is already filed");
+  const clash = overlapping(db, period.from, period.to);
+  if (clash) throw conflict(`That period overlaps the return filed for ${formatDay(clash.period_from)}–${formatDay(clash.period_to)}`);
   const start = s.books.startDate;
-  const earlier = periods.filter((p) => p.to < period.from && (!start || p.to >= start)).reverse().find((p) => !filedRow(db, p.from));
+  const earlier = periods.filter((p) => p.to < period.from && (!start || p.to >= start)).reverse().find((p) => !overlapping(db, p.from, p.to));
   if (earlier) throw conflict(`File the return for ${formatDay(earlier.from)}–${formatDay(earlier.to)} first`);
   const reference = typeof input.reference === "string" && input.reference.trim() ? input.reference.trim().slice(0, 60) : null;
 

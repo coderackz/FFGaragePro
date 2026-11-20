@@ -5,7 +5,7 @@ const API = "http://127.0.0.1:4780";
 const nav = (page: Page, name: string) => page.getByRole("navigation").getByRole("link", { name, exact: true }).click();
 const token = (page: Page) => page.evaluate(() => sessionStorage.getItem("ffgp.token"));
 const today = () => new Date(Date.now() + 4 * 3_600_000).toISOString().slice(0, 10);
-const lastMonth = () => { const t = today(); const d = new Date(Date.UTC(Number(t.slice(0, 4)), Number(t.slice(5, 7)) - 2, 1)); return d.toISOString().slice(0, 10); };
+const monthsAgo = (n: number) => { const t = today(); return new Date(Date.UTC(Number(t.slice(0, 4)), Number(t.slice(5, 7)) - 1 - n, 1)).toISOString().slice(0, 10); };
 const RENT = "00000000-0000-4000-8000-0000000a6010";
 const BANK = "00000000-0000-4000-8000-0000000a1020";
 const OTHER_INCOME = "00000000-0000-4000-8000-0000000a4020";
@@ -14,8 +14,10 @@ test("a VAT return from the books, filed and locked", async ({ page, request }) 
   page.on("pageerror", (e) => console.log("PAGEERROR", e.message));
   page.on("dialog", (d) => void d.accept());
   const shot = shooter(page, "vat-");
-  const start = lastMonth();
-  const day = (n: number) => `${start.slice(0, 8)}${String(n).padStart(2, "0")}`;
+  // Two months in the books: both are due, and returns are filed oldest first.
+  const start = monthsAgo(2);
+  const prev = monthsAgo(1);
+  const day = (n: number) => `${prev.slice(0, 8)}${String(n).padStart(2, "0")}`;
   await page.goto("/");
   await setUpGarage(page);
   const headers = { authorization: `Bearer ${await token(page)}` };
@@ -51,9 +53,17 @@ test("a VAT return from the books, filed and locked", async ({ page, request }) 
   await page.getByRole("button", { name: "Post" }).click();
   await expect(page.getByRole("heading", { name: /^JV-\d+/ })).toBeVisible();
 
-  // The return: last month is due and chosen.
+  // The return opens on the oldest due period (the one that can be filed): nothing in it, file it.
   await nav(page, "Books");
   await page.getByRole("link", { name: /VAT return/ }).click();
+  await expect(page.getByLabel("Period")).toHaveValue(start);
+  await expect(page.getByTestId("period-status")).toHaveText("Due");
+  await page.getByRole("button", { name: "Mark as filed" }).click();
+  await page.getByRole("dialog").getByRole("button", { name: "File return" }).click();
+  await expect(page.getByTestId("period-status")).toHaveText("Filed");
+
+  // Last month: due, with the bill and the journals.
+  await page.getByLabel("Period").selectOption(prev);
   await expect(page.getByTestId("period-status")).toHaveText("Due");
   await expect(page.getByTestId("box-9-amount")).toHaveText("AED 1,000.00");
   await expect(page.getByTestId("box-9-vat")).toHaveText("AED 50.00");
