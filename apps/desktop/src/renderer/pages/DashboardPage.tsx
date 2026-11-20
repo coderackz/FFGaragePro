@@ -30,7 +30,7 @@ function BackupWarning() {
 }
 
 export function DashboardPage() {
-  const { user } = useAuth();
+  const { user, canSee } = useAuth();
   const navigate = useNavigate();
   const estimates = useApi<{ documents: DocumentSummary[] }>("/api/documents?type=estimate");
   const jobs = useApi<{ documents: DocumentSummary[] }>("/api/documents?type=jobcard");
@@ -85,6 +85,7 @@ export function DashboardPage() {
           <span className="ml-auto font-medium">View</span>
         </Link>
       )}
+      {canSee("payroll.manage") && <ExpiringDocuments />}
       <Card title="Workshop now" padded={false} actions={<Link to="/jobcards" className="text-sm text-brand-700 hover:underline">All job cards</Link>}>
         <Table
           rows={stats.openJobs.slice(0, 12)}
@@ -115,3 +116,24 @@ function Stat({ to, label, value, note, accent }: { to: string; label: string; v
     </Link>
   );
 }
+
+/** Staff documents expired or expiring within 30 days (Emirates ID, labour card, passport, visa). */
+function ExpiringDocuments() {
+  const { data } = useApi<{ documents: { employeeId: string; name: string; document: string; expires: string }[] }>("/api/payroll/expiring");
+  if (!data?.documents.length) return null;
+  const now = new Date(Date.now() + 4 * 3_600_000).toISOString().slice(0, 10);
+  return (
+    <div data-testid="expiring-documents" className="mb-5 rounded-lg border border-amber-200 bg-amber-50 px-4 py-2.5 text-sm text-amber-900">
+      <b>Staff documents expiring</b>
+      <ul className="mt-1 space-y-0.5">
+        {data.documents.map((d) => (
+          <li key={`${d.employeeId}:${d.document}`}>
+            <Link to={`/employees/${d.employeeId}`} className="hover:underline">{d.name}: {d.document}</Link>{" "}
+            <span className={d.expires < now ? "font-medium text-red-700" : ""}>{d.expires < now ? "expired" : "expires"} {formatDate(`${d.expires}T00:00:00.000Z`)}</span>
+          </li>
+        ))}
+      </ul>
+    </div>
+  );
+}
+

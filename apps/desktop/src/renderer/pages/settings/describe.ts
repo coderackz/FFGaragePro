@@ -13,6 +13,7 @@ export interface AuditEntry {
 }
 
 export const SECTION_NAMES: Record<string, string> = {
+  payroll: "Payroll",
   profile: "Garage details",
   garage: "Garage details",
   documents: "Documents & printing",
@@ -36,6 +37,8 @@ const FIELD_NAMES: Record<string, string> = {
   labourRateFils: "Labour rate", partsMarkupPct: "Parts markup", maxDiscountAccountantPct: "Largest discount (Admin / Accountant)",
   maxDiscountAdvisorPct: "Largest discount (Service Advisor)", belowZero: "Stock below zero", defaultReorderLevel: "Default reorder level",
   idleLockMinutes: "Lock screen after (minutes)", defaultTermsDays: "Default payment terms (days)", overLimit: "Over the credit limit",
+  establishmentId: "MOHRE establishment ID", employerRoutingCode: "Employer's bank routing code", bonusInWps: "Bonus in WPS",
+  gratuityDayRate: "Gratuity day rate", gratuityCap: "Gratuity cap", leaveBasis: "Leave not taken paid on", salaryDayRate: "Salary day rate",
   creditNotePrefix: "Credit note prefix", receiptPrefix: "Receipt prefix", creditNoteStart: "Next credit note number", receiptStart: "Next receipt number", role: "Role", active: "Active", passwordChanged: "Password",
 };
 

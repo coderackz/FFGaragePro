@@ -1,5 +1,5 @@
 import clsx from "clsx";
-import { Banknote, BookOpen, Car, ChartBar, FileMinus, FileText, Landmark, LayoutDashboard, LogOut, Package, Receipt, Settings, ShoppingCart, Truck, Users, Wallet, Wrench } from "lucide-react";
+import { Banknote, BookOpen, Car, ChartBar, FileMinus, FileText, IdCard, Landmark, LayoutDashboard, LogOut, Package, Receipt, Settings, ShoppingCart, Truck, Users, Wallet, Wrench } from "lucide-react";
 import type { ReactNode } from "react";
 import { NavLink } from "react-router";
 import { ROLE_LABELS } from "@ffgp/shared";
@@ -38,6 +38,12 @@ function Frame({ children }: { children: ReactNode }) {
           { to: "/expenses", label: "Expenses", icon: Wallet },
           { to: "/bank", label: "Bank & cash", icon: Landmark },
           { to: "/reports/payables-aging", label: "Payables aging", icon: ChartBar },
+        ]
+      : []),
+    ...(can("payroll.manage")
+      ? [
+          { section: "Payroll" },
+          { to: "/employees", label: "Employees", icon: IdCard },
         ]
       : []),
     { section: "Records" },

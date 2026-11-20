@@ -114,6 +114,15 @@ export const TILES: Tile[] = [
     },
   },
   {
+    id: "payroll", group: "money", title: "Payroll", blurb: "WPS details, gratuity and day rates", show: always,
+    status: (c) => {
+      const p = c.settings.payroll;
+      if (!p.gratuityDayRate || !p.gratuityCap || !p.salaryDayRate) return todo("Choose how pay is worked out");
+      if (!p.establishmentId || !p.employerRoutingCode) return todo("Add the WPS details");
+      return ok(p.bonusInWps ? "Ready · bonus through WPS" : "Ready · bonus in cash");
+    },
+  },
+  {
     id: "inventory", group: "running", title: "Inventory", blurb: "Stock below zero, default reorder level", show: always,
     status: (c) => ok(c.settings.inventory.belowZero === "block" ? "Block below zero" : "Warn only"),
   },
