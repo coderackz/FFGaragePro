@@ -352,16 +352,17 @@ export function postMoneyMovements(c: PostCtx): number {
       postKey: `transfer:${t.id}`, userId: null, lines: [debit(t.to_id, t.amount_fils), credit(t.from_id, t.amount_fils)],
     })) n++;
   }
-  for (const d of c.db.all<{ id: string; date: string; bank: string; amount_fils: number; number: string; customer: string }>(
-    `SELECT d.id, d.date, d.bank_account_id AS bank, r.amount_fils, r.number, cu.name AS customer
-     FROM cheque_deposits d JOIN receipts r ON r.id = d.receipt_id JOIN customers cu ON cu.id = r.customer_id
-     WHERE d.date >= ? AND ${unposted("'cheque_deposit:' || d.id")} ORDER BY d.created_at`,
+  // Cheques paid in on one slip: one bank line for the total (the bank shows one credit).
+  for (const d of c.db.all<{ batch: string; date: string; bank: string; total: number; n: number; numbers: string }>(
+    `SELECT d.batch_id AS batch, MIN(d.date) AS date, MIN(d.bank_account_id) AS bank, SUM(r.amount_fils) AS total, COUNT(*) AS n, group_concat(r.number, ', ') AS numbers
+     FROM cheque_deposits d JOIN receipts r ON r.id = d.receipt_id
+     WHERE d.date >= ? AND ${unposted("'cheque_deposit:' || d.batch_id")} GROUP BY d.batch_id ORDER BY MIN(d.created_at)`,
     [c.start],
   )) {
     if (c.full()) break;
     if (c.post({
-      date: d.date, narration: `Cheque ${d.number} from ${d.customer} deposited`, sourceType: "cheque_deposit", sourceId: d.id, postKey: `cheque_deposit:${d.id}`,
-      userId: null, lines: [debit(d.bank, d.amount_fils), credit(A.cheques_in_hand.id, d.amount_fils)],
+      date: d.date, narration: `${d.n === 1 ? "Cheque" : `${d.n} cheques`} paid in (${d.numbers})`, sourceType: "cheque_deposit", sourceId: d.batch,
+      postKey: `cheque_deposit:${d.batch}`, userId: null, lines: [debit(d.bank, d.total), credit(A.cheques_in_hand.id, d.total)],
     })) n++;
   }
   for (const x of c.db.all<{ id: string; date: string; bank: string; amount_fils: number; number: string; supplier: string }>(

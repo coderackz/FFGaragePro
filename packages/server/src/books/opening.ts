@@ -3,17 +3,20 @@ import type { Db } from "../db";
 import { badRequest } from "../errors";
 import { customerBalance } from "../ledger";
 import { getSettings } from "../settings";
+import { supplierBalance } from "../payables/ledger";
 import { addDays } from "./post";
 
-export interface ProposalLine { accountId: string; debitFils: number; creditFils: number; customerId: string | null; supplierId: null; documentId: string | null; memo: string }
-const line = (accountId: string, fils: number, memo: string, customerId: string | null = null, documentId: string | null = null): ProposalLine =>
-  ({ accountId, debitFils: fils > 0 ? fils : 0, creditFils: fils < 0 ? -fils : 0, customerId, supplierId: null, documentId, memo });
+export interface ProposalLine { accountId: string; debitFils: number; creditFils: number; customerId: string | null; supplierId: string | null; documentId: string | null; memo: string }
+const line = (accountId: string, fils: number, memo: string, customerId: string | null = null, documentId: string | null = null, supplierId: string | null = null): ProposalLine =>
+  ({ accountId, debitFils: fils > 0 ? fils : 0, creditFils: fils < 0 ? -fils : 0, customerId, supplierId, documentId, memo });
 
 /**
  * What the app already knows of the opening position, the day before the books start: what each customer owed from
  * invoices and payments, stock on the shelf, parts on job cards not yet invoiced, and the opening items the books
  * already hold in Opening balance clearing (customer opening balances, opening stock, which post themselves) so the
- * clearing account comes to zero. The accountant adds the rest (cash, bank, suppliers, capital, the year so far).
+ * clearing account comes to zero. Also what each supplier was owed (goods receipts, bills, payments before the start;
+ * their own opening balances post themselves), customer cheques not yet paid in and our cheques not yet cleared. The
+ * accountant adds the rest (cash, bank, capital, the year so far), not suppliers again.
  */
 export function openingProposal(db: Db): { date: string; lines: ProposalLine[] } {
   const { startDate } = getSettings(db).books;
@@ -39,6 +42,25 @@ export function openingProposal(db: Db): { date: string; lines: ProposalLine[] }
     [startDate, startDate],
   );
   for (const j of jobs) lines.push(line(A.wip.id, j.wip, `Parts on ${j.number}`, null, j.id));
+  for (const s of db.all<{ id: string; name: string; opening: number; opening_date: string | null }>(
+    "SELECT id, name, opening_balance_fils AS opening, opening_balance_date AS opening_date FROM suppliers ORDER BY name COLLATE NOCASE",
+  )) {
+    const inBalance = s.opening && (!s.opening_date || s.opening_date <= date) ? s.opening : 0;
+    const owedTo = supplierBalance(db, s.id, date).balanceFils - inBalance;
+    if (owedTo) lines.push(line(A.payables.id, -owedTo, s.name, null, null, s.id));
+  }
+  const inHand = db.get<{ v: number | null }>(
+    `SELECT SUM(r.amount_fils) AS v FROM receipts r WHERE r.method = 'cheque' AND r.amount_fils > 0 AND date(r.received_at, '+4 hours') < ?
+       AND NOT EXISTS (SELECT 1 FROM cheque_deposits d WHERE d.receipt_id = r.id AND d.date < ?)`,
+    [startDate, startDate],
+  )!.v ?? 0;
+  if (inHand) lines.push(line(A.cheques_in_hand.id, inHand, "Customers' cheques not yet paid in"));
+  const issued = db.get<{ v: number | null }>(
+    `SELECT SUM(p.amount_fils) AS v FROM supplier_payments p WHERE p.method = 'cheque' AND p.paid_at < ?
+       AND NOT EXISTS (SELECT 1 FROM cheque_clearances c WHERE c.payment_id = p.id AND c.date < ?)`,
+    [startDate, startDate],
+  )!.v ?? 0;
+  if (issued) lines.push(line(A.cheques_issued.id, -issued, "Our cheques not yet cleared"));
   const clearing = db.get<{ b: number | null }>("SELECT SUM(debit_fils - credit_fils) AS b FROM journal_lines WHERE account_id = ?", [A.opening_clearing.id])!.b ?? 0;
   if (clearing) lines.push(line(A.opening_clearing.id, -clearing, "Opening items the books already hold (customer opening balances, opening stock)"));
   return { date, lines };

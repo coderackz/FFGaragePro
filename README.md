@@ -161,9 +161,11 @@ set. Each tile opens its section with its own Save; every change goes to the Act
   - customer cheques wait in "cheques in hand" until paid in (post-dated ones can't be paid in early);
   - our cheques wait in "cheques issued" until they clear.
 - **Reconciliation:**
-  - import the bank's CSV statement, with its columns set up once per bank;
+  - import the bank's CSV statement, with its columns set up once per bank, and its starting balance the first time;
   - importing the same statement twice adds nothing;
-  - accept the suggested matches and add bank charges in place, until the page says **Reconciled**.
+  - accept the suggested matches, match others by hand, and add bank charges in place, until the page says **Reconciled**.
+- Cheques are paid in (several on one slip) and cleared on the day the bank shows; an advance paid to a supplier goes
+  against their next bill by itself; an unpaid bill can be cancelled from the Bills page.
 
     npm run e2e:payables                            # bill → payment → expense with photo → statement import → reconciled → books health
 

@@ -11,13 +11,19 @@ import { useApi } from "../../lib/useApi";
 
 const day = (ymd: string) => formatDate(`${ymd}T00:00:00.000Z`);
 
+interface BookLine { journalLineId: string; entryId: string; number: string; date: string; narration: string; amountFils: number }
 interface View {
+  start: { from: string; openingFils: number } | null;
   mapping: BankMapping | null;
-  lines: { id: string; date: string; description: string; amountFils: number; reference: string | null; matchedLineId: string | null }[];
+  lines: { id: string; date: string; description: string; amountFils: number; reference: string | null; matchedLineId: string | null; expenseId: string | null }[];
   suggestions: { bankLineId: string; journalLineId: string }[];
-  unmatchedBookLines: { journalLineId: string; entryId: string; number: string; date: string; narration: string; amountFils: number }[];
+  /** In the books from where reconciling started, with no statement line yet: these hold reconciling up. */
+  unmatchedBookLines: BookLine[];
+  /** Entered before the statement started, not matched: may still come through on the bank. */
+  earlierBookLines: BookLine[];
   bookBalanceFils: number;
   statementBalanceFils: number;
+  reconciled: boolean;
 }
 
 /** The first row of a CSV, split into cells (quoted cells may hold commas). */
@@ -57,6 +63,8 @@ export function ReconcilePage() {
   const [editing, setEditing] = useState(false);
   const [busy, setBusy] = useState(false);
   const [result, setResult] = useState<string | null>(null);
+  const [opening, setOpening] = useState("");
+  const [picked, setPicked] = useState<Record<string, string>>({});
   useEffect(() => { if (view.data) setCols(toCols(view.data.mapping)); }, [view.data?.mapping]); // eslint-disable-line react-hooks/exhaustive-deps
 
   const account = accounts.data?.accounts.find((a) => a.id === id);
@@ -73,7 +81,8 @@ export function ReconcilePage() {
   const importFile = () => run(async () => {
     if (!csv) return;
     if (needsMapping) await put(`/api/money-accounts/${id}/mapping`, toMapping(cols));
-    const r = await post<{ added: number; skipped: number }>(`/api/money-accounts/${id}/imports`, { fileName: csv.name, csv: csv.text });
+    const openingBalanceFils = view.data?.start ? undefined : Math.round(Number(opening.replace(/,/g, "")) * 100);
+    const r = await post<{ added: number; skipped: number }>(`/api/money-accounts/${id}/imports`, { fileName: csv.name, csv: csv.text, openingBalanceFils });
     setResult(`${r.added} line${r.added === 1 ? "" : "s"} imported${r.skipped ? `, ${r.skipped} already here` : ""}`);
     setCsv(null);
     setEditing(false);
@@ -82,16 +91,25 @@ export function ReconcilePage() {
   if (!view.data) return <Spinner />;
   const v = view.data;
   const suggestion = (lineId: string) => v.suggestions.find((s) => s.bankLineId === lineId);
-  const book = (journalLineId: string) => v.unmatchedBookLines.find((b) => b.journalLineId === journalLineId);
+  const pool = [...v.unmatchedBookLines, ...v.earlierBookLines];
+  const book = (journalLineId: string) => pool.find((b) => b.journalLineId === journalLineId);
+  const suggested = new Set(v.suggestions.map((s) => s.journalLineId));
+  const candidates = (amountFils: number) => pool.filter((b) => b.amountFils === amountFils && !suggested.has(b.journalLineId));
   const unmatched = v.lines.filter((l) => !l.matchedLineId).length;
-  const reconciled = v.lines.length > 0 && unmatched === 0 && v.unmatchedBookLines.length === 0 && v.bookBalanceFils === v.statementBalanceFils;
+  const reconciled = v.reconciled;
+  const firstImport = !v.start;
+  const openingOk = !firstImport || (opening.trim() !== "" && Number.isFinite(Number(opening.replace(/,/g, ""))));
+  const status = reconciled ? "Reconciled"
+    : unmatched === 0 && v.unmatchedBookLines.length === 0 && v.lines.length > 0
+      ? `Books ${formatAED(v.bookBalanceFils)} · statement ${formatAED(v.statementBalanceFils)}: an entry from before the statement may still be waiting to be matched`
+      : `Books ${formatAED(v.bookBalanceFils)} · statement ${formatAED(v.statementBalanceFils)} · ${unmatched} statement line${unmatched === 1 ? "" : "s"} and ${v.unmatchedBookLines.length} book entr${v.unmatchedBookLines.length === 1 ? "y" : "ies"} to match`;
 
   return (
     <>
       <PageHeader back={<Link to="/bank" className="mb-1 inline-flex items-center gap-1 text-sm text-zinc-500 hover:text-zinc-800"><ArrowLeft className="size-3.5" /> Bank & cash</Link>}
         title={`Reconcile ${account ? `${account.code} ${account.name}` : ""}`}
         subtitle={<span data-testid="reconciled" className={reconciled ? "text-emerald-700" : "text-amber-700"}>
-          {reconciled ? "Reconciled" : `Books ${formatAED(v.bookBalanceFils)} · statement ${formatAED(v.statementBalanceFils)} · ${unmatched} statement line${unmatched === 1 ? "" : "s"} and ${v.unmatchedBookLines.length} book entr${v.unmatchedBookLines.length === 1 ? "y" : "ies"} to match`}
+          {status}
         </span>} />
       <Card title="Import a statement" className="mb-5">
         <div className="flex flex-wrap items-end gap-3">
@@ -99,8 +117,13 @@ export function ReconcilePage() {
             <Input type="file" accept=".csv,text/csv" aria-label="Bank statement (CSV)"
               onChange={(e) => { const f = e.target.files?.[0]; if (f) void f.text().then((text) => setCsv({ name: f.name, text })); }} />
           </Field>
+          {firstImport && (
+            <Field label="Balance before the first line" hint="From the statement: where reconciling starts">
+              <Input inputMode="decimal" value={opening} onChange={(e) => setOpening(e.target.value)} aria-label="Balance before the first line" placeholder="0.00" />
+            </Field>
+          )}
           {v.mapping && !editing && <Button variant="ghost" onClick={() => setEditing(true)}>Change columns</Button>}
-          <Button variant="primary" icon={<Upload className="size-4" />} busy={busy} disabled={!csv} onClick={() => void importFile()}>Import</Button>
+          <Button variant="primary" icon={<Upload className="size-4" />} busy={busy} disabled={!csv || !openingOk} onClick={() => void importFile()}>Import</Button>
           {result && <span className="text-sm text-zinc-700">{result}</span>}
         </div>
         {csv && needsMapping && (
@@ -125,21 +148,48 @@ export function ReconcilePage() {
             {
               header: "Books",
               cell: (l) => {
-                if (l.matchedLineId) return <span className="flex items-center gap-2 text-emerald-700">Matched <Button size="sm" variant="ghost" onClick={() => void run(() => post(`/api/bank-lines/${l.id}/unmatch`, {}))}>Undo</Button></span>;
+                if (l.matchedLineId) return <span className="flex items-center gap-2 text-emerald-700">Matched <Button size="sm" variant="ghost" disabled={busy} onClick={() => void run(() => post(`/api/bank-lines/${l.id}/unmatch`, {}))}>Undo</Button></span>;
+                if (l.expenseId) return <span className="text-xs text-zinc-600">Entered as an expense: matches once it's in the books</span>;
                 const s = suggestion(l.id);
                 const b = s ? book(s.journalLineId) : null;
                 if (s && b) {
                   return <span className="flex items-center gap-2"><span className="text-xs text-zinc-600">{b.number} · {b.narration}</span>
-                    <Button size="sm" onClick={() => void run(() => post(`/api/bank-lines/${l.id}/match`, { journalLineId: s.journalLineId }))}>Accept match</Button></span>;
+                    <Button size="sm" disabled={busy} onClick={() => void run(() => post(`/api/bank-lines/${l.id}/match`, { journalLineId: s.journalLineId }))}>Accept match</Button></span>;
                 }
-                if (l.amountFils < 0 && charges) {
-                  return <Button size="sm" variant="ghost" onClick={() => void run(() => post(`/api/bank-lines/${l.id}/expense`, { accountId: charges.id, vat: "none", description: l.description || "Bank charges" }))}>Add as bank charge</Button>;
-                }
-                return <span className="text-xs text-zinc-500">Nothing in the books yet</span>;
+                const options = candidates(l.amountFils);
+                return (
+                  <span className="flex flex-wrap items-center gap-2">
+                    {options.length > 0 && (
+                      <>
+                        <Select value={picked[l.id] ?? ""} onChange={(e) => setPicked((p) => ({ ...p, [l.id]: e.target.value }))} aria-label="Match to" className="max-w-64">
+                          <option value="">Match to…</option>
+                          {options.map((o) => <option key={o.journalLineId} value={o.journalLineId}>{day(o.date)} · {o.number} · {o.narration}</option>)}
+                        </Select>
+                        <Button size="sm" disabled={busy || !picked[l.id]} onClick={() => void run(() => post(`/api/bank-lines/${l.id}/match`, { journalLineId: picked[l.id] }))}>Match</Button>
+                      </>
+                    )}
+                    {l.amountFils < 0 && charges && (
+                      <Button size="sm" variant="ghost" disabled={busy} onClick={() => void run(() => post(`/api/bank-lines/${l.id}/expense`, { accountId: charges.id, vat: "none", description: l.description || "Bank charges" }))}>Add as bank charge</Button>
+                    )}
+                    {!options.length && l.amountFils >= 0 && <span className="text-xs text-zinc-500">Nothing in the books for this amount yet</span>}
+                  </span>
+                );
               },
             },
           ]} />
       </Card>
+      {v.earlierBookLines.length > 0 && !reconciled && (
+        <Card title="Entered before this statement, not yet matched" className="mt-5" padded={false}>
+          <p className="px-4 pt-3 text-xs text-zinc-600">These may be on a later statement. They don't hold reconciling up unless the balances differ.</p>
+          <Table rows={v.earlierBookLines} rowKey={(b) => b.journalLineId}
+            columns={[
+              { header: "Date", cell: (b) => day(b.date) },
+              { header: "Journal", cell: (b) => <Link to={`/books/journals/${b.entryId}`} className="font-mono text-[13px] text-brand-700 hover:underline">{b.number}</Link> },
+              { header: "Details", cell: (b) => b.narration },
+              { header: "Amount", cell: (b) => formatAED(b.amountFils), align: "right" },
+            ]} />
+        </Card>
+      )}
       {v.unmatchedBookLines.length > 0 && (
         <Card title="In the books, not on the statement" className="mt-5" padded={false}>
           <Table rows={v.unmatchedBookLines} rowKey={(b) => b.journalLineId}

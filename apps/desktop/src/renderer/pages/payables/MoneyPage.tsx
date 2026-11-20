@@ -23,17 +23,16 @@ export function MoneyPage() {
   const inHand = useApi<{ cheques: InHand[] }>("/api/cheques/in-hand");
   const issued = useApi<{ cheques: Issued[] }>("/api/cheques/issued");
   const [transfer, setTransfer] = useState(false);
+  // Cheques being paid in, or marked cleared: the day it happened (as on the bank statement) and, to pay in, which bank.
+  const [paying, setPaying] = useState<InHand[] | null>(null);
+  const [clearing, setClearing] = useState<Issued | null>(null);
   const reload = () => { void accounts.reload(); void inHand.reload(); void issued.reload(); };
   const banks = (accounts.data?.accounts ?? []).filter((a) => a.moneyKind === "bank");
 
   const run = async (fn: () => Promise<unknown>, done: string) => {
-    try { await fn(); toast.success(done); reload(); } catch (err) { toast.error((err as Error).message); }
+    try { await fn(); toast.success(done); reload(); return true; } catch (err) { toast.error((err as Error).message); return false; }
   };
-  const deposit = (ids: string[]) => {
-    const bank = banks[0];
-    if (!bank) return toast.error("Add a bank account first");
-    void run(() => post("/api/cheques/deposits", { receiptIds: ids, bankAccountId: bank.id, date: today() }), `Paid into ${bank.name}`);
-  };
+  const due = (inHand.data?.cheques ?? []).filter((c) => !c.chequeDate || c.chequeDate <= today());
 
   return (
     <>
@@ -52,14 +51,14 @@ export function MoneyPage() {
       </Card>
       <div className="grid grid-cols-2 gap-5 max-lg:grid-cols-1">
         <Card title="Customer cheques to pay in" padded={false}
-          actions={!!inHand.data?.cheques.length && <Button size="sm" onClick={() => deposit(inHand.data!.cheques.filter((c) => !c.chequeDate || c.chequeDate <= today()).map((c) => c.receiptId))}>Pay in all due</Button>}>
+          actions={due.length > 1 && <Button size="sm" onClick={() => setPaying(due)}>Pay in all due</Button>}>
           <Table rows={inHand.data?.cheques ?? []} rowKey={(c) => c.receiptId} empty={<div className="px-4 py-3 text-sm text-zinc-600">None waiting</div>}
             columns={[
               { header: "Receipt", cell: (c) => <span className="font-mono text-[13px]">{c.number}</span> },
               { header: "From", cell: (c) => c.customerName },
               { header: "Dated", cell: (c) => (c.chequeDate ? <span className={c.chequeDate > today() ? "text-amber-700" : ""}>{day(c.chequeDate)}</span> : "—") },
               { header: "Amount", cell: (c) => formatAED(c.amountFils), align: "right" },
-              { header: "", cell: (c) => (!c.chequeDate || c.chequeDate <= today() ? <Button size="sm" variant="ghost" onClick={() => deposit([c.receiptId])}>Pay in</Button> : null) },
+              { header: "", cell: (c) => (!c.chequeDate || c.chequeDate <= today() ? <Button size="sm" variant="ghost" onClick={() => setPaying([c])}>Pay in</Button> : null) },
             ]} />
         </Card>
         <Card title="Our cheques not yet cleared" padded={false}>
@@ -69,10 +68,14 @@ export function MoneyPage() {
               { header: "To", cell: (c) => c.supplierName },
               { header: "Cheque", cell: (c) => `${c.chequeNo ?? ""}${c.chequeDate ? ` · ${day(c.chequeDate)}` : ""}` },
               { header: "Amount", cell: (c) => formatAED(c.amountFils), align: "right" },
-              { header: "", cell: (c) => <Button size="sm" variant="ghost" onClick={() => void run(() => post("/api/cheques/clearances", { paymentIds: [c.paymentId], date: today() }), "Marked cleared")}>Cleared</Button> },
+              { header: "", cell: (c) => <Button size="sm" variant="ghost" onClick={() => setClearing(c)}>Cleared</Button> },
             ]} />
         </Card>
       </div>
+      <PayInModal cheques={paying} banks={banks} onClose={() => setPaying(null)}
+        onSubmit={(bankAccountId, date) => run(() => post("/api/cheques/deposits", { receiptIds: paying!.map((c) => c.receiptId), bankAccountId, date }), "Paid in")} />
+      <ClearModal cheque={clearing} onClose={() => setClearing(null)}
+        onSubmit={(date) => run(() => post("/api/cheques/clearances", { paymentIds: [clearing!.paymentId], date }), "Marked cleared")} />
       <TransferModal open={transfer} accounts={accounts.data?.accounts ?? []} onClose={() => setTransfer(false)} onDone={reload} />
     </>
   );
@@ -108,3 +111,46 @@ function TransferModal({ open, accounts, onClose, onDone }: { open: boolean; acc
     </Modal>
   );
 }
+
+/** Paying in customer cheques: one slip, one bank line. The date is the day on the bank's statement. */
+function PayInModal({ cheques, banks, onClose, onSubmit }: { cheques: InHand[] | null; banks: MoneyAccount[]; onClose: () => void; onSubmit: (bankAccountId: string, date: string) => Promise<boolean> }) {
+  const [bank, setBank] = useState("");
+  const [date, setDate] = useState(today());
+  const [busy, setBusy] = useState(false);
+  const bankId = bank || banks[0]?.id || "";
+  const total = (cheques ?? []).reduce((s, c) => s + c.amountFils, 0);
+  const latest = (cheques ?? []).reduce((m, c) => (c.chequeDate && c.chequeDate > m ? c.chequeDate : m), "");
+  const submit = async () => {
+    setBusy(true);
+    try { if (await onSubmit(bankId, date)) onClose(); } finally { setBusy(false); }
+  };
+  return (
+    <Modal open={!!cheques} title={`Pay in ${cheques?.length === 1 ? "a cheque" : `${cheques?.length ?? 0} cheques`}`} onClose={onClose}
+      footer={<><Button variant="ghost" onClick={onClose}>Not now</Button><Button variant="primary" busy={busy} disabled={!bankId || !date} onClick={() => void submit()}>Pay in {formatAED(total)}</Button></>}>
+      {!banks.length ? <p className="text-sm text-red-700">Add a bank account first (Books, Chart of accounts).</p> : (
+        <div className="grid grid-cols-2 gap-3">
+          <Field label="Bank account"><Select value={bankId} onChange={(e) => setBank(e.target.value)} aria-label="Bank account">{banks.map((b) => <option key={b.id} value={b.id}>{b.code} {b.name}</option>)}</Select></Field>
+          <Field label="Date paid in" hint={latest ? `Not before ${day(latest)}` : undefined}><Input type="date" value={date} min={latest || undefined} max={today()} onChange={(e) => setDate(e.target.value)} aria-label="Date paid in" /></Field>
+        </div>
+      )}
+    </Modal>
+  );
+}
+
+/** Our cheque cleared: the bank balance moves on the day the bank shows it. */
+function ClearModal({ cheque, onClose, onSubmit }: { cheque: Issued | null; onClose: () => void; onSubmit: (date: string) => Promise<boolean> }) {
+  const [date, setDate] = useState(today());
+  const [busy, setBusy] = useState(false);
+  const submit = async () => {
+    setBusy(true);
+    try { if (await onSubmit(date)) onClose(); } finally { setBusy(false); }
+  };
+  return (
+    <Modal open={!!cheque} title={`Cheque ${cheque?.chequeNo ?? cheque?.number ?? ""} cleared`} onClose={onClose}
+      footer={<><Button variant="ghost" onClick={onClose}>Not now</Button><Button variant="primary" busy={busy} disabled={!date} onClick={() => void submit()}>Mark cleared</Button></>}>
+      <p className="mb-3 text-sm text-zinc-700">{cheque?.supplierName} · {cheque ? formatAED(cheque.amountFils) : ""}</p>
+      <Field label="Date cleared" hint="As on the bank statement"><Input type="date" value={date} min={cheque?.paidAt} max={today()} onChange={(e) => setDate(e.target.value)} aria-label="Date cleared" /></Field>
+    </Modal>
+  );
+}
+

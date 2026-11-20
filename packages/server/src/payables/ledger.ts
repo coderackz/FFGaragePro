@@ -4,15 +4,16 @@ import type { Db } from "../db";
 const today = () => dubaiDate(new Date().toISOString());
 const D = (col: string) => `date(${col}, '+4 hours')`;
 
-export interface OpenItem { target: "bill" | "goods_receipt"; id: string; number: string; date: string; dueDate: string; grossFils: number; owedFils: number }
+export interface OpenItem { target: "bill" | "goods_receipt" | "opening"; id: string; number: string; date: string; dueDate: string; grossFils: number; owedFils: number }
 
 interface SupplierRow { id: string; name: string; terms_days: number; opening_balance_fils: number; opening_balance_date: string | null }
 const supplierRow = (db: Db, id: string) =>
   db.get<SupplierRow>("SELECT id, name, terms_days, opening_balance_fils, opening_balance_date FROM suppliers WHERE id = ?", [id]);
 
 /**
- * What we owe a supplier, item by item, up to `asOf`: goods receipts (their bills for parts, due on their invoice date
- * plus the supplier's terms) and other bills not cancelled, less what payments have been put against each.
+ * What we owe a supplier, item by item, up to `asOf`: the opening balance (the oldest item, paid first), goods
+ * receipts (their bills for parts, due on their invoice date plus the supplier's terms) and other bills not
+ * cancelled, less what payments have been put against each.
  */
 export function supplierItems(db: Db, supplierId: string, asOf: string = today()): OpenItem[] {
   const s = supplierRow(db, supplierId);
@@ -23,6 +24,11 @@ export function supplierItems(db: Db, supplierId: string, asOf: string = today()
       [target, id, asOf],
     )!.a ?? 0;
   const items: OpenItem[] = [];
+  const opening = s.opening_balance_fils;
+  if (opening > 0 && (!s.opening_balance_date || s.opening_balance_date <= asOf)) {
+    const date = s.opening_balance_date ?? "2000-01-01";
+    items.push({ target: "opening", id: s.id, number: "Opening balance", date, dueDate: s.opening_balance_date ? addDays(date, s.terms_days) : date, grossFils: opening, owedFils: opening - allocated("opening", s.id) });
+  }
   for (const g of db.all<{ id: string; invoice_no: string | null; day: string; gross_fils: number }>(
     `SELECT g.id, g.supplier_invoice_no AS invoice_no, COALESCE(g.supplier_invoice_date, ${D("g.created_at")}) AS day, g.gross_fils
      FROM goods_receipts g JOIN purchase_orders p ON p.id = g.po_id WHERE p.supplier_id = ? AND COALESCE(g.supplier_invoice_date, ${D("g.created_at")}) <= ?`,
@@ -49,7 +55,8 @@ export const supplierOpenItems = (db: Db, supplierId: string, asOf?: string) => 
 export function supplierBalance(db: Db, supplierId: string, asOf: string = today()) {
   const s = supplierRow(db, supplierId);
   if (!s) return { balanceFils: 0, overdueFils: 0, advanceFils: 0 };
-  const opening = s.opening_balance_fils && (!s.opening_balance_date || s.opening_balance_date <= asOf) ? s.opening_balance_fils : 0;
+  // A positive opening balance is one of the items; a negative one (they owed us) counts here.
+  const opening = s.opening_balance_fils < 0 && (!s.opening_balance_date || s.opening_balance_date <= asOf) ? s.opening_balance_fils : 0;
   const items = supplierItems(db, supplierId, asOf);
   const paid = db.get<{ p: number | null }>("SELECT SUM(amount_fils) AS p FROM supplier_payments WHERE supplier_id = ? AND paid_at <= ?", [supplierId, asOf])!.p ?? 0;
   const balanceFils = opening + items.reduce((t, i) => t + i.grossFils, 0) - paid;
@@ -68,7 +75,7 @@ export function supplierStatement(db: Db, supplierId: string, from: string, to: 
     const v = s.opening_balance_fils;
     rows.push({ date: s.opening_balance_date, kind: "opening", number: "", description: "Opening balance", debitFils: Math.max(-v, 0), creditFils: Math.max(v, 0) });
   }
-  for (const i of supplierItems(db, supplierId, to).filter((x) => x.date >= from)) {
+  for (const i of supplierItems(db, supplierId, to).filter((x) => x.target !== "opening" && x.date >= from)) {
     rows.push({ date: i.date, kind: i.target, number: i.number, description: `${i.target === "bill" ? "Bill" : "Parts received"}, due ${i.dueDate}`, debitFils: 0, creditFils: i.grossFils });
   }
   for (const p of db.all<{ paid_at: string; number: string; amount_fils: number; method: string; reference: string | null }>(

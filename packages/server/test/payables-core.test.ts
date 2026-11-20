@@ -36,9 +36,10 @@ describe("payables core", () => {
     await receiveFrom(app, owner, supplier.id, 2000, 100, addDays(today(), -40));
     const s = (await call(app, "GET", `/api/suppliers/${supplier.id}`, owner)).body.supplier;
     expect(s).toMatchObject({ termsDays: 30, balanceFils: 110500, advanceFils: 0 });
-    expect(s.overdueFils).toBe(2100);
+    // The opening balance is the oldest item (due on its date plus terms), so it is overdue too.
+    expect(s.overdueFils).toBe(102100);
     const items = (await call(app, "GET", `/api/suppliers/${supplier.id}/open-items`, owner)).body.items;
-    expect(items.map((i: { dueDate: string; owedFils: number }) => [i.dueDate, i.owedFils])).toEqual([[addDays(today(), -10), 2100], [addDays(today(), 20), 8400]]);
+    expect(items.map((i: { dueDate: string; owedFils: number }) => [i.dueDate, i.owedFils])).toEqual([[addDays(today(), -30), 100000], [addDays(today(), -10), 2100], [addDays(today(), 20), 8400]]);
   });
 
   it("the statement ties to the balance; aging buckets", async () => {

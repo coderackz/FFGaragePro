@@ -2,6 +2,7 @@ import { billTotals, lineVat, SYSTEM_ACCOUNTS as A, supplierBillSchema, dubaiDat
 import { audit } from "../audit";
 import { checkNotLocked } from "../books/journals";
 import { newId, now, type Db } from "../db";
+import { applyAdvances } from "./payments";
 import { badRequest, conflict, notFound } from "../errors";
 
 /** Accounts a bill line can't use: the ones the app keeps in step with documents, and the bill's own payable and VAT. */
@@ -61,6 +62,8 @@ export function createBill(db: Db, input: unknown, userId: string): BillOut {
       ]);
     });
   });
+  // An advance already paid to this supplier goes against the new bill.
+  applyAdvances(db, b.supplierId, userId);
   return getBill(db, id)!;
 }
 

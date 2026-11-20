@@ -41,7 +41,7 @@ export type SupplierBillInput = z.infer<typeof supplierBillSchema>;
 
 // ── Paying suppliers ───────────────────────────────────────────────────────────────────────────────────────────────
 export const SUPPLIER_PAYMENT_METHODS = ["cash", "bank_transfer", "card", "cheque"] as const;
-export const payableTargetSchema = z.object({ target: z.enum(["bill", "goods_receipt"]), id, amountFils: positive });
+export const payableTargetSchema = z.object({ target: z.enum(["bill", "goods_receipt", "opening"]), id, amountFils: positive });
 export type PayableTarget = z.infer<typeof payableTargetSchema>;
 
 export const supplierPaymentSchema = z.object({

@@ -1,4 +1,5 @@
 import type { FastifyInstance } from "fastify";
+import { applyAdvances } from "../payables/payments";
 import { can, formatPoNumber, prefixOf, poSchema, poUpdateSchema, receiveSchema, requestPartSchema, roundFils } from "@ffgp/shared";
 import { z } from "zod";
 import { requireAction, sessionUser, type SessionUser } from "../auth";
@@ -264,6 +265,8 @@ export function purchaseRoutes(app: FastifyInstance, db: Db, docs: { full: Docum
       const po = getPo(req.params.id);
       if (!po) throw notFound("Purchase order not found");
       receive(po, input, user);
+      // An advance already paid to this supplier goes against the parts just received.
+      applyAdvances(db, po.supplier_id, user.id);
     });
     return { purchaseOrder: full(req.params.id, user) };
   });

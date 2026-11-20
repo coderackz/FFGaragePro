@@ -46,14 +46,15 @@ export function expensePhoto(db: Db, id: string): string | null {
 }
 
 /** An expense paid there and then (fuel, petty cash), with an optional photo of the receipt. */
-export async function createExpense(db: Db, input: unknown, userId: string, numbers?: NumberSource) {
+export async function createExpense(db: Db, input: unknown, userId: string, numbers?: NumberSource, exactGrossFils?: number) {
   const x = expenseSchema.parse(input);
   const a = db.get<{ active: number; type: string }>("SELECT active, type FROM accounts WHERE id = ?", [x.accountId]);
   if (!a?.active) throw badRequest("Choose an account in use");
   if (NOT_ON_BILLS.has(x.accountId)) throw badRequest("That account is kept by the app; choose an expense account");
   moneyAccount(db, x.paidFromAccountId, "Paid from");
   checkNotLocked(db, x.date);
-  const vatFils = lineVat(x);
+  // From a bank line the total is fixed: VAT is what's left after the net (when no net gives it exactly at 5%).
+  const vatFils = exactGrossFils !== undefined && x.vat === "standard" ? exactGrossFils - x.netFils : lineVat(x);
   const reserved = await reserveNumber(numbers, "expense");
   const id = db.tx(() => {
     const { series, seq } = takeNumber(db, "expense", reserved, numbers);
@@ -96,15 +97,19 @@ export function depositCheques(db: Db, input: unknown, userId: string) {
   const bank = moneyAccount(db, d.bankAccountId, "Deposit to");
   if (bank.money_kind !== "bank") throw badRequest("Deposit cheques into a bank account");
   checkNotLocked(db, d.date);
+  const batchId = newId();
   return db.tx(() =>
     d.receiptIds.map((receiptId) => {
       const r = db.get<{ number: string; method: string; amount_fils: number; cheque_date: string | null }>("SELECT number, method, amount_fils, cheque_date FROM receipts WHERE id = ?", [receiptId]);
       if (!r || r.method !== "cheque" || r.amount_fils <= 0) throw badRequest("That isn't a cheque received");
       if (db.get("SELECT 1 FROM cheque_deposits WHERE receipt_id = ?", [receiptId])) throw conflict(`${r.number} is already deposited`);
       if (r.cheque_date && r.cheque_date > d.date) throw badRequest(`${r.number} is not due until ${formatDay(r.cheque_date)}`);
-      const id = newId();
-      db.run("INSERT INTO cheque_deposits (id, receipt_id, bank_account_id, date, created_by, created_at) VALUES (?, ?, ?, ?, ?, ?)", [id, receiptId, d.bankAccountId, d.date, userId, now()]);
-      return { id, receiptId, date: d.date };
+      // One id per cheque everywhere: paid in from two places, it's one row.
+      const id = `deposit-${receiptId}`;
+      db.run("INSERT INTO cheque_deposits (id, receipt_id, batch_id, bank_account_id, date, created_by, created_at) VALUES (?, ?, ?, ?, ?, ?, ?)", [
+        id, receiptId, batchId, d.bankAccountId, d.date, userId, now(),
+      ]);
+      return { id, batchId, receiptId, date: d.date };
     }),
   );
 }
@@ -125,7 +130,7 @@ export function clearCheques(db: Db, input: unknown, userId: string) {
       if (!p || p.method !== "cheque") throw badRequest("That isn't a cheque we issued");
       if (db.get("SELECT 1 FROM cheque_clearances WHERE payment_id = ?", [paymentId])) throw conflict(`${p.number} is already cleared`);
       if (c.date < p.paid_at) throw badRequest(`${p.number} was written on ${formatDay(p.paid_at)}: it can't clear before that`);
-      const id = newId();
+      const id = `cleared-${paymentId}`;
       db.run("INSERT INTO cheque_clearances (id, payment_id, date, created_by, created_at) VALUES (?, ?, ?, ?, ?)", [id, paymentId, c.date, userId, now()]);
       return { id, paymentId, date: c.date };
     }),

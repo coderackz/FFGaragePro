@@ -670,6 +670,9 @@ CREATE INDEX journal_entries_source ON journal_entries(source_type, source_id);
 
 ALTER TABLE accounts ADD COLUMN money_kind TEXT CHECK (money_kind IN ('cash', 'bank', 'card_clearing', 'cheques_in_hand'));
 ALTER TABLE accounts ADD COLUMN bank_mapping TEXT;
+-- Reconciliation starts here: the statement's first date and its balance before that day.
+ALTER TABLE accounts ADD COLUMN reconcile_from TEXT;
+ALTER TABLE accounts ADD COLUMN reconcile_opening_fils INTEGER;
 UPDATE accounts SET money_kind = 'cash' WHERE system_key = 'cash';
 UPDATE accounts SET money_kind = 'bank' WHERE system_key = 'bank';
 UPDATE accounts SET money_kind = 'card_clearing' WHERE system_key = 'card_clearing';
@@ -731,7 +734,7 @@ CREATE INDEX supplier_payments_supplier ON supplier_payments(supplier_id);
 CREATE TABLE supplier_allocations (
   id TEXT PRIMARY KEY,
   payment_id TEXT NOT NULL REFERENCES supplier_payments(id),
-  target TEXT NOT NULL CHECK (target IN ('bill', 'goods_receipt')),
+  target TEXT NOT NULL CHECK (target IN ('bill', 'goods_receipt', 'opening')),
   target_id TEXT NOT NULL,
   amount_fils INTEGER NOT NULL CHECK (amount_fils <> 0),
   created_by TEXT REFERENCES users(id),
@@ -773,6 +776,8 @@ CREATE TABLE money_transfers (
 CREATE TABLE cheque_deposits (
   id TEXT PRIMARY KEY,
   receipt_id TEXT NOT NULL UNIQUE REFERENCES receipts(id),
+  -- Cheques paid in on one slip: one line on the bank statement, so one bank line in the books.
+  batch_id TEXT NOT NULL,
   bank_account_id TEXT NOT NULL REFERENCES accounts(id),
   date TEXT NOT NULL,
   created_by TEXT REFERENCES users(id),
@@ -805,6 +810,8 @@ CREATE TABLE bank_lines (
   line_key TEXT NOT NULL,
   matched_line_id TEXT,
   matched_at TEXT,
+  -- An expense entered from this line (bank charges): never entered twice.
+  expense_id TEXT,
   created_at TEXT NOT NULL,
   updated_at TEXT NOT NULL,
   UNIQUE (account_id, line_key)

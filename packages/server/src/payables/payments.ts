@@ -65,7 +65,7 @@ function oldestFirst(db: Db, supplierId: string, amount: number): PayableTarget[
   return out;
 }
 
-function insertAllocations(db: Db, paymentId: string, allocations: PayableTarget[], userId: string): void {
+function insertAllocations(db: Db, paymentId: string, allocations: PayableTarget[], userId: string | null): void {
   const t = now();
   for (const a of allocations) {
     db.run("INSERT INTO supplier_allocations (id, payment_id, target, target_id, amount_fils, created_by, created_at) VALUES (?, ?, ?, ?, ?, ?, ?)", [
@@ -114,3 +114,21 @@ export function allocatePayment(db: Db, id: string, input: unknown, userId: stri
     return getPayment(db, id)!;
   });
 }
+
+/**
+ * Puts what's left of a supplier's payments (advances, oldest first) against what they're owed (oldest due first).
+ * Run when a bill or a goods receipt arrives, and from the supplier page.
+ */
+export function applyAdvances(db: Db, supplierId: string, userId: string | null): number {
+  return db.tx(() => {
+    let applied = 0;
+    for (const p of listPayments(db, supplierId).filter((x) => x.unallocatedFils > 0).sort((a, b) => a.paidAt.localeCompare(b.paidAt))) {
+      const allocations = oldestFirst(db, supplierId, p.unallocatedFils);
+      if (!allocations.length) break;
+      insertAllocations(db, p.id, allocations, userId);
+      applied += allocations.reduce((s, a) => s + a.amountFils, 0);
+    }
+    return applied;
+  });
+}
+

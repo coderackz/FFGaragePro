@@ -430,3 +430,20 @@ describe("review fixes: attachments and secrets", () => {
   });
 });
 
+describe("Part 2 review fixes: the same thing done in two places", () => {
+  it("I6: the same statement imported on a PC and at the cloud merges into one set of lines", async () => {
+    const { A, C, token, sync } = await pair();
+    const bank = "00000000-0000-4000-8000-0000000a1020";
+    const mapping = { date: 0, description: 1, amount: 2, dateFormat: "yyyy-mm-dd", hasHeader: false };
+    const csv = "2026-11-05,Transfer,-100.00\n2026-11-06,Fee,-1.50\n";
+    for (const app of [A, C]) {
+      await call(app, "PUT", `/api/money-accounts/${bank}/mapping`, token, mapping);
+      expect((await call(app, "POST", `/api/money-accounts/${bank}/imports`, token, { fileName: "s.csv", csv, openingBalanceFils: 0 })).body.added).toBe(2);
+    }
+    const { pushed } = sync();
+    expect(pushed.result.issues).toEqual([]);
+    expect(C.db.get("SELECT COUNT(*) AS n FROM bank_lines")).toEqual({ n: 2 });
+    expect(A.db.get("SELECT COUNT(*) AS n FROM bank_lines")).toEqual({ n: 2 });
+  });
+});
+

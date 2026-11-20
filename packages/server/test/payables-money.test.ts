@@ -50,7 +50,7 @@ describe("expenses, transfers and cheques", () => {
     expect(inHand.map((x: { receiptId: string }) => x.receiptId).sort()).toEqual([cheque.id, later.id].sort());
     const dep = await call(app, "POST", "/api/cheques/deposits", owner, { receiptIds: [cheque.id], bankAccountId: A.bank.id, date: today() });
     expect(dep.status).toBe(200);
-    expect(byCode(app, `cheque_deposit:${dep.body.deposits[0].id}`)).toEqual({ "1020": 30000, "1030": -30000 });
+    expect(byCode(app, `cheque_deposit:${dep.body.deposits[0].batchId}`)).toEqual({ "1020": 30000, "1030": -30000 });
     expect((await call(app, "GET", "/api/cheques/in-hand", owner)).body.cheques.map((x: { receiptId: string }) => x.receiptId)).toEqual([later.id]);
     expect((await call(app, "POST", "/api/cheques/deposits", owner, { receiptIds: [cheque.id], bankAccountId: A.bank.id, date: today() })).status).toBe(409);
     const early = await call(app, "POST", "/api/cheques/deposits", owner, { receiptIds: [later.id], bankAccountId: A.bank.id, date: today() });

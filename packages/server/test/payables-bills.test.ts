@@ -62,8 +62,9 @@ describe("supplier bills and payments", () => {
     expect(await healthOf(app, owner, "payables")).toMatchObject({ ok: true });
     const later = (await bill([{ accountId: RENT, description: "Next rent", netFils: 3905 }])).body.bill;
     expect(later.grossFils).toBe(4100);
-    const used = await call(app, "POST", `/api/supplier-payments/${p.id}/allocations`, owner, { allocations: [{ target: "bill", id: later.id, amountFils: 4100 }] });
-    expect(used.body.payment.unallocatedFils).toBe(0);
+    // The advance goes against the next bill by itself.
+    const used = (await call(app, "GET", `/api/supplier-payments?supplierId=${supplier.id}`, owner)).body.payments.find((x: { id: string }) => x.id === p.id);
+    expect(used.unallocatedFils).toBe(0);
     expect(await balance()).toMatchObject({ balanceFils: 0, advanceFils: 0 });
     expect((await call(app, "GET", `/api/suppliers/${supplier.id}/open-items`, owner)).body.items).toEqual([]);
     expect((await call(app, "POST", `/api/supplier-payments/${p.id}/allocations`, owner, { allocations: [{ target: "bill", id: later.id, amountFils: 1 }] })).status).toBe(400);

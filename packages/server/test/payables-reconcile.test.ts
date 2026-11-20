@@ -14,7 +14,7 @@ async function garage() {
   const owner = await setUp(app);
   await call(app, "PUT", "/api/settings/books", owner, { startDate: addDays(today(), -60) });
   expect((await call(app, "PUT", `/api/money-accounts/${A.bank.id}/mapping`, owner, MAPPING)).status).toBe(200);
-  const upload = (csv: string) => call(app, "POST", `/api/money-accounts/${A.bank.id}/imports`, owner, { fileName: "statement.csv", csv });
+  const upload = (csv: string) => call(app, "POST", `/api/money-accounts/${A.bank.id}/imports`, owner, { fileName: "statement.csv", csv, openingBalanceFils: 0 });
   const reconcile = async () => (await call(app, "GET", `/api/money-accounts/${A.bank.id}/reconcile`, owner)).body;
   return { app, owner, upload, reconcile };
 }

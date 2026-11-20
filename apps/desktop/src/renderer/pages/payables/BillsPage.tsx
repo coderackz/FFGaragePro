@@ -22,6 +22,7 @@ export function BillsPage() {
   const navigate = useNavigate();
   const { data, reload } = useApi<{ bills: Bill[] }>("/api/bills");
   const [open, setOpen] = useState(false);
+  const [cancelling, setCancelling] = useState<Bill | null>(null);
   return (
     <>
       <PageHeader title="Bills" subtitle="Suppliers' bills for rent, utilities, outside work and other costs (parts bills come from Purchases)"
@@ -36,11 +37,41 @@ export function BillsPage() {
               { header: "Their invoice", cell: (b) => <span className="font-mono text-[13px]">{b.supplierInvoiceNo}</span> },
               { header: "Status", cell: (b) => (b.status === "cancelled" ? <Badge tone="red">Cancelled</Badge> : b.owedFils === 0 ? <Badge>Paid</Badge> : <Badge tone="brand">Owed {formatAED(b.owedFils)}</Badge>) },
               { header: "Total", cell: (b) => formatAED(b.grossFils), align: "right" },
+              {
+                header: "",
+                // Only a bill nothing is paid against can be cancelled (the books get the mirror entry).
+                cell: (b) => (b.status !== "cancelled" && b.owedFils === b.grossFils
+                  ? <Button size="sm" variant="ghost" onClick={(e) => { e.stopPropagation(); setCancelling(b); }}>Cancel bill</Button> : null),
+              },
             ]} />
         )}
       </Card>
       <BillEditor open={open} onClose={() => setOpen(false)} onSaved={() => void reload()} />
+      <CancelBill bill={cancelling} onClose={() => setCancelling(null)} onDone={() => void reload()} />
     </>
+  );
+}
+
+function CancelBill({ bill, onClose, onDone }: { bill: Bill | null; onClose: () => void; onDone: () => void }) {
+  const [reason, setReason] = useState("");
+  const [busy, setBusy] = useState(false);
+  const submit = async () => {
+    if (!bill) return;
+    setBusy(true);
+    try {
+      await post(`/api/bills/${bill.id}/cancel`, { reason });
+      toast.success("Bill cancelled");
+      setReason("");
+      onClose();
+      onDone();
+    } catch (err) { toast.error((err as Error).message); } finally { setBusy(false); }
+  };
+  return (
+    <Modal open={!!bill} title={`Cancel ${bill?.supplierInvoiceNo ?? "bill"}`} onClose={onClose}
+      footer={<><Button variant="ghost" onClick={onClose}>Keep it</Button><Button variant="danger" busy={busy} disabled={!reason.trim()} onClick={() => void submit()}>Cancel bill</Button></>}>
+      <p className="mb-3 text-sm text-zinc-700">{bill?.supplierName} · {bill ? formatAED(bill.grossFils) : ""}. The books get a reversing entry dated today.</p>
+      <Field label="Why"><Input value={reason} onChange={(e) => setReason(e.target.value)} placeholder="Entered twice" /></Field>
+    </Modal>
   );
 }
 

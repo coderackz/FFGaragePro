@@ -146,8 +146,10 @@ const accountBalance = (db: Db, id: string, sources?: string[]) =>
 export function health(db: Db) {
   const check = (key: string, appFils: number, booksFils: number, note: string) => ({ key, ok: appFils === booksFils, appFils, booksFils, differenceFils: appFils - booksFils, note });
   const totals = db.get<{ d: number | null; c: number | null }>("SELECT SUM(debit_fils) AS d, SUM(credit_fils) AS c FROM journal_lines")!;
-  const owed = db.all<{ id: string }>("SELECT id FROM customers").reduce((s, c) => s + customerBalance(db, c.id).balanceFils, 0);
-  const owedToSuppliers = db.all<{ id: string }>("SELECT id FROM suppliers").reduce((s, x) => s + supplierBalance(db, x.id).balanceFils, 0);
+  // Both sides over all dates: the books hold anything dated ahead too (a bill dated next week).
+  const ALL = "9999-12-31";
+  const owed = db.all<{ id: string }>("SELECT id FROM customers").reduce((s, c) => s + customerBalance(db, c.id, ALL).balanceFils, 0);
+  const owedToSuppliers = db.all<{ id: string }>("SELECT id FROM suppliers").reduce((s, x) => s + supplierBalance(db, x.id, ALL).balanceFils, 0);
   const start = getSettings(db).books.startDate;
   const vat = start
     ? db.get<{ v: number | null }>(
