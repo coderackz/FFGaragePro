@@ -1,4 +1,4 @@
-import { formatNumberOf, prefixOf, SYSTEM_ACCOUNTS, type SystemKey } from "@ffgp/shared";
+import { formatNumberOf, prefixOf, SYSTEM_ACCOUNTS, type SystemKey, type VatTag } from "@ffgp/shared";
 import { newId, now, type Db } from "../db";
 import { badRequest } from "../errors";
 import { takeNumber } from "../numbering";
@@ -7,7 +7,7 @@ import { getSettings } from "../settings";
 export type SourceType =
   | "invoice" | "credit_note" | "receipt" | "goods_receipt" | "stock" | "cogs" | "customer_opening" | "opening" | "manual" | "reversal"
   | "year_close" | "revaluation" | "supplier_bill" | "bill_cancel" | "supplier_payment" | "supplier_opening" | "expense" | "transfer"
-  | "cheque_deposit" | "cheque_clear";
+  | "cheque_deposit" | "cheque_clear" | "vat_return";
 
 export interface PostLine {
   accountId: string;
@@ -18,6 +18,8 @@ export interface PostLine {
   /** Work in progress lines: the job card the parts are on. */
   documentId?: string | null;
   memo?: string | null;
+  /** The VAT return box this line belongs to (tagged manual journals and their reversals). */
+  vatBox?: VatTag | null;
 }
 
 export interface PostInput {
@@ -78,9 +80,9 @@ export function postEntry(db: Db, e: PostInput): string | null {
     );
     lines.forEach((l, i) => {
       db.run(
-        `INSERT INTO journal_lines (id, entry_id, position, account_id, debit_fils, credit_fils, customer_id, supplier_id, document_id, memo)
-         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
-        [newId(), id, i, l.accountId, l.debitFils, l.creditFils, l.customerId ?? null, l.supplierId ?? null, l.documentId ?? null, l.memo ?? null],
+        `INSERT INTO journal_lines (id, entry_id, position, account_id, debit_fils, credit_fils, customer_id, supplier_id, document_id, memo, vat_box)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+        [newId(), id, i, l.accountId, l.debitFils, l.creditFils, l.customerId ?? null, l.supplierId ?? null, l.documentId ?? null, l.memo ?? null, l.vatBox ?? null],
       );
     });
     return id;

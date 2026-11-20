@@ -820,6 +820,53 @@ CREATE INDEX bank_lines_account ON bank_lines(account_id, date);
 CREATE UNIQUE INDEX bank_lines_matched ON bank_lines(matched_line_id) WHERE matched_line_id IS NOT NULL;
 `,
   },
+  {
+    id: 13,
+    // Accounting Part 3 (VAT return): VAT box tags on journal lines, the settlement entry kind, filed returns.
+    foreignKeysOff: ["journal_entries", "journal_lines", "vat_returns"],
+    sql: `
+CREATE TABLE journal_entries_new (
+  id TEXT PRIMARY KEY,
+  series TEXT NOT NULL DEFAULT '',
+  seq INTEGER NOT NULL,
+  number TEXT NOT NULL,
+  date TEXT NOT NULL,
+  narration TEXT NOT NULL,
+  source_type TEXT NOT NULL CHECK (source_type IN ('invoice', 'credit_note', 'receipt', 'goods_receipt', 'stock', 'cogs', 'customer_opening',
+    'opening', 'manual', 'reversal', 'year_close', 'revaluation', 'supplier_bill', 'bill_cancel', 'supplier_payment', 'supplier_opening', 'expense',
+    'transfer', 'cheque_deposit', 'cheque_clear', 'vat_return')),
+  source_id TEXT,
+  post_key TEXT UNIQUE,
+  reverses_id TEXT REFERENCES journal_entries(id),
+  original_date TEXT,
+  created_by TEXT REFERENCES users(id),
+  created_at TEXT NOT NULL,
+  UNIQUE (series, seq)
+);
+INSERT INTO journal_entries_new SELECT id, series, seq, number, date, narration, source_type, source_id, post_key, reverses_id, original_date, created_by, created_at
+  FROM journal_entries;
+DROP TABLE journal_entries;
+ALTER TABLE journal_entries_new RENAME TO journal_entries;
+CREATE INDEX journal_entries_date ON journal_entries(date);
+CREATE INDEX journal_entries_source ON journal_entries(source_type, source_id);
+
+-- The VAT return box a manual journal line belongs to (zero-rated, exempt, reverse charge, adjustments…).
+ALTER TABLE journal_lines ADD COLUMN vat_box TEXT;
+
+-- A VAT return as filed: its figures are kept as they were when it was filed.
+CREATE TABLE vat_returns (
+  id TEXT PRIMARY KEY,
+  period_from TEXT NOT NULL UNIQUE,
+  period_to TEXT NOT NULL,
+  figures_json TEXT NOT NULL,
+  reference TEXT,
+  entry_id TEXT REFERENCES journal_entries(id),
+  filed_by TEXT REFERENCES users(id),
+  filed_at TEXT NOT NULL,
+  created_at TEXT NOT NULL
+);
+`,
+  },
 ];
 
 /** The newest migration this code knows: the garage database's schema version. */

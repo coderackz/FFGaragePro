@@ -1,4 +1,4 @@
-import { journalDraftSchema, journalLineSchema, SYSTEM_ACCOUNTS, type JournalLineInput } from "@ffgp/shared";
+import { journalDraftSchema, journalLineSchema, SYSTEM_ACCOUNTS, VAT_TAG_INFO, VAT_TAGS, type JournalLineInput, type VatTag } from "@ffgp/shared";
 import { z } from "zod";
 import { newId, now, type Db } from "../db";
 import { badRequest, conflict, notFound } from "../errors";
@@ -16,6 +16,7 @@ const draftLine = z.object({
   supplierId: z.string().nullable().optional().transform((v) => v ?? null),
   documentId: z.string().nullable().optional().transform((v) => v ?? null),
   memo: z.string().max(200).nullable().optional().transform((v) => v ?? null),
+  vatBox: z.enum(VAT_TAGS).nullable().optional().transform((v) => v ?? null),
 });
 const draftSchema = z.object({
   kind: z.enum(["manual", "opening"]).default("manual"),
@@ -78,7 +79,7 @@ export const ENTRY_SELECT = `SELECT e.*, u.name AS created_by_name, (SELECT r.id
   ${SOURCE_NUMBER} AS source_number FROM journal_entries e LEFT JOIN users u ON u.id = e.created_by`;
 
 export function entryOut(db: Db, e: EntryRow) {
-  const lines = db.all<{ id: string; account_id: string; code: string; name: string; debit_fils: number; credit_fils: number; customer_id: string | null; supplier_id: string | null; document_id: string | null; memo: string | null }>(
+  const lines = db.all<{ id: string; account_id: string; code: string; name: string; debit_fils: number; credit_fils: number; customer_id: string | null; supplier_id: string | null; document_id: string | null; memo: string | null; vat_box: VatTag | null }>(
     `SELECT l.*, a.code, a.name FROM journal_lines l JOIN accounts a ON a.id = l.account_id WHERE l.entry_id = ? ORDER BY l.position`,
     [e.id],
   );
@@ -87,7 +88,7 @@ export function entryOut(db: Db, e: EntryRow) {
     reversesId: e.reverses_id, reversedBy: e.reversed_by, originalDate: e.original_date, createdBy: e.created_by_name, createdAt: e.created_at,
     lines: lines.map((l) => ({
       id: l.id, accountId: l.account_id, code: l.code, name: l.name, debitFils: l.debit_fils, creditFils: l.credit_fils,
-      customerId: l.customer_id, supplierId: l.supplier_id, documentId: l.document_id, memo: l.memo,
+      customerId: l.customer_id, supplierId: l.supplier_id, documentId: l.document_id, memo: l.memo, vatBox: l.vat_box,
     })),
   };
 }
@@ -115,12 +116,28 @@ const CONTROL: Record<string, string> = {
   [SYSTEM_ACCOUNTS.receivables.id]: "Accounts receivable follows customers' documents: use a credit note or a refund",
   [SYSTEM_ACCOUNTS.inventory.id]: "Inventory follows the stock: use a stock count or Revalue stock",
   [SYSTEM_ACCOUNTS.wip.id]: "Work in progress follows job cards: change the job card",
-  [SYSTEM_ACCOUNTS.vat_output.id]: "Output VAT follows invoices and credit notes: use a credit note",
+  [SYSTEM_ACCOUNTS.vat_output.id]: "Output VAT follows invoices and credit notes: use a credit note, or tag the line with its VAT return box",
 };
+
+/**
+ * VAT box tags: a tagged line on Output VAT is a VAT return correction (allowed); Output VAT lines take sales boxes and
+ * Input VAT lines expense boxes; an adjustment tag is VAT only, so it sits on a VAT account.
+ */
+function checkVatBox(l: JournalLineInput): void {
+  if (!l.vatBox) return;
+  const info = VAT_TAG_INFO[l.vatBox];
+  const output = l.accountId === SYSTEM_ACCOUNTS.vat_output.id;
+  const input = l.accountId === SYSTEM_ACCOUNTS.vat_input.id;
+  if (output && info.side !== "sales") throw badRequest(`Output VAT lines go in a sales box (1–7), not ${info.label}`);
+  if (input && info.side !== "expenses") throw badRequest(`Input VAT lines go in an expenses box (9–10), not ${info.label}`);
+  if (info.vatOnly && !output && !input) throw badRequest(`${info.label} is VAT only: put it on Output VAT or Input VAT`);
+}
 
 function checkAccounts(db: Db, lines: JournalLineInput[], opening: boolean): void {
   for (const l of lines) {
-    if (!opening && CONTROL[l.accountId]) throw badRequest(CONTROL[l.accountId]!);
+    const taggedVat = l.accountId === SYSTEM_ACCOUNTS.vat_output.id && !!l.vatBox;
+    if (!opening && CONTROL[l.accountId] && !taggedVat) throw badRequest(CONTROL[l.accountId]!);
+    if (!opening) checkVatBox(l);
     const a = db.get<{ active: number }>("SELECT active FROM accounts WHERE id = ?", [l.accountId]);
     if (!a) throw badRequest("A line's account doesn't exist");
     if (!a.active) throw badRequest("A line's account is switched off");
@@ -129,7 +146,7 @@ function checkAccounts(db: Db, lines: JournalLineInput[], opening: boolean): voi
 
 const toPostLines = (lines: JournalLineInput[]): PostLine[] =>
   lines.map((l) => ({
-    accountId: l.accountId, debitFils: l.debitFils, creditFils: l.creditFils, customerId: l.customerId, supplierId: l.supplierId, documentId: l.documentId, memo: l.memo,
+    accountId: l.accountId, debitFils: l.debitFils, creditFils: l.creditFils, customerId: l.customerId, supplierId: l.supplierId, documentId: l.documentId, memo: l.memo, vatBox: l.vatBox,
   }));
 
 /**
@@ -181,7 +198,7 @@ export function reverseEntry(db: Db, id: string, date: string, userId: string, p
   checkNotLocked(db, date);
   const entryId = postEntry(db, {
     date, narration: `Reversal of ${e.number}: ${e.narration}`, sourceType: "reversal", sourceId: e.id, postKey: `reversal:${e.id}`, reversesId: e.id, userId,
-    lines: e.lines.map((l) => ({ accountId: l.accountId, debitFils: l.creditFils, creditFils: l.debitFils, customerId: l.customerId, supplierId: l.supplierId, documentId: l.documentId, memo: l.memo })),
+    lines: e.lines.map((l) => ({ accountId: l.accountId, debitFils: l.creditFils, creditFils: l.debitFils, customerId: l.customerId, supplierId: l.supplierId, documentId: l.documentId, memo: l.memo, vatBox: l.vatBox })),
   });
   if (!entryId) throw conflict("Already reversed");
   return getEntry(db, entryId)!;

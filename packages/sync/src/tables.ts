@@ -34,6 +34,7 @@ export const SYNC_TABLES: SyncTable[] = [
   { name: "journal_drafts", key: "id" },
   { name: "journal_entries", key: "id", insertOnly: true },
   { name: "journal_lines", key: "id", insertOnly: true },
+  { name: "vat_returns", key: "id", insertOnly: true },
   { name: "supplier_bills", key: "id" },
   { name: "supplier_bill_lines", key: "id", insertOnly: true },
   { name: "supplier_payments", key: "id", insertOnly: true },
