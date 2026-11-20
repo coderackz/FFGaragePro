@@ -7,7 +7,9 @@ import { createCloudServer } from "./server";
  * exist yet), and optionally daily backups and the sending of linked garages' email.
  */
 export async function runCloud(o: { dataDir: string; webDir?: string; port: number; host?: string; backups?: boolean; messages?: boolean }) {
-  const cloud = await createCloudServer({ dataDir: o.dataDir, webDir: o.webDir });
+  // Providers (Meta, Zoho, Intuit) call back on this address: webhooks and OAuth redirects.
+  const publicUrl = process.env.FFGP_PUBLIC_URL || "https://garagepro.fleetfix.ae";
+  const cloud = await createCloudServer({ dataDir: o.dataDir, webDir: o.webDir, integrations: { publicUrl } });
   const staff = process.env.FFGP_CLOUD_STAFF?.split(":");
   if (staff?.length === 3 && staff[2]!.length >= 8 && !cloud.admin.raw.prepare("SELECT 1 FROM staff WHERE username = ?").get(staff[0]!)) {
     const [username, name, secret] = staff as [string, string, string];

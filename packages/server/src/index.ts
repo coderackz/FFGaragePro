@@ -11,6 +11,7 @@ export { postPending } from "./books/pending";
 export { abandonQueuedEmails, queueReminders, recoverInterrupted, sendDue } from "./messages/outbox";
 export { DISCOVERY_PORT, discoverMainComputers, type FoundComputer } from "./discovery";
 export { DEVICE_HEADER, NETWORK_PORT } from "./network";
+export { REAL_ENDPOINTS, type Endpoints, type IntegrationOptions } from "./integrations/store";
 
 import { buildApp, type AppOptions } from "./app";
 import type { Db } from "./db";

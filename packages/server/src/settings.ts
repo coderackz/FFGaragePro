@@ -140,7 +140,7 @@ registerSectionCheck("tax", (db, next) => {
  * Secrets (the SMTP password) live in the settings table as `secret.<name>`, so they sync to the cloud that sends the
  * mail, but `getSettings` never reads them and no route returns them.
  */
-export type SecretName = "smtp.password";
+export type SecretName = "smtp.password" | `integration.${"whatsapp" | "zoho" | "quickbooks"}`;
 
 export function getSecret(db: Db, name: SecretName): string | null {
   const row = db.get<{ value: string }>("SELECT value FROM settings WHERE key = ?", [`secret.${name}`]);
@@ -154,12 +154,12 @@ export function getSecret(db: Db, name: SecretName): string | null {
 }
 
 /** Saves or removes a secret; the activity log says only that it changed. */
-export function setSecret(db: Db, userId: string, name: SecretName, value: string | null): void {
+export function setSecret(db: Db, userId: string, name: SecretName, value: string | null, o: { silent?: boolean } = {}): void {
   db.tx(() => {
     const had = getSecret(db, name) !== null;
     if (value) db.run("INSERT INTO settings (key, value) VALUES (?, ?) ON CONFLICT(key) DO UPDATE SET value = excluded.value", [`secret.${name}`, JSON.stringify(value)]);
     else db.run("DELETE FROM settings WHERE key = ?", [`secret.${name}`]);
-    if (value || had) {
+    if (!o.silent && (value || had)) {
       audit(db, { action: "settings.change", entity: "settings", entityId: "messages.password", before: null, after: { smtpPassword: value ? "(changed)" : "(removed)" }, userId });
     }
   });

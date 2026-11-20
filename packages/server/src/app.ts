@@ -18,6 +18,8 @@ import { payrollRoutes } from "./routes/payroll";
 import { assetRoutes } from "./routes/assets";
 import { templateRoutes } from "./routes/templates";
 import { promoRoutes } from "./routes/promo";
+import { integrationRoutes } from "./routes/integrations";
+import type { IntegrationOptions } from "./integrations/store";
 import { messageRoutes } from "./routes/messages";
 import { customerRoutes } from "./routes/customers";
 import { documentRoutes } from "./routes/documents";
@@ -66,6 +68,8 @@ export interface AppOptions {
    * main computer that isn't linked. A linked PC leaves it off and gets the entries by sync.
    */
   postsBooks?: boolean;
+  /** Integrations (WhatsApp Business API, Zoho Books, QuickBooks) run here: the cloud's garage apps, the e2e dev server. */
+  integrations?: IntegrationOptions;
 }
 
 /** The app's own pages: Electron (file:// sends "null") and local dev servers. */
@@ -128,6 +132,7 @@ export async function buildApp(options: AppOptions): Promise<FastifyInstance & {
   assetRoutes(app, db);
   templateRoutes(app, db);
   promoRoutes(app, db);
+  integrationRoutes(app, db, options.integrations);
   if (options.postsBooks) {
     // The books catch up after every change made here (idempotent: each event posts once).
     app.addHook("onResponse", async (req, reply) => {

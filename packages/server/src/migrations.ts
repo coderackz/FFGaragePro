@@ -1239,6 +1239,35 @@ ALTER TABLE documents ADD COLUMN promo_override_by TEXT;
 ALTER TABLE document_lines ADD COLUMN promo_fils INTEGER NOT NULL DEFAULT 0;
 `,
   },
+  {
+    id: 18,
+    // Integrations (WhatsApp Business API, Zoho Books, QuickBooks Online). These two tables aren't synced: they live
+    // only where integrations run (the cloud).
+    sql: `
+CREATE TABLE integration_links (
+  provider TEXT NOT NULL,
+  kind TEXT NOT NULL,
+  local_id TEXT NOT NULL,
+  external_id TEXT NOT NULL,
+  created_at TEXT NOT NULL,
+  PRIMARY KEY (provider, kind, local_id)
+);
+CREATE TABLE integration_failures (
+  provider TEXT NOT NULL,
+  kind TEXT NOT NULL,
+  local_id TEXT NOT NULL,
+  label TEXT NOT NULL,
+  attempts INTEGER NOT NULL,
+  next_attempt_at TEXT,
+  error TEXT NOT NULL,
+  updated_at TEXT NOT NULL,
+  PRIMARY KEY (provider, kind, local_id)
+);
+ALTER TABLE messages ADD COLUMN wa_json TEXT;
+ALTER TABLE messages ADD COLUMN provider_id TEXT;
+ALTER TABLE messages ADD COLUMN delivery TEXT;
+`,
+  },
 ];
 
 /** The newest migration this code knows: the garage database's schema version. */

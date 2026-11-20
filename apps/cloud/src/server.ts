@@ -1,7 +1,7 @@
 import { existsSync } from "node:fs";
 import { createServer, type IncomingMessage, type Server, type ServerResponse } from "node:http";
 import Fastify, { type FastifyInstance, type FastifyRequest } from "fastify";
-import { HttpError, LoginThrottle, type Db, type Mailer } from "@ffgp/server";
+import { HttpError, LoginThrottle, type Db, type IntegrationOptions, type Mailer } from "@ffgp/server";
 import fastifyStatic from "@fastify/static";
 import { GARAGE_HEADER, licenceState, normalizeGarageCode, SETUP_CODE_HEADER } from "@ffgp/shared";
 import { AdminDb, type GarageRow } from "./admin-db";
@@ -17,6 +17,8 @@ export interface CloudOptions {
   now?: () => number;
   /** Tests: a stand-in for the garages' mail servers. */
   mailerFor?: (db: Db) => Mailer | null;
+  /** Integrations for every garage: the address providers call back on, and (tests) fake provider endpoints. */
+  integrations?: Omit<IntegrationOptions, "garageCode" | "ownLoopMs">;
 }
 
 export interface CloudServer {
@@ -70,9 +72,13 @@ export async function createCloudServer(o: CloudOptions): Promise<CloudServer> {
     }
   };
   let outbox: CloudOutbox | null = null;
-  const host = new GarageHost(o.dataDir, o.maxOpen ?? 50, (id) => ({
-    now, guard: guardFor(id), loginThrottle: throttleFor(id), onMessageQueued: () => outbox?.mark(id),
-  }));
+  const host = new GarageHost(o.dataDir, o.maxOpen ?? 50, (id) => {
+    const code = admin.garageById(id)?.garage_code;
+    return {
+      now, guard: guardFor(id), loginThrottle: throttleFor(id), onMessageQueued: () => outbox?.mark(id),
+      ...(o.integrations && code ? { integrations: { ...o.integrations, garageCode: code } } : {}),
+    };
+  });
   outbox = new CloudOutbox(admin, host, { now, mailerFor: o.mailerFor });
   const cloudApp = Fastify({ logger: false, bodyLimit: 1024 * 1024 });
 
@@ -108,12 +114,20 @@ export async function createCloudServer(o: CloudOptions): Promise<CloudServer> {
     const path = (req.url ?? "/").split("?")[0]!;
     if (!path.startsWith("/api/") || path.startsWith("/api/cloud/") || path === "/api/health") return cloudApp.routing(req, res);
 
+    // Providers' webhooks and OAuth callbacks can't send the garage header: the garage code is in the path instead.
+    const hook = /^\/api\/hooks\/([^/]+)\/(.+)$/.exec(path);
+    if (hook) {
+      req.headers[GARAGE_HEADER] = hook[1]!;
+      req.url = `/api/integrations/${hook[2]}${(req.url ?? "").slice(path.length)}`;
+    }
     // Which garage; its rules (setup code, read-only) run inside its app on the matched route (guardFor).
     const g = garageFromHeader(req.headers[GARAGE_HEADER]);
     if (!g) return sendJson(res, 404, { error: "No garage with that ID", code: "unknown_garage" });
     await host.whenFree(g.id);
     host.enter(g.id);
     res.once("close", () => host.leave(g.id));
+    // A change: its integrations may have something to push (the outbox round visits marked garages).
+    if (!READ_METHODS.has(req.method ?? "GET")) outbox?.mark(g.id);
     (await host.get(g.id)).routing(req, res);
   }
 
