@@ -482,7 +482,8 @@ export function documentRoutes(
       // A promo code is checked again now: it may have expired or been used up since it was applied.
       if (d.promo_code) {
         const code = findCode(db, d.promo_code);
-        const base = db.get<{ b: number }>(`SELECT COALESCE(SUM(${d.prices_include_vat ? "gross_fils" : "net_fils"} + promo_fils), 0) AS b FROM document_lines WHERE document_id = ? AND promo_fils > 0`, [d.id])!.b;
+        // The same base as when it was applied: the matching lines before the promo, before VAT.
+        const base = code ? promoShares(currentLines(d.id), { kind: code.kind, value: code.value, appliesTo: code.applies_to }, !!d.prices_include_vat).baseNetFils : 0;
         const problem = code ? codeProblem(db, code, d, base) : "No such code any more";
         if (problem) {
           if (!input.promoOverride || !can(user.role, "credit.override")) throw conflict(`Promo ${d.promo_code}: ${problem}`);
@@ -570,10 +571,18 @@ export function documentRoutes(
       const rate = vatRate();
       let net = 0, vat = 0, gross = 0;
       lines.forEach(({ line, qty }, i) => {
-        // A line with a promo share credits its own (discounted) amounts in proportion, never the list price.
-        const share = (v: number) => Math.round((v * qty) / line.qty);
+        // A line with a promo share credits its own (discounted) amounts in proportion, never the list price; the
+        // credit that takes the line's last quantity takes exactly what's left of it (no fil over or short).
+        const before = db.get<{ q: number; n: number; v: number }>(
+          `SELECT COALESCE(SUM(cl.qty), 0) AS q, COALESCE(SUM(cl.net_fils), 0) AS n, COALESCE(SUM(cl.vat_fils), 0) AS v FROM document_lines cl
+           JOIN documents c ON c.id = cl.document_id WHERE cl.source_line_id = ? AND c.type = 'credit_note' AND c.status = 'issued'`, [line.id],
+        )!;
+        const lastOfLine = Math.round((before.q + qty) * 1000) >= Math.round(line.qty * 1000);
+        const share = (v: number, done: number) => (lastOfLine ? v - done : Math.round((v * qty) / line.qty));
+        const pn = share(line.net_fils, before.n);
+        const pv = share(line.vat_fils, before.v);
         const tt = line.promo_fils > 0
-          ? { netFils: share(line.net_fils), vatFils: share(line.vat_fils), grossFils: share(line.net_fils) + share(line.vat_fils) }
+          ? { netFils: pn, vatFils: pv, grossFils: pn + pv }
           : lineTotals({ qty, unitPriceFils: line.unit_price_fils, discountPct: line.discount_pct }, rate, !!inv.prices_include_vat);
         net += tt.netFils; vat += tt.vatFils; gross += tt.grossFils;
         db.run(
@@ -674,9 +683,9 @@ export function documentRoutes(
       const r = findCode(db, code);
       if (!r) throw badRequest(`No such code: ${code.toUpperCase()}`);
       const lines = currentLines(d.id);
-      const { baseFils } = promoShares(lines, { kind: r.kind, value: r.value, appliesTo: r.applies_to }, !!d.prices_include_vat);
+      const { baseFils, baseNetFils } = promoShares(lines, { kind: r.kind, value: r.value, appliesTo: r.applies_to }, !!d.prices_include_vat);
       if (!baseFils) throw badRequest(`${r.code} applies to ${r.applies_to === "labour" ? "labour" : "parts"}, and there's none on ${d.number}`);
-      const problem = codeProblem(db, r, d, baseFils);
+      const problem = codeProblem(db, r, d, baseNetFils);
       if (problem) throw badRequest(`${r.code}: ${problem}`);
       db.run("UPDATE documents SET promo_code = ?, promo_kind = ?, promo_value = ?, promo_applies = ?, promo_override_by = NULL WHERE id = ?", [r.code, r.kind, r.value, r.applies_to, d.id]);
       writeLines(d.id, lines, user.id);

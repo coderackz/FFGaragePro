@@ -37,26 +37,31 @@ const matches = (l: PromoLine, applies: PromoApplies) =>
 /**
  * A promo's discount and each line's share. The base is the matching lines after their own discount (net, or gross
  * when prices include VAT). Percent of the base, or the fixed amount up to the base. Spread over the matching lines in
- * proportion, rounded per line; the last matching line takes the remainder.
+ * proportion (whole fils, by running totals rounded down, so no share is ever negative); the last matching line
+ * takes the remainder. `baseNetFils`: the base before VAT, which a code's minimum bill is checked against.
  */
-export function promoShares(lines: PromoLine[], promo: PromoTerms, includeVat: boolean): { shares: number[]; discountFils: number; baseFils: number } {
+export function promoShares(lines: PromoLine[], promo: PromoTerms, includeVat: boolean): { shares: number[]; discountFils: number; baseFils: number; baseNetFils: number } {
+  let baseNetFils = 0;
   const amounts = lines.map((l) => {
     if (!matches(l, promo.appliesTo)) return 0;
     const t = lineTotals({ ...l, promoFils: 0 }, 500, includeVat);
+    baseNetFils += t.netFils;
     return includeVat ? t.grossFils : t.netFils;
   });
   const baseFils = amounts.reduce((a, b) => a + b, 0);
   const discountFils = Math.min(promo.kind === "percent" ? Math.round((baseFils * promo.value) / 100) : Math.round(promo.value), baseFils);
   const shares = amounts.map(() => 0);
   const last = amounts.reduce((idx, a, i) => (a > 0 ? i : idx), -1);
+  let running = 0;
   let given = 0;
   amounts.forEach((a, i) => {
-    if (!a || i === last) return;
-    shares[i] = Math.min(Math.round((discountFils * a) / baseFils), a);
-    given += shares[i]!;
+    if (!a) return;
+    running += a;
+    const upTo = i === last ? discountFils : Math.floor((discountFils * running) / baseFils);
+    shares[i] = upTo - given;
+    given = upTo;
   });
-  if (last >= 0) shares[last] = Math.min(discountFils - given, amounts[last]!);
-  return { shares, discountFils: shares.reduce((a, b) => a + b, 0), baseFils };
+  return { shares, discountFils: given, baseFils, baseNetFils };
 }
 
 const dayText = (ymd: string) => new Intl.DateTimeFormat("en-GB", { day: "2-digit", month: "short", year: "numeric", timeZone: "UTC" }).format(new Date(`${ymd}T00:00:00Z`));

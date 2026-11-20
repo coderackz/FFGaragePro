@@ -5,7 +5,7 @@ import { z } from "zod";
 import { requireAction, sessionUser } from "../auth";
 import type { Db } from "../db";
 import { badRequest, notFound } from "../errors";
-import { pushPending, type Pusher } from "./push";
+import { pushPending, skippedOf, type Pusher } from "./push";
 import { clearFailures, endpointsOf, getConfig, hookBase, saveConfig, statusOf, timedFetch, updateConfig, type Endpoints, type IntegrationOptions } from "./store";
 import { now as nowIso } from "../db";
 
@@ -174,7 +174,10 @@ export function accountingRoutes(app: FastifyInstance, db: Db, o: IntegrationOpt
     requireAction(sessionUser(db, req), "settings.manage");
     const cfg = connected();
     try {
-      return { ...(await a.options(apiFor(db, a, o), cfg)), mapping: cfg.mapping ?? null, organizationId: cfg.organizationId ?? null, fromDate: cfg.fromDate, lastPush: cfg.lastPush ?? null };
+      return {
+        ...(await a.options(apiFor(db, a, o), cfg)), mapping: cfg.mapping ?? null, organizationId: cfg.organizationId ?? null, fromDate: cfg.fromDate,
+        lastPush: cfg.lastPush ?? null, skipped: skippedOf(db, cfg.fromDate),
+      };
     } catch (err) {
       throw badRequest((err as Error).message);
     }

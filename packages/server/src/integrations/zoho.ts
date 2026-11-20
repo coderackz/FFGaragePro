@@ -68,7 +68,7 @@ export const zohoAdapter: Adapter = {
     return {
       async customer(c) {
         try {
-          const b = await api("POST", "/contacts", { body: { contact_name: c.name, company_name: c.name, contact_type: "customer", ...(c.email ? { email: c.email } : {}), ...(c.phone ? { phone: c.phone } : {}) } });
+          const b = await api("POST", "/contacts", { body: { contact_name: c.name, company_name: c.name, contact_type: "customer", ...(c.email ? { email: c.email } : {}), ...(c.phone ? { phone: c.phone } : {}), ...(c.trn ? { notes: `TRN ${c.trn}` } : {}) } });
           return b.contact.contact_id as string;
         } catch (e) {
           // Already in Zoho under the same name (a garage moving its books): use that contact.

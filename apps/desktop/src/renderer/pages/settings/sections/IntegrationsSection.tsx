@@ -25,8 +25,9 @@ function Copyable({ label, value }: { label: string; value: string }) {
     </Field>
   );
 }
-function State({ s }: { s?: Status }) {
+function State({ s, failing }: { s?: Status; failing?: boolean }) {
   if (!s?.connected) return <Badge>Not connected</Badge>;
+  if (failing) return <Badge tone="red">Some not sent</Badge>;
   return s.needsSetup ? <Badge>Connected: finish setting up</Badge> : <Badge tone="brand">Connected</Badge>;
 }
 
@@ -70,10 +71,10 @@ export function IntegrationsSection() {
   );
 }
 
-function ProviderCard({ provider, status, children, onDisconnect }: { provider: Provider; status?: Status; children: ReactNode; onDisconnect: () => void }) {
+function ProviderCard({ provider, status, failing, children, onDisconnect }: { provider: Provider; status?: Status; failing?: boolean; children: ReactNode; onDisconnect: () => void }) {
   return (
     <div data-testid={`card-${provider}`}>
-      <Card title={NAMES[provider]} actions={<div className="flex items-center gap-2"><State s={status} />{status?.connected && <Button size="sm" variant="ghost" onClick={onDisconnect}>Disconnect</Button>}</div>}>
+      <Card title={NAMES[provider]} actions={<div className="flex items-center gap-2"><State s={status} failing={failing} />{status?.connected && <Button size="sm" variant="ghost" onClick={onDisconnect}>Disconnect</Button>}</div>}>
         {status?.connected && status.label && <p className="mb-3 text-sm font-medium text-zinc-900">{status.label}</p>}
         {children}
       </Card>
@@ -139,6 +140,7 @@ interface Options {
   organizations?: { id: string; name: string }[]; taxes: { id: string; name: string }[]; items: { id: string; name: string }[];
   mapping: { taxId: string; zeroTaxId?: string | null; items: { labour: string; part: string; other: string } } | null;
   organizationId: string | null; fromDate: string; lastPush: { at: string; pushed: number; failed: number } | null;
+  skipped: { creditNotes: number; receipts: number };
 }
 
 function AccountingCard({ provider, hookBase, status, failures, onChange }: { provider: "zoho" | "quickbooks"; hookBase: string; status?: Status; failures: Failure[]; onChange: () => void }) {
@@ -175,6 +177,12 @@ function AccountingCard({ provider, hookBase, status, failures, onChange }: { pr
     });
     toast.success("Saved"); onChange();
   });
+  // Asks the provider for its lists: proves the connection (and the tokens) still work.
+  const test = () => run("test", async () => {
+    await get(`/api/integrations/${provider}/options`);
+    toast.success(`${NAMES[provider]} answered: the connection works`);
+    await options.reload();
+  });
   const pushNow = () => run("push", async () => { await post(`/api/integrations/${provider}/push`, {}); onChange(); await options.reload(); });
   const retry = () => run("retry", async () => { await post(`/api/integrations/${provider}/retry`, {}); await post(`/api/integrations/${provider}/push`, {}); onChange(); await options.reload(); });
   const o = options.data;
@@ -188,7 +196,7 @@ function AccountingCard({ provider, hookBase, status, failures, onChange }: { pr
   );
 
   return (
-    <ProviderCard provider={provider} status={status} onDisconnect={() => void disconnect(provider, onChange)}>
+    <ProviderCard provider={provider} status={status} failing={failures.length > 0} onDisconnect={() => void disconnect(provider, onChange)}>
       {!status?.connected ? (
         <>
           <p className="mb-3 text-sm text-zinc-600">
@@ -248,8 +256,11 @@ function AccountingCard({ provider, hookBase, status, failures, onChange }: { pr
                   {status.needsSetup ? "Choose these, then Save: nothing is sent until then." : "Ready"}
                   {o.lastPush && ` · Last sent ${formatDateTime(o.lastPush.at)}: ${o.lastPush.pushed} sent${o.lastPush.failed ? `, ${o.lastPush.failed} failed` : ""}`}
                   {` · From ${o.fromDate}`}
+                  {o.skipped.creditNotes + o.skipped.receipts > 0 &&
+                    ` · Not sent, as they belong to earlier invoices: ${[o.skipped.creditNotes ? `${o.skipped.creditNotes} credit note${o.skipped.creditNotes === 1 ? "" : "s"}` : "", o.skipped.receipts ? `${o.skipped.receipts} payment${o.skipped.receipts === 1 ? "" : "s"}` : ""].filter(Boolean).join(", ")}`}
                 </span>
                 <div className="flex gap-2">
+                  <Button variant="ghost" busy={busy === "test"} onClick={() => void test()}>Test</Button>
                   {!status.needsSetup && <Button busy={busy === "push"} onClick={() => void pushNow()}>Send now</Button>}
                   <Button variant="primary" busy={busy === "save"} disabled={!m.taxId || !m.labour || !m.part || !m.other} onClick={() => void save()}>Save</Button>
                 </div>

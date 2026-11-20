@@ -172,7 +172,8 @@ export function recoverInterrupted(db: Db): number {
  * emails become failed, for a person to check and Try again, rather than going twice.
  */
 export function abandonQueuedEmails(db: Db, reason: string): number {
-  return db.run("UPDATE messages SET status = 'failed', error = ?, next_attempt_at = NULL, updated_at = ? WHERE status = 'queued' AND channel = 'email'", [
+  // WhatsApp Business API messages too: they're sent by the same sender.
+  return db.run("UPDATE messages SET status = 'failed', error = ?, next_attempt_at = NULL, updated_at = ? WHERE status = 'queued' AND (channel = 'email' OR wa_json IS NOT NULL)", [
     `Not sent: ${reason}. Check, then Try again.`, nowIso(),
   ]);
 }

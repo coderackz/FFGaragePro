@@ -47,4 +47,16 @@ describe("promo codes", () => {
     expect(promoProblem({ ...code, active: false }, ok)).toMatch(/Not active/);
     expect(() => promoSchema.parse({ code: "x", kind: "percent", value: 120, appliesTo: "all", oncePerCustomer: false, active: true })).toThrow();
   });
+  it("tiny discounts never give a line a negative share", () => {
+    const six = [1, 2, 3, 4, 5, 6].map(() => ({ ...part, unitPriceFils: 150 }));
+    const r = promoShares(six, { kind: "amount", value: 9, appliesTo: "all" }, false);
+    expect(r.shares.every((x) => x >= 0)).toBe(true);
+    expect(r.shares.reduce((a, b) => a + b, 0)).toBe(9);
+    expect(r.discountFils).toBe(9);
+  });
+  it("the minimum is checked against the net, also when prices include VAT", () => {
+    const r = promoShares([{ ...labour, unitPriceFils: 10000 }], { kind: "percent", value: 10, appliesTo: "all" }, true);
+    expect(r.baseNetFils).toBe(9524);
+  });
 });
+

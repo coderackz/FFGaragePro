@@ -139,4 +139,24 @@ describe("Zoho Books", () => {
     await run();
     expect(posts(fake, "invoices").map((x) => (x.body as { invoice_number: string }).invoice_number)).toEqual([old.number]);
   });
+
+  it("the customer's TRN goes in the contact's notes", async () => {
+    const { app, owner, fake, customer, issue, run } = await garage();
+    await call(app, "PATCH", `/api/customers/${customer.id}`, owner, { trn: "100123456700003" });
+    await issue();
+    await run();
+    expect(posts(fake, "contacts")[0]!.body).toMatchObject({ notes: "TRN 100123456700003" });
+  });
+
+  it("the card counts what's never sent because it belongs to before the start", async () => {
+    const { app, owner, customer, run } = await garage();
+    const old = (await call(app, "POST", "/api/documents", owner, { type: "invoice", customerId: customer.id, lines: LINES })).body.document;
+    await call(app, "POST", `/api/documents/${old.id}/issue`, owner, {});
+    await call(app, "POST", `/api/documents/${old.id}/payments`, owner, { amountFils: 1000, method: "cash" });
+    app.db.run("UPDATE documents SET issued_at = '2026-01-10T06:00:00.000Z' WHERE id = ?", [old.id]);
+    await call(app, "POST", `/api/documents/${old.id}/credit-notes`, owner, { reason: "Goodwill", lines: [{ lineId: old.lines[1].id, qty: 1 }], returnToStock: false });
+    await run();
+    expect((await call(app, "GET", "/api/integrations/zoho/options", owner)).body.skipped).toEqual({ creditNotes: 1, receipts: 1 });
+  });
 });
+

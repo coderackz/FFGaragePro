@@ -38,7 +38,8 @@ test("integrations: WhatsApp Business API and Zoho Books (fake providers)", asyn
     waTemplateName: "vehicle_ready", waLanguage: "en", waParams: ["customer", "plate"],
   } });
   const customer = (await (await request.post(`${API}/api/customers`, { headers, data: { kind: "individual", name: "Mona Saeed", phone: "050 765 4321" } })).json()).customer;
-  const jc = (await (await request.post(`${API}/api/documents`, { headers, data: { type: "jobcard", customerId: customer.id } })).json()).document;
+  const vehicle = (await (await request.post(`${API}/api/vehicles`, { headers, data: { customerId: customer.id, plate: "DXB K 4521" } })).json()).vehicle;
+  const jc = (await (await request.post(`${API}/api/documents`, { headers, data: { type: "jobcard", customerId: customer.id, vehicleId: vehicle.id } })).json()).document;
   await page.goto(`/#/documents/${jc.id}`);
   await page.getByLabel("Status").selectOption("completed");
   await page.getByRole("button", { name: "Send message" }).click();

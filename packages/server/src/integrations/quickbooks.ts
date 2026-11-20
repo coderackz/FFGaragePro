@@ -76,17 +76,20 @@ export const quickbooksAdapter: Adapter = {
     });
     return {
       async customer(c) {
+        const create = async (displayName: string) => (await api("POST", "/customer", {
+          body: {
+            DisplayName: displayName.slice(0, 500), CompanyName: c.name.slice(0, 100), ...(c.email ? { PrimaryEmailAddr: { Address: c.email } } : {}),
+            ...(c.phone ? { PrimaryPhone: { FreeFormNumber: c.phone } } : {}), ...(c.trn ? { Notes: `TRN ${c.trn}` } : {}),
+          },
+        })).Customer.Id as string;
         try {
-          const b = await api("POST", "/customer", {
-            body: { DisplayName: c.name.slice(0, 500), CompanyName: c.name.slice(0, 100), ...(c.email ? { PrimaryEmailAddr: { Address: c.email } } : {}), ...(c.phone ? { PrimaryPhone: { FreeFormNumber: c.phone } } : {}) },
-          });
-          return b.Customer.Id as string;
+          return await create(c.name);
         } catch (e) {
-          // "Duplicate Name Exists": the customer is already in QuickBooks; use that one.
+          // "Duplicate Name Exists": the customer is already in QuickBooks (use that one), or a vendor or employee has
+          // the name (names are shared in QuickBooks): then it's added as "<name> (customer)".
           if ((e as { providerCode?: string }).providerCode !== "6240") throw e;
           const found = ((await api("GET", "/query", { query: { query: `select * from Customer where DisplayName = '${q(c.name)}'` } })).QueryResponse.Customer ?? []) as { Id: string }[];
-          if (!found.length) throw e;
-          return found[0]!.Id;
+          return found.length ? found[0]!.Id : create(`${c.name} (customer)`);
         }
       },
       async invoice(d, customerId) {

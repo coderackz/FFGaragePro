@@ -472,7 +472,9 @@ const newCtx = (db: Db, mode: Ctx["mode"], from: string): Ctx => ({
 export function applyAtCloud(db: Db, from: string, entries: ChangeEntry[]): ApplyResult & { lastOriginSeq: number } {
   return db.tx(() => {
     const last = db.get<{ last_origin_seq: number }>("SELECT last_origin_seq FROM sync_peers WHERE device_code = ?", [from])?.last_origin_seq ?? 0;
-    const fresh = entries.filter((e) => e.originSeq > last);
+    // Integration keys are only ever set at the cloud: one arriving from a PC (made or changed there) is ignored,
+    // so a PC can't point the cloud's provider calls, with their tokens, somewhere else.
+    const fresh = entries.filter((e) => e.originSeq > last && !(e.table === "settings" && e.rowId.startsWith("secret.integration.")));
     const c = newCtx(db, "cloud", from);
     const applied = applyAll(c, fresh, (e) => [from, e.originSeq]);
     const lastOriginSeq = Math.max(last, ...entries.map((e) => e.originSeq));

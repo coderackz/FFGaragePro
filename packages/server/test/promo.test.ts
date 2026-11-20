@@ -126,4 +126,33 @@ describe("promo codes", () => {
     const unused = (await g.code({ code: "TWO" })).body.code;
     expect((await call(g.app, "PATCH", `/api/promo-codes/${unused.id}`, g.owner, { code: "TWO2" })).body.code.code).toBe("TWO2");
   });
+
+  it("credit notes in steps credit exactly what the promo line came to", async () => {
+    const g = await garage();
+    await g.code({ code: "SEVEN", value: 7 });
+    const inv = await g.doc("invoice", [{ ...PART, qty: 3, unitPriceFils: 3838 }]);
+    await g.apply(inv.id, "SEVEN");
+    const issued = (await g.issue(inv.id)).body.document;
+    for (let i = 0; i < 3; i++) {
+      await call(g.app, "POST", `/api/documents/${inv.id}/credit-notes`, g.owner, { reason: "Returned", lines: [{ lineId: issued.lines[0].id, qty: 1 }], returnToStock: false });
+    }
+    const after = g.app.db.get<{ gross_fils: number; credited_fils: number }>("SELECT gross_fils, credited_fils FROM documents WHERE id = ?", [inv.id])!;
+    expect(after.credited_fils).toBe(after.gross_fils);
+  });
+
+  it("prices including VAT: the minimum is the net; the report gives the discount before VAT", async () => {
+    const g = await garage();
+    await g.code({ code: "MIN100", value: 10, minNetFils: 10000 });
+    const d = await g.doc("invoice", [{ ...LABOUR, unitPriceFils: 10000 }]);
+    g.app.db.run("UPDATE documents SET prices_include_vat = 1 WHERE id = ?", [d.id]);
+    await call(g.app, "PUT", `/api/documents/${d.id}/lines`, g.owner, { lines: [{ ...LABOUR, unitPriceFils: 10000 }] });
+    expect((await g.apply(d.id, "MIN100")).body.error).toMatch(/at least AED 100.00/);
+    await call(g.app, "PUT", `/api/documents/${d.id}/lines`, g.owner, { lines: [{ ...LABOUR, unitPriceFils: 21000 }] });
+    expect((await g.apply(d.id, "MIN100")).status).toBe(200);
+    expect((await g.issue(d.id)).status).toBe(200);
+    const report = (await call(g.app, "GET", "/api/reports/promo-codes", g.owner)).body.codes;
+    // 10% of 210.00 typed with VAT = 21.00 off; before VAT that's 20.00.
+    expect(report.find((r: { code: string }) => r.code === "MIN100")).toMatchObject({ uses: 1, discountFils: 2000 });
+  });
 });
+

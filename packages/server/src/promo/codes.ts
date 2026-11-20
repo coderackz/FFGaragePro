@@ -1,4 +1,4 @@
-import { dubaiDate, promoProblem, promoSchema, type PromoInput } from "@ffgp/shared";
+import { dubaiDate, lineTotals, promoProblem, promoSchema, type PromoInput } from "@ffgp/shared";
 import { newId, now, type Db } from "../db";
 import { conflict, notFound } from "../errors";
 
@@ -56,10 +56,18 @@ export function codeProblem(db: Db, r: PromoRow, doc: { id: string; customer_id:
   });
 }
 
-/** Each code's use: invoices, discount given. */
+/** The discount an invoice gave, before VAT (its promo lines' net before the promo, less their net now). */
+function netDiscount(db: Db, docId: string): number {
+  const d = db.get<{ inc: number }>("SELECT prices_include_vat AS inc FROM documents WHERE id = ?", [docId])!;
+  return db.all<{ qty: number; unit_price_fils: number; discount_pct: number; net_fils: number }>(
+    "SELECT qty, unit_price_fils, discount_pct, net_fils FROM document_lines WHERE document_id = ? AND promo_fils > 0", [docId],
+  ).reduce((s, l) => s + lineTotals({ qty: l.qty, unitPriceFils: l.unit_price_fils, discountPct: l.discount_pct }, 500, !!d.inc).netFils - l.net_fils, 0);
+}
+
+/** Each code's use: invoices, discount given (before VAT, so documents typed with and without VAT add up). */
 export function promoReport(db: Db) {
   return listCodes(db).map((c) => {
-    const uses = usesOf(db, c.code);
+    const uses = usesOf(db, c.code).map((u) => ({ ...u, promo_discount_fils: netDiscount(db, u.id) }));
     return {
       ...c, uses: uses.length, discountFils: uses.reduce((s, u) => s + u.promo_discount_fils, 0),
       // An offline PC can issue past the limit; the invoice stands, and the report says so.

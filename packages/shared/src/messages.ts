@@ -146,7 +146,11 @@ export const messageInputSchema = z
     dedupeKey: z.string().max(300).nullable().optional().transform((v) => v ?? null),
     /** WhatsApp Business API: send as this Meta-approved template (queued and sent by the cloud). */
     wa: z
-      .object({ name: z.string().trim().min(1).max(512), language: z.string().trim().min(2).max(15), params: z.array(z.string().max(1024)).max(20) })
+      .object({
+        name: z.string().trim().min(1).max(512), language: z.string().trim().min(2).max(15),
+        // Meta refuses an empty body parameter: say so now, not half an hour later.
+        params: z.array(z.string().trim().min(1, "A value in the WhatsApp template is empty for this message").max(1024)).max(20),
+      })
       .nullable()
       .optional()
       .transform((v) => v ?? null),

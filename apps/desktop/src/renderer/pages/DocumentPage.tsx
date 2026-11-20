@@ -232,13 +232,17 @@ export function DocumentPage() {
     if (!window.confirm("Issue this tax invoice? After issuing, it can no longer be edited.")) return;
     // Over the customer's credit limit: a warning, a refusal, or the Owner's approval (Settings → Customers & credit).
     const issue = (a: unknown, promoOverride?: boolean) => post<{ document: DocumentFull; warning?: string }>(`/api/documents/${id}/issue`, { approval: a, promoOverride });
+    // Asked once: the credit-limit approval may run this again, with the answer kept.
+    let promoOverride = false;
     const res = await approval.withApproval(async (a) => {
+      if (promoOverride) return issue(a, true);
       try {
         return await issue(a);
       } catch (err) {
         // The promo code expired or was used up since it was applied: the Owner can issue it anyway (it's logged).
         const msg = (err as Error).message;
         if (!msg.startsWith("Promo ") || !can("credit.override") || !window.confirm(`${msg}. Issue it with the discount anyway? This is recorded in the activity log.`)) throw err;
+        promoOverride = true;
         return issue(a, true);
       }
     });
@@ -433,7 +437,7 @@ export function DocumentPage() {
             ))}
           >
             <LinesTable
-              type={type} lines={draft.lines} editable={editable} vatRate={vatRate} includeVat={includeVat} onChange={updateLine}
+              type={type} lines={draft.lines} promoFils={promo && type !== "credit_note" ? promoLines.map((l) => l.promoFils ?? 0) : undefined} editable={editable} vatRate={vatRate} includeVat={includeVat} onChange={updateLine}
               onRemove={(i) => update({ lines: draft.lines.filter((_, j) => j !== i) })}
               onRequest={type === "jobcard" && !isNew && editable && can("documents.edit") ? onRequest : undefined}
               showCost={can("costs.view")}
@@ -584,7 +588,9 @@ function Row({ label, value, strong }: { label: string; value: string; strong?: 
   );
 }
 
-function LinesTable({ type, lines, editable, vatRate, includeVat, onChange, onRemove, onRequest, showCost }: {
+function LinesTable({ type, lines, promoFils, editable, vatRate, includeVat, onChange, onRemove, onRequest, showCost }: {
+  /** Each line's share of the promo as the lines stand now (worked out here while editing, before saving). */
+  promoFils?: number[];
   type: DocType; lines: DocLine[]; editable: boolean; vatRate: number; includeVat: boolean; onChange: (i: number, l: Partial<DocLine>) => void; onRemove: (i: number) => void;
   onRequest?: (i: number) => void; showCost: boolean;
 }) {
@@ -606,7 +612,7 @@ function LinesTable({ type, lines, editable, vatRate, includeVat, onChange, onRe
       </thead>
       <tbody className="divide-y divide-zinc-100">
         {lines.map((line, i) => {
-          const t = shownLineTotals({ type, pricesIncludeVat: includeVat }, line, vatRate);
+          const t = shownLineTotals({ type, pricesIncludeVat: includeVat }, promoFils ? { ...line, promoFils: promoFils[i] ?? 0 } : line, vatRate);
           return (
             <tr key={i} className="align-top">
               <td className="px-3 py-1.5">

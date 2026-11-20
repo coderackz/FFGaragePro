@@ -259,3 +259,13 @@ describe("credit notes print the amounts they were credited at", () => {
   });
 });
 
+describe("promo on the printed invoice", () => {
+  it("each line shows its promo share in the discount column, so unit × qty less discounts is the amount", () => {
+    const base = invoice();
+    const line = { ...base.lines[0]!, description: "Service", kind: "labour" as const, qty: 1, unitPriceFils: 10000, discountPct: 0, promoFils: 1000 };
+    const html = renderDocumentHtml({ ...base, lines: [line], promo: { code: "SERVICE10", kind: "percent", value: 10, appliesTo: "labour", discountFils: 1000 }, totals: { netFils: 9000, vatFils: 450, grossFils: 9450 } }, SAMPLE_GARAGE, settings());
+    expect(html).toMatch(/Promo −10\.00/);
+    expect(html).toContain("90.00");
+  });
+});
+

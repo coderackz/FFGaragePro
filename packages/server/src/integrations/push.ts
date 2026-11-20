@@ -133,3 +133,16 @@ export async function pushPending(
   }
   return { pushed, failed, more: false };
 }
+
+/** What's never sent because it belongs to before the start: credit notes on earlier invoices, payments of them. */
+export function skippedOf(db: Db, fromDate: string): { creditNotes: number; receipts: number } {
+  const creditNotes = db.get<{ n: number }>(
+    `SELECT COUNT(*) AS n FROM documents d JOIN documents s ON s.id = d.source_id WHERE d.type = 'credit_note' AND d.status = 'issued'
+     AND date(d.issued_at, '+4 hours') >= ? AND date(s.issued_at, '+4 hours') < ?`, [fromDate, fromDate],
+  )!.n;
+  const receipts = db.get<{ n: number }>(
+    `SELECT COUNT(*) AS n FROM receipts r WHERE r.amount_fils > 0 AND date(r.received_at, '+4 hours') >= ? AND EXISTS (SELECT 1 FROM receipt_allocations ra
+       JOIN documents i ON i.id = ra.document_id WHERE ra.receipt_id = r.id AND ra.amount_fils > 0 AND date(i.issued_at, '+4 hours') < ?)`, [fromDate, fromDate],
+  )!.n;
+  return { creditNotes, receipts };
+}

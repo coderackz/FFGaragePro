@@ -90,6 +90,22 @@ describe("merge engine", () => {
     expect(JSON.parse(echo!.changed)).toEqual(["plate"]);
   });
 
+  it("integration keys pushed from a PC are ignored by the cloud (they're only set there)", async () => {
+    const { A, C, sync } = await pair();
+    const put = (app: App, value: string) =>
+      app.db.run("INSERT INTO settings (key, value) VALUES ('secret.integration.zoho', ?) ON CONFLICT(key) DO UPDATE SET value = excluded.value", [JSON.stringify(value)]);
+    put(C, '{"apiDomain":"https://www.zohoapis.com"}');
+    put(A, '{"apiDomain":"https://attacker.example"}');
+    A.db.run("INSERT INTO settings (key, value) VALUES ('secret.smtp.password', '\"pw\"') ON CONFLICT(key) DO UPDATE SET value = excluded.value");
+    sync();
+    expect(C.db.get<{ value: string }>("SELECT value FROM settings WHERE key = 'secret.integration.zoho'")!.value).toContain("zohoapis.com");
+    // The email password still goes up as before (the cloud sends the garage's email).
+    expect(C.db.get("SELECT 1 AS x FROM settings WHERE key = 'secret.smtp.password'")).toEqual({ x: 1 });
+    A.db.run("DELETE FROM settings WHERE key = 'secret.integration.zoho'");
+    sync();
+    expect(C.db.get("SELECT 1 AS x FROM settings WHERE key = 'secret.integration.zoho'")).toEqual({ x: 1 });
+  });
+
   it("same promo code made on both sides offline → the incoming one is renamed, one sync issue, and it can still be edited", async () => {
     const { A, C, token, sync } = await pair();
     const terms = { kind: "percent", value: 10, appliesTo: "all", oncePerCustomer: false, active: true };

@@ -2,6 +2,7 @@ import { createHmac } from "node:crypto";
 import { afterEach, describe, expect, it } from "vitest";
 import { call, makeApp, setUp, type App } from "./helpers";
 import { FAKE_WA_TOKEN, startFakeProviders, type FakeProviders } from "../src/integrations/fakes";
+import { abandonQueuedEmails } from "../src/messages/outbox";
 
 const fakes: FakeProviders[] = [];
 afterEach(async () => { for (const f of fakes.splice(0)) await f.close(); });
@@ -65,7 +66,42 @@ describe("WhatsApp Business API", () => {
         ],
       },
     });
+    // Kept until WhatsApp says it was delivered: a retry after a "failed" status still has its PDF.
+    expect(app.db.get<{ d: string }>("SELECT data_base64 AS d FROM message_files")!.d).toBe(PDF);
+  });
+
+  it("a message failed after sending is retried with its PDF; the copy goes once delivered", async () => {
+    const { app, owner, fake } = await connected();
+    await call(app, "POST", "/api/integrations/whatsapp/connect", owner, WA);
+    const q = (await call(app, "POST", "/api/messages", owner, {
+      event: "test", channel: "whatsapp", recipient: "971501234567", body: "Hi", attachment: { fileName: "A.pdf", base64: PDF }, wa: { name: "doc", language: "en", params: [] },
+    })).body.message;
+    await app.integrations!.runOnce(new Date());
+    const wamid = (await call(app, "GET", `/api/messages/${q.id}`, owner)).body.message.providerId;
+    const failed = statusHook(wamid, "failed", { errors: [{ title: "Re-engagement message" }] });
+    await hook(app, failed, sign(failed));
+    await call(app, "POST", `/api/messages/${q.id}/retry`, owner, {});
+    await app.integrations!.runOnce(new Date());
+    expect(fake.calls.filter((c) => c.path === "/graph/1099/media")).toHaveLength(2);
+    const again = (await call(app, "GET", `/api/messages/${q.id}`, owner)).body.message;
+    expect(again.status).toBe("sent");
+    const delivered = statusHook(again.providerId, "delivered");
+    await hook(app, delivered, sign(delivered));
     expect(app.db.get("SELECT data_base64 AS d FROM message_files")).toEqual({ d: "" });
+  });
+
+  it("a template value that's empty is refused when queued (Meta would refuse it later)", async () => {
+    const { app, owner } = await connected();
+    const res = await call(app, "POST", "/api/messages", owner, { event: "test", channel: "whatsapp", recipient: "971501234567", body: "Hi", wa: { name: "x", language: "en", params: ["Mona", " "] } });
+    expect(res.status).toBe(400);
+    expect(res.body.error).toMatch(/empty/);
+  });
+
+  it("unlinking from the cloud fails queued API messages here too (the cloud may still send them)", async () => {
+    const { app, owner } = await connected();
+    const q = (await call(app, "POST", "/api/messages", owner, { event: "test", channel: "whatsapp", recipient: "971501234567", body: "Hi", wa: { name: "x", language: "en", params: [] } })).body.message;
+    abandonQueuedEmails(app.db, "this PC was unlinked");
+    expect((await call(app, "GET", `/api/messages/${q.id}`, owner)).body.message).toMatchObject({ status: "failed", error: expect.stringMatching(/unlinked/) });
   });
 
   it("not connected → failed with the reason", async () => {

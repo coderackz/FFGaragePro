@@ -80,4 +80,14 @@ describe("QuickBooks Online", () => {
     expect(fake.calls.some((c) => c.method === "POST" && c.path === "/qbo-sandbox/v3/company/9130/invoice")).toBe(true);
     expect(fake.calls.some((c) => c.path.startsWith("/qbo-api/"))).toBe(false);
   });
+
+  it("a name taken by a vendor or employee: the customer is added as \"<name> (customer)\"", async () => {
+    const { fake, issue, run } = await garage();
+    fake.failNext(/\/customer$/, 400, { Fault: { Error: [{ Message: "Duplicate Name Exists Error", Detail: "The name supplied already exists. : Another vendor is already using this name.", code: "6240" }], type: "ValidationFault" } });
+    await issue();
+    await run();
+    expect(posts(fake, "customer").map((c) => (c.body as { DisplayName: string }).DisplayName)).toEqual(["Gulf Fleet LLC", "Gulf Fleet LLC (customer)"]);
+    expect(posts(fake, "invoice")).toHaveLength(1);
+  });
 });
+

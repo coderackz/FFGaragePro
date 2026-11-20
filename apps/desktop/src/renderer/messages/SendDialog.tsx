@@ -1,4 +1,4 @@
-import type { Recipient } from "@ffgp/shared";
+import { messageValues, type Recipient } from "@ffgp/shared";
 import { Mail, MessageCircle } from "lucide-react";
 import { useEffect, useRef, useState } from "react";
 import { toast } from "sonner";
@@ -50,6 +50,10 @@ export function SendDialog({ request: r, onClose }: { request: SendRequest; onCl
   }, [r]);
 
   const to = data?.recipients[index];
+  // Meta refuses a template with an empty value: the placeholders it needs that this message can't fill.
+  const emptyParams = waApi && to && data
+    ? (chosen?.waParams ?? []).filter((p) => !(messageValues({ ...r.values, contactName: to.name, balanceFils: data.customer.balanceFils ?? null }) as Record<string, string | undefined>)[p]?.trim())
+    : [];
   useEffect(() => {
     if (!data || !to) return;
     const t = templates.data?.templates.find((x) => x.id === templateId);
@@ -57,7 +61,8 @@ export function SendDialog({ request: r, onClose }: { request: SendRequest; onCl
     const text = compose(r, texts, to, language, data.customer.balanceFils ?? null);
     setSubject(text.subject);
     setBody(text.body);
-  }, [data, to, language, r, ev, templateId, templates.data]);
+    // Not on the template list arriving: text typed meanwhile stays (a template can only be picked once it's there).
+  }, [data, to, language, r, ev, templateId]); // eslint-disable-line react-hooks/exhaustive-deps
 
   const attachment = () => {
     if (!r.pdf) return Promise.resolve(null);
@@ -118,7 +123,7 @@ export function SendDialog({ request: r, onClose }: { request: SendRequest; onCl
         <>
           <Button onClick={onClose}>{done.email || done.whatsapp ? "Done" : "Not now"}</Button>
           {canWhatsApp && (
-            <Button variant={canEmail ? "secondary" : "primary"} icon={<MessageCircle className="size-4" />} busy={busy === "whatsapp"} disabled={!body.trim() || (waApi && !!done.whatsapp)} onClick={() => void sendWhatsApp()}>
+            <Button variant={canEmail ? "secondary" : "primary"} icon={<MessageCircle className="size-4" />} busy={busy === "whatsapp"} disabled={!body.trim() || (waApi && (!!done.whatsapp || emptyParams.length > 0))} onClick={() => void sendWhatsApp()}>
               {waApi ? (done.whatsapp ? "Sent on WhatsApp" : "Send on WhatsApp") : done.whatsapp ? "Open WhatsApp again" : "Open WhatsApp"}
             </Button>
           )}
@@ -161,7 +166,12 @@ export function SendDialog({ request: r, onClose }: { request: SendRequest; onCl
           <Field label="Message">
             <Textarea rows={5} value={body} onChange={(e) => setBody(e.target.value)} aria-label="Message" dir={language === "ar" ? "rtl" : undefined} lang={language} />
           </Field>
-          {r.pdf && <p className="text-xs text-zinc-500">Attached: {r.pdf.fileName}{canWhatsApp ? ". For WhatsApp it's saved for you to drag into the chat." : ""}</p>}
+          {r.pdf && <p className="text-xs text-zinc-500">Attached: {r.pdf.fileName}{canWhatsApp && !waApi ? ". For WhatsApp it's saved for you to drag into the chat." : ""}</p>}
+          {emptyParams.length > 0 && (
+            <p className="text-sm text-amber-700">
+              The WhatsApp template needs {emptyParams.map((p) => `{${p}}`).join(", ")}, which this message doesn't have. Pick another template, or fill it in first.
+            </p>
+          )}
           {!canEmail && !canWhatsApp && (
             <p className="text-sm text-amber-700">
               {to.phone && !phone ? `${to.phone} isn't a mobile number WhatsApp can use. ` : ""}

@@ -112,8 +112,8 @@ export async function sendWhatsAppDue(db: Db, client: WaClient | null, now: Date
       error = e ?? new Error("Unknown error");
     }
     if (error === null) {
+      // The PDF's copy stays until WhatsApp says it was delivered: a "failed" status may still come, and a retry needs it.
       db.run("UPDATE messages SET status = 'sent', provider_id = ?, error = NULL, sent_at = ?, next_attempt_at = NULL, updated_at = ? WHERE id = ?", [wamid, t, t, m.id]);
-      db.run("UPDATE message_files SET data_base64 = '' WHERE message_id = ?", [m.id]);
       sent++;
       continue;
     }
@@ -196,8 +196,12 @@ export function whatsappRoutes(app: FastifyInstance, db: Db, o: IntegrationOptio
       }
       const t = nowIso();
       for (const e of body.entry ?? []) for (const c of e.changes ?? []) for (const s of c.value?.statuses ?? []) {
-        if (s.status === "delivered") db.run("UPDATE messages SET delivery = 'delivered', updated_at = ? WHERE provider_id = ? AND delivery IS NULL", [t, s.id]);
-        else if (s.status === "read") db.run("UPDATE messages SET delivery = 'read', updated_at = ? WHERE provider_id = ?", [t, s.id]);
+        if (s.status === "delivered" || s.status === "read") {
+          if (s.status === "delivered") db.run("UPDATE messages SET delivery = 'delivered', updated_at = ? WHERE provider_id = ? AND delivery IS NULL", [t, s.id]);
+          else db.run("UPDATE messages SET delivery = 'read', updated_at = ? WHERE provider_id = ?", [t, s.id]);
+          // It has arrived: the PDF's copy isn't needed (or backed up) any more; the log keeps its name.
+          db.run("UPDATE message_files SET data_base64 = '' WHERE message_id IN (SELECT id FROM messages WHERE provider_id = ?)", [s.id]);
+        }
         else if (s.status === "failed") {
           const why = s.errors?.[0]?.title ?? s.errors?.[0]?.message ?? "Not delivered";
           db.run("UPDATE messages SET status = 'failed', error = ?, updated_at = ? WHERE provider_id = ?", [`WhatsApp: ${why}`, t, s.id]);
