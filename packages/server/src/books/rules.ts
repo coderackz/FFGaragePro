@@ -437,3 +437,34 @@ export function postPayrollRuns(c: PostCtx): number {
   return n;
 }
 
+/** Salaries paid through WPS (Dr Salaries payable / Cr the bank), and cash bonuses handed out (Dr Staff bonus / Cr cash). */
+export function postPayrollPayments(c: PostCtx): number {
+  let n = 0;
+  const net = (runId: string, cash: boolean) => c.db.get<{ v: number | null }>(
+    cash ? "SELECT SUM(bonus_fils) AS v FROM payroll_lines WHERE run_id = ? AND bonus_in_wps = 0"
+      : "SELECT SUM(net_fils + CASE WHEN bonus_in_wps = 1 THEN bonus_fils ELSE 0 END) AS v FROM payroll_lines WHERE run_id = ?",
+    [runId],
+  )!.v ?? 0;
+  for (const r of c.db.all<{ id: string; month: string; paid_on: string; account: string }>(
+    `SELECT id, month, wps_paid_on AS paid_on, wps_bank_account_id AS account FROM payroll_runs
+     WHERE status = 'approved' AND wps_paid_on IS NOT NULL AND wps_paid_on >= ? AND ${unposted("'wps_paid:' || payroll_runs.id")} ORDER BY month`,
+    [c.start],
+  )) {
+    if (c.full()) break;
+    const v = net(r.id, false);
+    if (c.post({ date: r.paid_on, narration: `Salaries for ${r.month} paid (WPS)`, sourceType: "wps_paid", sourceId: r.id, postKey: `wps_paid:${r.id}`, userId: null,
+      lines: [debit(A.salaries_payable.id, v), credit(r.account, v)] })) n++;
+  }
+  for (const r of c.db.all<{ id: string; month: string; paid_on: string; account: string }>(
+    `SELECT id, month, bonus_paid_on AS paid_on, bonus_cash_account_id AS account FROM payroll_runs
+     WHERE status = 'approved' AND bonus_paid_on IS NOT NULL AND bonus_paid_on >= ? AND ${unposted("'bonus_paid:' || payroll_runs.id")} ORDER BY month`,
+    [c.start],
+  )) {
+    if (c.full()) break;
+    const v = net(r.id, true);
+    if (c.post({ date: r.paid_on, narration: `Cash bonus for ${r.month}`, sourceType: "bonus_paid", sourceId: r.id, postKey: `bonus_paid:${r.id}`, userId: null,
+      lines: [debit(A.staff_bonus.id, v), credit(r.account, v)] })) n++;
+  }
+  return n;
+}
+
