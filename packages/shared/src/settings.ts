@@ -1,3 +1,4 @@
+import { EMIRATES } from "./vat";
 import { z } from "zod";
 import { SYSTEM_ACCOUNTS } from "./books";
 import { DEFAULT_MESSAGE_TEXTS } from "./message-texts";
@@ -86,6 +87,8 @@ const email = z.preprocess(
 export const settingsSchemas = {
   garage: z.object({
     tradeLicence: optText(40),
+    /** Where the garage is: its row in box 1 of the VAT return. */
+    emirate: z.enum(EMIRATES).nullable().default(null),
     /** Arabic name and address, printed on English + Arabic documents. */
     nameAr: optText(120),
     addressAr: optText(500),

@@ -151,7 +151,7 @@ export function postDraft(db: Db, id: string, userId: string, posts: boolean): E
     if (diff !== 0) {
       lines = [...lines, {
         accountId: SYSTEM_ACCOUNTS.opening_equity.id, debitFils: diff < 0 ? -diff : 0, creditFils: diff > 0 ? diff : 0, customerId: null, supplierId: null, documentId: null,
-        memo: "Opening balance equity",
+        memo: "Opening balance equity", vatBox: null,
       }];
     }
   }

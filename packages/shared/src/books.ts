@@ -1,3 +1,4 @@
+import { VAT_TAGS } from "./vat";
 import { z } from "zod";
 
 export const ACCOUNT_TYPES = ["asset", "liability", "equity", "income", "cost_of_sales", "expense"] as const;
@@ -85,6 +86,8 @@ export const journalLineSchema = z
     /** Work in progress lines: the job card (opening balances carry it so the job's invoice clears it). */
     documentId: optionalId,
     memo: z.string().trim().max(200).nullable().optional().transform((v) => v || null),
+    /** The VAT return box this line belongs to (zero-rated, exempt, reverse charge, adjustments…). */
+    vatBox: z.enum(VAT_TAGS).nullable().optional().transform((v) => v ?? null),
   })
   .refine((l) => (l.debitFils > 0) !== (l.creditFils > 0), { message: "Each line is either a debit or a credit", path: ["debitFils"] });
 export type JournalLineInput = z.infer<typeof journalLineSchema>;
