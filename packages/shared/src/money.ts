@@ -6,6 +6,8 @@ export interface LineAmounts {
   qty: number;
   unitPriceFils: number;
   discountPct: number;
+  /** This line's share of a promo code's discount: off the net (prices without VAT) or off the gross (prices with VAT). */
+  promoFils?: number;
 }
 
 export interface Totals {
@@ -33,12 +35,13 @@ export function lineTotals(line: LineAmounts, vatRateBp: number = VAT_RATE_BP, i
   const qty = Math.max(0, safe(line.qty));
   const price = safe(line.unitPriceFils);
   const discount = Math.min(100, Math.max(0, safe(line.discountPct)));
+  const promo = Math.max(0, safe(line.promoFils ?? 0));
   if (includeVat) {
-    const grossFils = roundFils(qty * price * (1 - discount / 100)) || 0;
+    const grossFils = Math.max((roundFils(qty * price * (1 - discount / 100)) || 0) - promo, 0);
     const netFils = roundFils((grossFils * 10000) / (10000 + vatRateBp)) || 0;
     return { netFils, vatFils: grossFils - netFils, grossFils };
   }
-  const netFils = roundFils(qty * price * (1 - discount / 100)) || 0;
+  const netFils = Math.max((roundFils(qty * price * (1 - discount / 100)) || 0) - promo, 0);
   const vatFils = roundFils((netFils * vatRateBp) / 10000) || 0;
   return { netFils, vatFils, grossFils: netFils + vatFils };
 }
