@@ -5,6 +5,8 @@ export interface Employee {
   emiratesId: string | null; emiratesIdExpiry: string | null; labourCard: string | null; labourCardExpiry: string | null;
   passport: string | null; passportExpiry: string | null; visa: string | null; visaExpiry: string | null;
   language: "en" | "en_ar"; phone: string | null; email: string | null;
+  /** Annual leave days owed on a date from before the app. */
+  leaveBalanceDays: number | null; leaveBalanceDate: string | null;
 }
 export interface EmployeeFull extends Employee {
   leave: { id: string; kind: "annual" | "sick" | "unpaid"; from: string; to: string; note: string | null }[];

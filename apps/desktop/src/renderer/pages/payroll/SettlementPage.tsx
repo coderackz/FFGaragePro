@@ -90,6 +90,7 @@ function ChangeModal({ item, settlementId, onClose, onDone }: { item: Item | nul
     <Modal open={!!item} title={`Change: ${item?.label ?? ""}`} onClose={onClose}
       footer={<><Button variant="ghost" onClick={onClose}>Cancel</Button><Button variant="primary" busy={busy} disabled={!Number.isFinite(fils) || reason.trim().length < 3} onClick={() => void save()}>Save</Button></>}>
       <p className="mb-3 text-xs text-zinc-600">Proposed: {item ? formatAED(item.proposedFils) : ""} · {item?.how}</p>
+      {item?.key === "advances" && <p className="mb-3 text-xs text-zinc-600">Enter a minus amount up to what's owed; what isn't taken back is forgiven (written off).</p>}
       <div className="grid grid-cols-2 gap-3">
         <Field label="Amount"><Input inputMode="decimal" value={amount} onChange={(e) => setAmount(e.target.value)} aria-label="Amount" /></Field>
         <Field label="Reason" hint="Kept with the settlement and printed on the letter"><Input value={reason} onChange={(e) => setReason(e.target.value)} aria-label="Reason" /></Field>

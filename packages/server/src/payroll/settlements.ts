@@ -5,16 +5,19 @@ import { newId, now, type Db } from "../db";
 import { badRequest, conflict, notFound } from "../errors";
 import { getSettings } from "../settings";
 import { advancesOf, unpaidLeaveOf } from "./employees";
-import { gratuityHeld, stableId, type Snapshot } from "./runs";
+import { postPending } from "../books/pending";
+import { broughtForward, gratuityAtStart, gratuityHeld, stableId, type Snapshot } from "./runs";
 
 interface EmpRow {
   id: string; name: string; job: string; name_ar: string | null; language: string; join_date: string; left_date: string | null;
-  basic_fils: number; housing_fils: number; transport_fils: number; other_allowance_fils: number;
+  basic_fils: number; housing_fils: number; transport_fils: number; other_allowance_fils: number; leave_balance_days: number | null; leave_balance_date: string | null;
 }
 interface Row { id: string; employee_id: string; edits_json: string; created_at: string }
 export interface SettlementSnapshot {
   employeeId: string; name: string; job: string; joinDate: string; lastDay: string; items: SettlementItem[]; totalFils: number;
   gratuityHeldFils: number; salaryBasicFils: number;
+  /** Advances owed when settled: all cleared (what wasn't deducted is forgiven, written off to salaries). */
+  advancesOwedFils: number;
 }
 
 const rowOf = (db: Db, idOrEmployee: string) => db.get<Row>("SELECT * FROM final_settlements WHERE id = ? OR employee_id = ?", [idOrEmployee, idOrEmployee]);
@@ -45,10 +48,12 @@ function current(db: Db, r: Row): SettlementSnapshot {
   const pay = { basicFils: e.basic_fils, housingFils: e.housing_fils, transportFils: e.transport_fils, otherAllowanceFils: e.other_allowance_fils, joinDate: e.join_date, leftDate: e.left_date };
   const paid = salaryPaid(db, e.id, e.left_date);
   const gratuityHeldFils = gratuityHeld(db, e.id);
+  const advancesOwedFils = advancesOf(db, e.id).reduce((s, a) => s + a.owedFils, 0);
   const items = settlementProposal({
-    employee: pay, lastDay: e.left_date, unpaidLeave: unpaidLeaveOf(db, e.id),
+    employee: pay, lastDay: e.left_date, unpaidLeave: unpaidLeaveOf(db, e.id), booksStart: getSettings(db).books.startDate,
+    leaveOpening: e.leave_balance_days !== null && e.leave_balance_date ? { days: e.leave_balance_days, date: e.leave_balance_date } : null,
     annualTaken: leave.filter((l) => l.kind === "annual" && l.from_date <= e.left_date!).map((l) => ({ from: l.from_date, to: l.to_date })),
-    rules: rule, salaryAlreadyPaid: paid, gratuityHeldFils, advancesOwedFils: advancesOf(db, e.id).reduce((s, a) => s + a.owedFils, 0),
+    rules: rule, salaryAlreadyPaid: paid, gratuityHeldFils, advancesOwedFils,
   });
   const edits = JSON.parse(r.edits_json) as Partial<Record<SettlementKey, { amountFils: number; reason: string }>>;
   for (const i of items) {
@@ -60,7 +65,7 @@ function current(db: Db, r: Row): SettlementSnapshot {
   const salary = items.find((i) => i.key === "salary")!;
   const proposedGross = line.basicFils + line.allowancesFils;
   const salaryBasicFils = paid || !proposedGross ? (paid ? 0 : salary.amountFils) : Math.round((salary.amountFils * line.basicFils) / proposedGross);
-  return { employeeId: e.id, name: e.name, job: e.job, joinDate: e.join_date, lastDay: e.left_date, items, totalFils: settlementTotal(items), gratuityHeldFils, salaryBasicFils };
+  return { employeeId: e.id, name: e.name, job: e.job, joinDate: e.join_date, lastDay: e.left_date, items, totalFils: settlementTotal(items), gratuityHeldFils, salaryBasicFils, advancesOwedFils };
 }
 
 export function getSettlement(db: Db, idOrEmployee: string) {
@@ -97,6 +102,11 @@ export function editSettlement(db: Db, id: string, input: unknown) {
   const r = draft(db, id);
   const x = settlementEditSchema.parse(input);
   const proposed = current(db, { ...r, edits_json: "{}" }).items.find((i) => i.key === x.key)!;
+  // Each amount within what it can be: salary and gratuity aren't negative; advances are taken back (up to what's owed), never added.
+  if ((x.key === "salary" || x.key === "gratuity") && x.amountFils < 0) throw badRequest(`${proposed.label} can't be less than nothing`);
+  if (x.key === "advances" && (x.amountFils > 0 || x.amountFils < proposed.proposedFils)) {
+    throw badRequest(`Advances are taken back: between ${(proposed.proposedFils / 100).toFixed(2)} (all that's owed) and 0.00 (all forgiven)`);
+  }
   const edits = JSON.parse(r.edits_json) as Record<string, unknown>;
   if (x.amountFils === proposed.proposedFils) delete edits[x.key];
   else edits[x.key] = { amountFils: x.amountFils, reason: x.reason };
@@ -105,8 +115,16 @@ export function editSettlement(db: Db, id: string, input: unknown) {
 }
 
 /** The owner approves what they were shown (`totalFils`): kept exactly as approved, for the books and the letter. */
-export function approveSettlement(db: Db, id: string, userId: string, input: { totalFils?: unknown }) {
+export function approveSettlement(db: Db, id: string, userId: string, input: { totalFils?: unknown }, posts: boolean) {
   const r = draft(db, id);
+  // The gratuity brought forward at the books start must be in the books before the settlement counts on it.
+  if (posts) for (let i = 0; i < 1000 && postPending(db) > 0; i++);
+  const e = employee(db, r.employee_id)!;
+  if (gratuityAtStart(db, e) > 0 && broughtForward(db, e.id) === 0) {
+    throw conflict(posts
+      ? `${e.name}'s gratuity from before the books start couldn't be brought forward: see Books health`
+      : `${e.name}'s gratuity from before the books start hasn't reached this computer yet: sync, then approve`);
+  }
   const s = current(db, r);
   checkNotLocked(db, s.lastDay);
   if (typeof input.totalFils === "number" && input.totalFils !== s.totalFils) throw conflict("The settlement changed since it was shown: check it and approve again");
