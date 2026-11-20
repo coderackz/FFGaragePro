@@ -3,6 +3,8 @@ import { requireAction, sessionUser } from "../auth";
 import type { Db } from "../db";
 import { badRequest } from "../errors";
 import { whatsappRoutes } from "../integrations/whatsapp";
+import { accountingRoutes } from "../integrations/oauth";
+import { zohoAdapter } from "../integrations/zoho";
 import { failuresOf, hookBase, PROVIDERS, retryAll, saveConfig, statusOf, type IntegrationOptions, type Provider } from "../integrations/store";
 
 export const providerOf = (p: string): Provider => {
@@ -19,6 +21,7 @@ export function integrationRoutes(app: FastifyInstance, db: Db, o: IntegrationOp
   });
   if (!o) return;
   whatsappRoutes(app, db, o);
+  accountingRoutes(app, db, o, zohoAdapter);
   app.post<{ Params: { provider: string } }>("/api/integrations/:provider/disconnect", async (req) => {
     const user = sessionUser(db, req);
     requireAction(user, "settings.manage");

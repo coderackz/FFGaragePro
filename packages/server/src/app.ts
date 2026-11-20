@@ -20,7 +20,7 @@ import { templateRoutes } from "./routes/templates";
 import { promoRoutes } from "./routes/promo";
 import { integrationRoutes } from "./routes/integrations";
 import type { IntegrationOptions } from "./integrations/store";
-import { integrationRunner, type IntegrationRunner } from "./integrations/runner";
+import { accountingPushers, integrationRunner, type IntegrationRunner } from "./integrations/runner";
 import { messageRoutes } from "./routes/messages";
 import { customerRoutes } from "./routes/customers";
 import { documentRoutes } from "./routes/documents";
@@ -136,7 +136,7 @@ export async function buildApp(options: AppOptions): Promise<GarageAppInstance> 
   templateRoutes(app, db);
   promoRoutes(app, db);
   integrationRoutes(app, db, options.integrations);
-  const integrations = options.integrations ? integrationRunner(db, options.integrations) : null;
+  const integrations = options.integrations ? integrationRunner(db, options.integrations, accountingPushers(options.integrations)) : null;
   const integrationTimer = integrations && options.integrations?.ownLoopMs
     ? setInterval(() => void integrations.runOnce(new Date()).catch((e) => console.error("Integrations:", e)), options.integrations.ownLoopMs)
     : null;

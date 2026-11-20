@@ -1,5 +1,10 @@
 import type { Db } from "../db";
+import { pushProvider } from "./oauth";
 import type { IntegrationOptions } from "./store";
+import { zohoAdapter } from "./zoho";
+
+/** Each accounting provider's push, run in the round (each one does nothing until connected and set up). */
+export const accountingPushers = (o: IntegrationOptions) => [zohoAdapter].map((a) => (db: Db, now: Date) => pushProvider(db, a, o, now));
 import { recoverWhatsApp, sendWhatsAppDue, whatsappFor } from "./whatsapp";
 
 export interface IntegrationRunner {

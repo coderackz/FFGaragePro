@@ -68,7 +68,18 @@ export async function startFakeProviders(port = 0): Promise<FakeProviders> {
   app.get("/zoho-api/books/v3/organizations", async () => ({ code: 0, organizations: [{ organization_id: "org-1", name: "Al Quoz Auto Care LLC" }] }));
   app.get("/zoho-api/books/v3/settings/taxes", async () => ({ code: 0, taxes: [{ tax_id: "tax-5", tax_name: "VAT 5%", tax_percentage: 5 }, { tax_id: "tax-0", tax_name: "Zero rated", tax_percentage: 0 }] }));
   app.get("/zoho-api/books/v3/items", async () => ({ code: 0, items: [{ item_id: "item-lab", name: "Labour" }, { item_id: "item-part", name: "Parts" }, { item_id: "item-oth", name: "Other" }] }));
-  app.post("/zoho-api/books/v3/contacts", async () => ({ code: 0, contact: { contact_id: id("zc-") } }));
+  const zohoContacts = new Map<string, string>();
+  app.post<{ Body: { contact_name?: string } }>("/zoho-api/books/v3/contacts", async (req, reply) => {
+    const name = req.body?.contact_name ?? "";
+    if (zohoContacts.has(name)) return reply.status(400).send({ code: 3062, message: "The contact name already exists. Please specify a different name." });
+    const cid = id("zc-");
+    zohoContacts.set(name, cid);
+    return { code: 0, contact: { contact_id: cid } };
+  });
+  app.get<{ Querystring: { contact_name?: string } }>("/zoho-api/books/v3/contacts", async (req) => {
+    const cid = zohoContacts.get(req.query.contact_name ?? "");
+    return { code: 0, contacts: cid ? [{ contact_id: cid, contact_name: req.query.contact_name }] : [] };
+  });
   app.post("/zoho-api/books/v3/invoices", async () => ({ code: 0, invoice: { invoice_id: id("zi-") } }));
   app.post("/zoho-api/books/v3/creditnotes", async () => ({ code: 0, creditnote: { creditnote_id: id("zcn-") } }));
   app.post("/zoho-api/books/v3/creditnotes/:id/invoices", async () => ({ code: 0, message: "Credits have been applied to the invoice(s)." }));

@@ -67,7 +67,7 @@ export function statusOf(db: Db): IntegrationStatus {
 }
 
 /** Saves (or with null, removes) a provider's config, and the status row with it. Logged as "(changed)" only. */
-export function saveConfig(db: Db, userId: string | null, p: Provider, cfg: (BaseConfig & Record<string, unknown>) | null): void {
+export function saveConfig(db: Db, userId: string | null, p: Provider, cfg: (BaseConfig & Record<string, unknown>) | null, o: { quiet?: boolean } = {}): void {
   db.tx(() => {
     const before = getConfig<BaseConfig>(db, p);
     const value = cfg ? { ...cfg, since: cfg.since ?? before?.since ?? nowIso() } : null;
@@ -77,7 +77,7 @@ export function saveConfig(db: Db, userId: string | null, p: Provider, cfg: (Bas
       status[p] = { connected: true, label: (value.label as string | null) ?? null, since: value.since as string, needsSetup: !!value.needsSetup };
     } else delete status[p];
     db.run("INSERT INTO settings (key, value) VALUES (?, ?) ON CONFLICT(key) DO UPDATE SET value = excluded.value", [STATUS_KEY, JSON.stringify(status)]);
-    if (!!before !== !!value || (before && value)) {
+    if (!o.quiet && (!!before !== !!value || (before && value))) {
       audit(db, {
         action: "settings.change", entity: "settings", entityId: `integration.${p}`, before: null,
         after: { [p]: value ? (before ? "(changed)" : "(connected)") : "(disconnected)" }, userId,
