@@ -400,3 +400,27 @@ export function renderBonusVoucherHtml(v: BonusVoucher, garage: Garage, settings
   <footer><span>Cash bonus · ${esc(monthLong(v.month))}</span><span>Powered by Fleetfix Garage Pro</span></footer>`);
 }
 
+export interface SettlementLetter {
+  employeeId: string; name: string; nameAr: string | null; job: string; language: DocLanguage; joinDate: string; lastDay: string;
+  items: { key: string; label: string; proposedFils: number; amountFils: number; how: string; reason: string | null }[];
+  totalFils: number;
+}
+
+/** A leaver's final settlement letter: each amount, how it was worked out, any change and why, the total, signatures. */
+export function renderSettlementHtml(s: SettlementLetter, garage: Garage, settings: Settings): string {
+  const lang = s.language;
+  const t = (en: string) => L(en, lang);
+  const title = `<div class="title"><div class="en">FINAL SETTLEMENT</div><div class="ar">المخالصة النهائية</div><div class="meta">${t("Last day")}: ${ymdDate(s.lastDay)}</div></div>`;
+  const rows = s.items.map((i) => `<tr><td><b>${esc(i.label)}</b><div style="color:#52525b;font-size:8.5pt">${esc(i.how)}</div>
+      ${i.reason ? `<div style="color:#b45309;font-size:8.5pt">Changed from ${money(i.proposedFils)}: ${esc(i.reason)}</div>` : ""}</td><td class="r b">${money(i.amountFils)}</td></tr>`).join("");
+  return shell(`Final settlement - ${s.name}`, `
+  ${garageHeader(garage, settings, title, lang)}
+  <div class="parties"><div class="party"><h3>${t("Employee")}</h3><div class="main">${esc(s.name)}</div>${lang === "en_ar" ? arLine(s.nameAr, "arl main") : ""}<div class="line">${esc(s.job)}</div></div>
+    <div class="party"><h3>${t("Joined")}</h3><div class="main">${ymdDate(s.joinDate)}</div><div class="line">${t("Last day")}: ${ymdDate(s.lastDay)}</div></div></div>
+  <table class="items"><thead><tr><th>${H("How it was worked out", lang)}</th><th class="r">AED</th></tr></thead><tbody>${rows}
+    <tr><td class="b">${t("Total due")}</td><td class="r b">${money(s.totalFils)}</td></tr></tbody></table>
+  ${wordsBlock(s.totalFils, lang)}
+  <div class="sigs two"><div><span></span>${t("Received by (employee)")}</div>${garageSignature(garage, settings, lang)}</div>
+  <footer><span>Final settlement · printed ${date(new Date().toISOString())}</span><span>Powered by Fleetfix Garage Pro</span></footer>`, lang);
+}
+

@@ -1,9 +1,9 @@
 import { ArrowLeft, Pencil, Plus } from "lucide-react";
 import { useState } from "react";
-import { Link, useParams } from "react-router";
+import { Link, useNavigate, useParams } from "react-router";
 import { toast } from "sonner";
 import { Badge, Button, Card, Field, Input, Modal, MoneyInput, PageHeader, Select, Spinner, Table } from "../../components/ui";
-import { post } from "../../lib/api";
+import { get, post } from "../../lib/api";
 import { formatAED, formatDate } from "../../lib/format";
 import { useApi } from "../../lib/useApi";
 import type { MoneyAccount } from "../../payables/types";
@@ -17,6 +17,7 @@ const KIND = { annual: "Annual", sick: "Sick", unpaid: "Unpaid" } as const;
 /** One employee: pay, WPS details, documents and their expiry, leave and advances. */
 export function EmployeePage() {
   const { id } = useParams();
+  const navigate = useNavigate();
   const { data, reload } = useApi<{ employee: EmployeeFull }>(`/api/employees/${id}`);
   const [editing, setEditing] = useState(false);
   const [leave, setLeave] = useState(false);
@@ -24,6 +25,13 @@ export function EmployeePage() {
   const cancel = async (what: string, question: string) => {
     if (!window.confirm(question)) return;
     try { await post(`/api/employees/${id}/${what}/cancel`, {}); toast.success("Cancelled"); await reload(); } catch (err) { toast.error((err as Error).message); }
+  };
+  // Opens the leaver's final settlement, starting it the first time.
+  const settlement = async () => {
+    try {
+      await get(`/api/employees/${id}/settlement`).catch(() => post(`/api/employees/${id}/settlement`, {}));
+      navigate(`/employees/${id}/settlement`);
+    } catch (err) { toast.error((err as Error).message); }
   };
   if (!data) return <Spinner />;
   const e = data.employee;
@@ -33,7 +41,10 @@ export function EmployeePage() {
     <>
       <PageHeader back={<Link to="/employees" className="mb-1 inline-flex items-center gap-1 text-sm text-zinc-500 hover:text-zinc-800"><ArrowLeft className="size-3.5" /> Employees</Link>}
         title={e.name} subtitle={`${e.job}${e.nationality ? ` · ${e.nationality}` : ""} · joined ${day(e.joinDate)}${e.leftDate ? ` · left ${day(e.leftDate)}` : ""}`}
-        actions={<Button icon={<Pencil className="size-4" />} onClick={() => setEditing(true)}>Edit</Button>} />
+        actions={<>
+          {e.leftDate && <Button onClick={() => void settlement()}>Final settlement</Button>}
+          <Button icon={<Pencil className="size-4" />} onClick={() => setEditing(true)}>Edit</Button>
+        </>} />
       <div className="grid grid-cols-3 gap-5 max-lg:grid-cols-1">
         <Card title="Pay">
           <dl className="grid grid-cols-2 gap-y-1 text-sm">

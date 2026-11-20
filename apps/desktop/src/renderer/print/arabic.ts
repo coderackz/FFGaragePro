@@ -25,6 +25,9 @@ export const arabicCss = () => `${fontFaces}
 /** Arabic for every printed label. Labels with no entry print in English only. */
 const AR: Record<string, string> = {
   Employee: "الموظف",
+  Joined: "تاريخ الالتحاق",
+  "Last day": "آخر يوم عمل",
+  "How it was worked out": "طريقة الاحتساب",
   Job: "الوظيفة",
   "Days worked": "أيام العمل",
   Earnings: "المستحقات",

@@ -2,7 +2,7 @@ import type { Settings } from "@ffgp/shared";
 import { toast } from "sonner";
 import { post } from "../lib/api";
 import type { DocumentFull, Garage, PurchaseOrder, Receipt, Statement } from "../lib/types";
-import { renderBonusVoucherHtml, renderDocumentHtml, renderPayslipsHtml, renderPurchaseOrderHtml, renderReceiptHtml, renderStatementHtml, type BonusVoucher, type Payslip } from "./templates";
+import { renderBonusVoucherHtml, renderDocumentHtml, renderPayslipsHtml, renderSettlementHtml, type SettlementLetter, renderPurchaseOrderHtml, renderReceiptHtml, renderStatementHtml, type BonusVoucher, type Payslip } from "./templates";
 
 /** Prints or saves a document. An issued invoice's prints are counted: the second and later ones say COPY. */
 export async function printDocument(doc: DocumentFull, garage: Garage, settings: Settings, mode: "pdf" | "print"): Promise<void> {
@@ -56,5 +56,9 @@ export function printPayslips(slips: Payslip[], garage: Garage, settings: Settin
 
 export function printBonusVoucher(v: BonusVoucher, garage: Garage, settings: Settings, mode: "pdf" | "print"): Promise<void> {
   return printHtml(renderBonusVoucherHtml(v, garage, settings), `Cash bonus ${v.month}`, mode);
+}
+
+export function printSettlement(s: SettlementLetter, garage: Garage, settings: Settings, mode: "pdf" | "print"): Promise<void> {
+  return printHtml(renderSettlementHtml(s, garage, settings), `Final settlement - ${s.name}`, mode);
 }
 

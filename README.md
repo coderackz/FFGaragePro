@@ -204,7 +204,23 @@ set. Each tile opens its section with its own Save; every change goes to the Act
 
     npm run e2e:payroll                             # settings → employees → advance → run → approve → WPS file → paid → payslips → books health
 
-Next: Accounting Part 4b (a leaver's final settlement; payslips by WhatsApp/email). See `docs/superpowers/specs/2026-11-19-accounting-design.md`.
+**Leavers and payslips by message (Accounting Part 4b):**
+- **Final settlement:**
+  - Enter the leaving day on the employee, then press **Final settlement**. The app proposes, each with how it was worked out:
+    - salary to the last day (unless that month's payroll already paid it);
+    - leave not taken (or taken ahead, deducted);
+    - gratuity: 21/30 days of basic a year, after one year of service, capped as the garage chose;
+    - less advances still owed.
+  - The accountant can change an amount, giving a reason, which is kept and printed.
+  - The owner approves. It posts (the gratuity provision is released) and is marked paid from a bank or cash box.
+  - A settlement letter prints in English or English + Arabic.
+  - Later payrolls leave the person out.
+- **Send payslips** (on an approved payroll):
+  - emails each payslip PDF to everyone with an email address;
+  - or opens WhatsApp per person.
+  - Payslip messages are visible only to people who run payroll.
+
+Next: Accounting Part 5 (fixed assets). See `docs/superpowers/specs/2026-11-19-accounting-design.md`.
 
 ## Layout
 | Path | What |

@@ -11,6 +11,7 @@ import type { MoneyAccount } from "../../payables/types";
 import { printBonusVoucher, printPayslips } from "../../print/print";
 import type { BonusVoucher, Payslip } from "../../print/templates";
 import { monthLabel, runStatus } from "./PayrollPage";
+import { SendPayslips } from "./SendPayslips";
 
 interface Line {
   employeeId: string; name: string; job: string; workedDays: number; basicFils: number; allowancesFils: number; unpaidDays: number; unpaidDeductionFils: number;
@@ -30,6 +31,7 @@ export function PayrollRunPage() {
   const [busy, setBusy] = useState<string | null>(null);
   const [paying, setPaying] = useState<"wps" | "bonus" | null>(null);
   const [editing, setEditing] = useState<Line | null>(null);
+  const [sending, setSending] = useState(false);
   if (!data || !garage || !settings) return <Spinner />;
   const r = data.run;
   const draft = r.status === "draft";
@@ -72,6 +74,7 @@ export function PayrollRunPage() {
             {cashBonus && <Button icon={<Printer className="size-4" />} busy={busy === "voucher"} onClick={() => void voucher()}>Print bonus voucher</Button>}
             {cashBonus && !r.bonusPaidOn && <Button onClick={() => setPaying("bonus")}>Mark bonus paid</Button>}
             <Button icon={<Printer className="size-4" />} busy={busy === "slips"} onClick={() => void slips()}>Print payslips</Button>
+            <Button onClick={() => setSending(true)}>Send payslips</Button>
           </>
         )} />
       <Card padded={false}>
@@ -111,6 +114,7 @@ export function PayrollRunPage() {
         </div>
       </Card>
       <PayModal kind={paying} runId={r.id} onClose={() => setPaying(null)} onDone={() => void reload()} />
+      <SendPayslips open={sending} runId={r.id} month={r.month} onClose={() => setSending(false)} />
       <LineModal line={editing} runId={r.id} onClose={() => setEditing(null)} onDone={() => void reload()} />
     </>
   );

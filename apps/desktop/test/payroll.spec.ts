@@ -118,6 +118,36 @@ test("a month's payroll: employees, approval, WPS, bonus, payslips", async ({ pa
   await page.getByRole("button", { name: "Print payslips" }).click();
   await shot("02-paid");
 
+  // Payslips by email: Sami has an address.
+  const sami = (await (await request.get(`${API}/api/employees`, { headers })).json()).employees.find((e: { name: string }) => e.name === "Sami Haddad");
+  await request.patch(`${API}/api/employees/${sami.id}`, { headers, data: { email: "sami@example.com" } });
+  await page.getByRole("button", { name: "Send payslips" }).click();
+  const send = page.getByRole("dialog");
+  await send.getByRole("button", { name: "Email all with an address" }).click();
+  await expect(send.getByRole("row", { name: /Sami Haddad/ })).toContainText(/Queued|Sent|Failed/); // no mail server in this test garage: the message exists, sending fails
+  await send.getByRole("button", { name: "Close", exact: true }).first().click();
+
+  // Sami leaves at the end of last month: his final settlement.
+  const lastDay = addDays(addDays(start, 40).slice(0, 8) + "01", -1);
+  await request.patch(`${API}/api/employees/${sami.id}`, { headers, data: { leftDate: lastDay } });
+  await page.goto(`/#/employees/${sami.id}`);
+  await page.getByRole("button", { name: "Final settlement" }).click();
+  await expect(page.getByTestId("settlement-item")).toHaveCount(4);
+  await page.getByRole("row", { name: /Leave not taken/ }).getByRole("button", { name: "Change" }).click();
+  const change = page.getByRole("dialog");
+  await change.getByLabel("Amount").fill("50");
+  await change.getByLabel("Reason").fill("Agreed with the owner");
+  await change.getByRole("button", { name: "Save" }).click();
+  await expect(page.getByRole("row", { name: /Leave not taken/ })).toContainText("Agreed with the owner");
+  await page.getByRole("button", { name: "Approve" }).click();
+  await expect(page.getByTestId("settlement-status")).toContainText("Approved");
+  await page.getByRole("button", { name: "Mark paid" }).click();
+  await page.getByRole("dialog").getByLabel("Paid from").selectOption({ label: "1020 Bank" });
+  await page.getByRole("dialog").getByRole("button", { name: "Mark paid" }).click();
+  await expect(page.getByTestId("settlement-status")).toContainText("Paid");
+  await page.getByRole("button", { name: "Print letter" }).click();
+  await shot("03-settlement");
+
   // The opening balances (they clear what was brought forward: Ravi's gratuity and advance from before the books).
   const proposal = await (await request.get(`${API}/api/books/opening/proposal`, { headers })).json();
   const opening = (await (await request.post(`${API}/api/books/drafts`, { headers, data: { kind: "opening", date: proposal.date, narration: "Opening balances", lines: proposal.lines } })).json()).draft;

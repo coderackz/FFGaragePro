@@ -33,6 +33,7 @@ import { EmployeePage } from "./pages/payroll/EmployeePage";
 import { EmployeesPage } from "./pages/payroll/EmployeesPage";
 import { PayrollPage } from "./pages/payroll/PayrollPage";
 import { PayrollRunPage } from "./pages/payroll/PayrollRunPage";
+import { SettlementPage } from "./pages/payroll/SettlementPage";
 import { ExpensesPage } from "./pages/payables/ExpensesPage";
 import { MoneyPage } from "./pages/payables/MoneyPage";
 import { PayablesAgingPage } from "./pages/payables/PayablesAgingPage";
@@ -94,6 +95,7 @@ export function App() {
           <>
             <Route path="/employees" element={<EmployeesPage />} />
             <Route path="/employees/:id" element={<EmployeePage />} />
+            <Route path="/employees/:id/settlement" element={<SettlementPage />} />
             <Route path="/payroll" element={<PayrollPage />} />
             <Route path="/payroll/:id" element={<PayrollRunPage />} />
           </>

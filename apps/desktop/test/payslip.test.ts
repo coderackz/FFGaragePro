@@ -1,7 +1,7 @@
 import { DEFAULT_SETTINGS } from "@ffgp/shared";
 import { describe, expect, it } from "vitest";
 import { SAMPLE_GARAGE } from "../src/renderer/print/sample";
-import { renderBonusVoucherHtml, renderPayslipsHtml, type Payslip } from "../src/renderer/print/templates";
+import { renderBonusVoucherHtml, renderPayslipsHtml, renderSettlementHtml, type Payslip } from "../src/renderer/print/templates";
 import "../src/renderer/print/arabic-font";
 
 const slip = (language: "en" | "en_ar"): Payslip => ({
@@ -28,4 +28,23 @@ describe("payslips and bonus vouchers", () => {
     expect(html).toContain("250.00");
     expect(html).toContain("Signature");
   });
+  it("the settlement letter shows each amount, how it was worked out, and any reason", () => {
+    const html = renderSettlementHtml({
+      employeeId: "e1", name: "Sami Haddad", nameAr: "سامي حداد", job: "Electrician", language: "en_ar", joinDate: "2025-03-01", lastDay: "2026-10-31",
+      items: [
+        { key: "salary", label: "Salary to the last day", proposedFils: 250000, amountFils: 250000, how: "31 days of 2,500.00 a month at Gross ÷ 30, less 0 unpaid days", reason: null },
+        { key: "leave", label: "Leave not taken", proposedFils: 158333, amountFils: 5000, how: "19 days not taken × 83.33 a day (Basic ÷ 30)", reason: "Agreed with the owner" },
+        { key: "gratuity", label: "End-of-service gratuity", proposedFils: 290000, amountFils: 290000, how: "1 year 245 days: 21 days of basic a year", reason: null },
+        { key: "advances", label: "Advances still owed", proposedFils: 0, amountFils: 0, how: "None owed", reason: null },
+      ],
+      totalFils: 545000,
+    }, SAMPLE_GARAGE, DEFAULT_SETTINGS);
+    expect(html).toContain("FINAL SETTLEMENT");
+    expect(html).toContain("Sami Haddad");
+    expect(html).toContain("Agreed with the owner");
+    expect(html).toContain("Basic ÷ 30");
+    expect(html).toContain("5,450.00");
+    expect(html).toContain("سامي حداد");
+  });
 });
+
