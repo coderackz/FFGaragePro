@@ -4,6 +4,8 @@ import { useEffect, useRef, useState } from "react";
 import { toast } from "sonner";
 import { Button, Field, Input, Modal, Select, Spinner, Textarea } from "../components/ui";
 import { useAuth } from "../lib/auth";
+import { useApi } from "../lib/useApi";
+import type { MessageTemplate } from "../pages/settings/sections/TemplatesSection";
 import type { Customer } from "../lib/types";
 import { EVENT_LABELS } from "./labels";
 import { makePdf } from "./pdf";
@@ -30,6 +32,9 @@ export function SendDialog({ request: r, onClose }: { request: SendRequest; onCl
   const [subject, setSubject] = useState("");
   const [body, setBody] = useState("");
   const [busy, setBusy] = useState<"email" | "whatsapp" | null>(null);
+  // The garage's own templates: "" is the default text for this message.
+  const [templateId, setTemplateId] = useState("");
+  const templates = useApi<{ templates: MessageTemplate[] }>("/api/message-templates");
   const [done, setDone] = useState<{ email?: boolean; whatsapp?: boolean }>({});
   const pdf = useRef<Promise<{ fileName: string; base64: string }> | null>(null);
 
@@ -43,10 +48,12 @@ export function SendDialog({ request: r, onClose }: { request: SendRequest; onCl
   const to = data?.recipients[index];
   useEffect(() => {
     if (!data || !to) return;
-    const text = compose(r, ev, to, language, data.customer.balanceFils ?? null);
+    const t = templates.data?.templates.find((x) => x.id === templateId);
+    const texts = t ? { ...ev, subjectEn: t.subjectEn ?? "", subjectAr: t.subjectAr ?? t.subjectEn ?? "", textEn: t.textEn, textAr: t.textAr } : ev;
+    const text = compose(r, texts, to, language, data.customer.balanceFils ?? null);
     setSubject(text.subject);
     setBody(text.body);
-  }, [data, to, language, r, ev]);
+  }, [data, to, language, r, ev, templateId, templates.data]);
 
   const attachment = () => {
     if (!r.pdf) return Promise.resolve(null);
@@ -127,6 +134,13 @@ export function SendDialog({ request: r, onClose }: { request: SendRequest; onCl
               </Select>
             </Field>
           </div>
+          <Field label="Template">
+            <Select value={templateId} onChange={(e) => setTemplateId(e.target.value)} aria-label="Template">
+              <option value="">Default for this message</option>
+              {(templates.data?.templates ?? []).filter((t) => (t.channel === "email" ? canEmail : t.channel === "whatsapp" ? canWhatsApp : true))
+                .map((t) => <option key={t.id} value={t.id}>{t.name}</option>)}
+            </Select>
+          </Field>
           {canEmail && <Field label="Subject"><Input value={subject} onChange={(e) => setSubject(e.target.value)} aria-label="Subject" dir={language === "ar" ? "rtl" : undefined} /></Field>}
           <Field label="Message">
             <Textarea rows={5} value={body} onChange={(e) => setBody(e.target.value)} aria-label="Message" dir={language === "ar" ? "rtl" : undefined} lang={language} />

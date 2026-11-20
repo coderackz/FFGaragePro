@@ -188,6 +188,31 @@ test.describe.serial("messages", () => {
     await expect(page.getByTestId("message-log")).toContainText("Opened in WhatsApp");
   });
 
+  test("a template of the garage's own fills the message", async ({ page, request }) => {
+    page.on("pageerror", (e) => console.log("PAGEERROR", e.message));
+    const headers = await signIn(page);
+    // Settings → Message templates: a WhatsApp and email template.
+    await nav(page, "Settings");
+    await page.getByTestId("tile-message-templates").click();
+    await page.getByRole("button", { name: "New template" }).click();
+    const form = page.getByRole("dialog");
+    await form.getByLabel("Name", { exact: true }).fill("Thank you note");
+    await form.getByLabel("Subject (English)").fill("Thank you from {garage}");
+    await form.getByLabel("Text (English)").fill("Dear {customer}, thank you for choosing {garage}.");
+    await form.getByLabel("Text (Arabic)").fill("عزيزي {customer}، شكراً لاختياركم {garage}.");
+    await form.getByRole("button", { name: "Save template" }).click();
+    await expect(page.getByRole("row", { name: /Thank you note/ })).toBeVisible();
+
+    const customer = (await (await request.post(`${API}/api/customers`, { headers, data: { kind: "individual", name: "Mona Saeed", phone: "050 765 4321" } })).json()).customer;
+    const jc = (await (await request.post(`${API}/api/documents`, { headers, data: { type: "jobcard", customerId: customer.id } })).json()).document;
+    await page.goto(`/#/documents/${jc.id}`);
+    await page.getByLabel("Status").selectOption("completed");
+    await page.getByRole("button", { name: "Send message" }).click();
+    const dialog = page.getByRole("dialog");
+    await dialog.getByLabel("Template").selectOption({ label: "Thank you note" });
+    await expect(dialog.getByLabel("Message")).toHaveValue(/^Dear Mona Saeed, thank you for choosing/);
+  });
+
   test("failed message shows on the dashboard and retries", async ({ page, request }) => {
     const headers = await signIn(page);
     // A mail server that isn't there: tried 4 times (fast in tests), then failed.

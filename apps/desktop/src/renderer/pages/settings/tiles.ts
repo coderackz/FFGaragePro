@@ -142,6 +142,10 @@ export const TILES: Tile[] = [
     id: "backups", group: "running", title: "Backups", blurb: "Daily copy on this PC · restore", show: holdsGarage, status: backupStatus,
   },
   {
+    id: "message-templates", group: "running", title: "Message templates", blurb: "Your own texts for email and WhatsApp", show: always,
+    status: () => ok("Picked when sending"),
+  },
+  {
     id: "messages", group: "running", title: "Messages", blurb: "WhatsApp, email, templates", show: always,
     status: (c) => {
       const failed = c.overview?.failedMessages ?? 0;
