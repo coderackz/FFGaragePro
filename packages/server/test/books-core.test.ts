@@ -29,9 +29,9 @@ describe("books core", () => {
     expect((await call(app, "PATCH", `/api/books/accounts/${A.bank.id}`, owner, { name: "Emirates NBD current" })).body.account.name).toBe("Emirates NBD current");
     expect((await call(app, "PATCH", `/api/books/accounts/${A.bank.id}`, owner, { type: "expense" })).status).toBe(400);
     expect((await call(app, "PATCH", `/api/books/accounts/${A.bank.id}`, owner, { active: false })).status).toBe(400);
-    const added = await call(app, "POST", "/api/books/accounts", owner, { code: "6070", name: "Advertising", type: "expense" });
-    expect(added.body.account).toMatchObject({ code: "6070", systemKey: null, active: true });
-    expect((await call(app, "POST", "/api/books/accounts", owner, { code: "6070", name: "Again", type: "expense" })).status).toBe(409);
+    const added = await call(app, "POST", "/api/books/accounts", owner, { code: "6075", name: "Advertising", type: "expense" });
+    expect(added.body.account).toMatchObject({ code: "6075", systemKey: null, active: true });
+    expect((await call(app, "POST", "/api/books/accounts", owner, { code: "6075", name: "Again", type: "expense" })).status).toBe(409);
     expect((await call(app, "PATCH", `/api/books/accounts/${added.body.account.id}`, owner, { active: false })).body.account.active).toBe(false);
   });
 
