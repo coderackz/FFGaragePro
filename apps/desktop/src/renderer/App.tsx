@@ -24,6 +24,8 @@ import { AccountsPage } from "./pages/books/AccountsPage";
 import { BooksHome } from "./pages/books/BooksHome";
 import { HealthPage } from "./pages/books/HealthPage";
 import { VatReturnPage } from "./pages/books/VatReturnPage";
+import { AssetPage } from "./pages/books/AssetPage";
+import { AssetsPage } from "./pages/books/AssetsPage";
 import { JournalEditor } from "./pages/books/JournalEditor";
 import { JournalsPage, JournalView } from "./pages/books/JournalsPage";
 import { ReportPage } from "./pages/books/ReportPage";
@@ -125,6 +127,8 @@ export function App() {
             <Route path="/books/accounts" element={<AccountsPage />} />
             <Route path="/books/health" element={<HealthPage />} />
             <Route path="/books/vat" element={<VatReturnPage />} />
+            <Route path="/books/assets" element={<AssetsPage />} />
+            <Route path="/books/assets/:id" element={<AssetPage />} />
           </>
         )}
         <Route path="/documents/new/:type" element={<DocumentPage />} />

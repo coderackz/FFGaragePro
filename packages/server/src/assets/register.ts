@@ -30,7 +30,8 @@ const out = (db: Db, r: AssetRow) => {
     residualFils: r.residual_fils, openingDepreciationFils: r.opening_depreciation_fils, serial: r.serial, note: r.note, disposedOn: r.disposed_on,
     proceedsFils: r.proceeds_fils, proceedsAccountId: r.proceeds_account_id, disposalNote: r.disposal_note,
     postedFils: posted, bookValueFils: r.cost_fils - posted, monthlyFils: monthlyDepreciation(assetFigures(r)),
-    gainFils: r.disposed_on && r.proceeds_fils !== null ? r.proceeds_fils - (r.cost_fils - posted) : null,
+    // On disposal, depreciation runs through the disposal month (posted just after): the gain is against that book value.
+    gainFils: r.disposed_on && r.proceeds_fils !== null ? r.proceeds_fils - (r.cost_fils - Math.max(posted, dueThrough(r, r.disposed_on.slice(0, 7)))) : null,
   };
 };
 const row = (db: Db, id: string) => db.get<AssetRow>("SELECT * FROM fixed_assets WHERE id = ?", [id]);

@@ -220,7 +220,20 @@ set. Each tile opens its section with its own Save; every change goes to the Act
   - or opens WhatsApp per person.
   - Payslip messages are visible only to people who run payroll.
 
-Next: Accounting Part 5 (fixed assets). See `docs/superpowers/specs/2026-11-19-accounting-design.md`.
+**Fixed assets (Accounting Part 5):**
+- **Books → Fixed assets** is the register of tools, equipment, vehicles and fit-out: cost, date in use, useful life,
+  residual value, and the account it sits in.
+  - The cost reaches the books through the bill or journal that paid for it.
+  - An asset in use before the books started carries the depreciation already taken.
+- **Depreciation** is straight line, a full month from the month in use. The app posts one entry when each month ends.
+  Assets added or changed later catch up in the next entry.
+- **Sell or write off:** depreciation runs through that month; then cost and accumulated depreciation leave the books
+  against the proceeds, with the gain or loss.
+- **Books health:** the register agrees with the asset accounts and accumulated depreciation.
+
+    npm run e2e:assets                              # bill → register → 3 months posted → sold → gain → books health
+
+The accounting module (books, payables and bank, VAT return, payroll, fixed assets) is complete.
 
 ## Layout
 | Path | What |
