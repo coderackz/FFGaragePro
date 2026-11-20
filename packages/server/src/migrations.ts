@@ -1212,6 +1212,31 @@ CREATE TABLE message_templates (
   created_at TEXT NOT NULL,
   updated_at TEXT NOT NULL
 );
+
+-- Promo codes, and the one applied to a document (its terms kept on the document; each line's share of the discount).
+CREATE TABLE promo_codes (
+  id TEXT PRIMARY KEY,
+  code TEXT NOT NULL UNIQUE,
+  description TEXT,
+  kind TEXT NOT NULL CHECK (kind IN ('percent', 'amount')),
+  value REAL NOT NULL,
+  applies_to TEXT NOT NULL CHECK (applies_to IN ('all', 'labour', 'parts')),
+  valid_from TEXT,
+  valid_to TEXT,
+  min_net_fils INTEGER,
+  max_uses INTEGER,
+  once_per_customer INTEGER NOT NULL DEFAULT 0,
+  active INTEGER NOT NULL DEFAULT 1,
+  created_at TEXT NOT NULL,
+  updated_at TEXT NOT NULL
+);
+ALTER TABLE documents ADD COLUMN promo_code TEXT;
+ALTER TABLE documents ADD COLUMN promo_kind TEXT;
+ALTER TABLE documents ADD COLUMN promo_value REAL;
+ALTER TABLE documents ADD COLUMN promo_applies TEXT;
+ALTER TABLE documents ADD COLUMN promo_discount_fils INTEGER NOT NULL DEFAULT 0;
+ALTER TABLE documents ADD COLUMN promo_override_by TEXT;
+ALTER TABLE document_lines ADD COLUMN promo_fils INTEGER NOT NULL DEFAULT 0;
 `,
   },
 ];

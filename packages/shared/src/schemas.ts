@@ -138,7 +138,12 @@ export const documentUpdateSchema = z.object({
 });
 
 /** Issuing an invoice: the customer's LPO number, and the Owner's approval when over the credit limit. */
-export const issueSchema = z.object({ lpoNumber: optionalText(60), approval: approvalSchema.optional() });
+export const issueSchema = z.object({
+  lpoNumber: optionalText(60),
+  approval: approvalSchema.optional(),
+  /** The owner issues it with a promo code that has expired or been used up (recorded in the activity log). */
+  promoOverride: z.boolean().optional(),
+});
 
 export const PAYMENT_METHODS = ["cash", "card", "bank_transfer", "cheque"] as const;
 export const paymentSchema = z.object({

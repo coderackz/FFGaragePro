@@ -1,8 +1,6 @@
 import type { FastifyInstance } from "fastify";
 import {
-  dubaiDate,
-  can, CONVERTS_TO, DOC_STATUSES, DOC_TYPES, documentCreateSchema, documentUpdateSchema, formatDocNumber, lineSchema, lineTotals,
-  approvalSchema, creditNoteSchema, docTotals, dueDate, formatAED, formatNumberOf, issueSchema, paymentSchema, prefixOf, type ApprovalInput, type DocType, type LineInput,
+  type ApprovalInput, approvalSchema, can, CONVERTS_TO, creditNoteSchema, DOC_STATUSES, DOC_TYPES, docTotals, type DocType, documentCreateSchema, documentUpdateSchema, dubaiDate, dueDate, formatAED, formatDocNumber, formatNumberOf, issueSchema, type LineInput, lineSchema, lineTotals, paymentSchema, prefixOf, promoShares,
 } from "@ffgp/shared";
 import { z } from "zod";
 import { audit } from "../audit";
@@ -16,6 +14,7 @@ import { checkStockAvailable, costTakenFor, documentCost, postMovement, reconcil
 import { reserveNumber, takeNumber, type NumberSource, type Reserved } from "../numbering";
 import { getSettings } from "../settings";
 import { garage } from "./setup";
+import { codeProblem, findCode } from "../promo/codes";
 
 interface DocRow {
   id: string; type: DocType; seq: number; number: string; status: string; customer_id: string; vehicle_id: string | null;
@@ -24,10 +23,13 @@ interface DocRow {
   prices_include_vat: number; credited_fils: number; due_date: string | null; lpo_number: string | null; reason: string | null;
   driver_name: string | null; driver_phone: string | null;
   language: string;
+  promo_code: string | null; promo_kind: "percent" | "amount" | null; promo_value: number | null; promo_applies: "all" | "labour" | "parts" | null;
+  promo_discount_fils: number; promo_override_by: string | null;
 }
 interface LineRow {
   id: string; position: number; kind: string; description: string; qty: number; unit_price_fils: number;
   discount_pct: number; net_fils: number; vat_fils: number; gross_fils: number; part_id: string | null; supplied_by: string; part_name_ar?: string | null;
+  promo_fils?: number;
   po_line_id: string | null; part_no?: string | null; part_stocked?: number | null; part_on_hand?: number | null; part_unit?: string | null; po_qty?: number | null; po_received?: number | null; po_number?: string | null;
   po_id?: string | null; po_status?: string | null;
 }
@@ -172,25 +174,32 @@ export function documentRoutes(
     const lines = resolvePoLinks(docId, input);
     db.run("DELETE FROM document_lines WHERE document_id = ?", [docId]);
     const rate = vatRate();
+    const doc = getDoc(docId);
     // Fixed when the document was created, so changing the Tax setting never changes a document's totals.
-    const includeVat = !!getDoc(docId)?.prices_include_vat;
+    const includeVat = !!doc?.prices_include_vat;
+    // Parts Fleet Fix supplies are never charged to the customer.
+    const charged = lines.map((l) => (l.suppliedBy === "fleetfix" ? { ...l, unitPriceFils: 0, discountPct: 0 } : l));
+    // A promo code on the document: its discount spread over the lines it applies to, before VAT.
+    const promo = doc?.promo_code && doc.promo_kind && doc.promo_value !== null && doc.promo_applies
+      ? promoShares(charged, { kind: doc.promo_kind, value: doc.promo_value, appliesTo: doc.promo_applies }, includeVat) : null;
     let net = 0, vat = 0, gross = 0;
-    lines.forEach((input, i) => {
-      // Parts Fleet Fix supplies are never charged to the customer.
-      const line = input.suppliedBy === "fleetfix" ? { ...input, unitPriceFils: 0, discountPct: 0 } : input;
+    charged.forEach((base, i) => {
+      const line = { ...base, promoFils: promo?.shares[i] ?? 0 };
       const t = lineTotals(line, rate, includeVat);
       net += t.netFils; vat += t.vatFils; gross += t.grossFils;
       db.run(
         `INSERT INTO document_lines (id, document_id, position, kind, description, qty, unit_price_fils, discount_pct, net_fils, vat_fils, gross_fils,
-           part_id, supplied_by, po_line_id)
-         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+           part_id, supplied_by, po_line_id, promo_fils)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
         [
           newId(), docId, i, line.kind, line.description, line.qty, line.unitPriceFils, line.discountPct, t.netFils, t.vatFils, t.grossFils,
-          line.partId ?? null, line.suppliedBy, line.poLineId ?? null,
+          line.partId ?? null, line.suppliedBy, line.poLineId ?? null, line.promoFils,
         ],
       );
     });
-    db.run("UPDATE documents SET net_fils = ?, vat_fils = ?, gross_fils = ?, updated_at = ? WHERE id = ?", [net, vat, gross, now(), docId]);
+    db.run("UPDATE documents SET net_fils = ?, vat_fils = ?, gross_fils = ?, promo_discount_fils = ?, updated_at = ? WHERE id = ?", [
+      net, vat, gross, promo?.discountFils ?? 0, now(), docId,
+    ]);
     if (getDoc(docId)?.type === "jobcard") reconcileDocumentStock(db, docId, userId, { block: blockStock() });
   }
 
@@ -277,7 +286,7 @@ export function documentRoutes(
       customer, vehicle, source, derived, creditNotes,
       lines: lines.map((l) => ({
         id: l.id, kind: l.kind, description: l.description, qty: l.qty, unitPriceFils: l.unit_price_fils,
-        discountPct: l.discount_pct, netFils: l.net_fils, vatFils: l.vat_fils, grossFils: l.gross_fils,
+        discountPct: l.discount_pct, netFils: l.net_fils, vatFils: l.vat_fils, grossFils: l.gross_fils, promoFils: l.promo_fils ?? 0,
         partId: l.part_id, partNo: l.part_no ?? null, partNameAr: l.part_name_ar ?? null,
         partStocked: l.part_id ? !!l.part_stocked : null, partOnHand: l.part_id ? l.part_on_hand ?? null : null, partUnit: l.part_unit ?? null, suppliedBy: l.supplied_by, poLineId: l.po_line_id,
         purchaseOrderId: l.po_id ?? null, purchaseOrderNumber: l.po_number ?? null,
@@ -285,6 +294,7 @@ export function documentRoutes(
         ...(cost ? { costFils: cost.lineCosts.get(l.id) ?? null } : {}),
       })),
       totals: { netFils: d.net_fils, vatFils: d.vat_fils, grossFils: d.gross_fils },
+      promo: d.promo_code ? { code: d.promo_code, kind: d.promo_kind, value: d.promo_value, appliesTo: d.promo_applies, discountFils: d.promo_discount_fils } : null,
       ...(cost
         ? { partsCostFils: cost.partsCostFils, marginFils: d.net_fils - cost.partsCostFils, costPending: cost.costPending, uncostedLines: cost.uncostedLines }
         : {}),
@@ -439,6 +449,11 @@ export function documentRoutes(
         partId: l.part_id, suppliedBy: l.supplied_by as LineInput["suppliedBy"], poLineId: l.po_line_id,
       }));
       const newDocId = insertDoc(user, { type: target, customerId: d.customer_id, vehicleId: d.vehicle_id, odometer: d.odometer, notes: d.notes, sourceId: d.id, pricesIncludeVat: !!d.prices_include_vat }, lines, target === convertsTo ? reserved : null);
+      // The promo code goes with the work (it's checked again when the invoice is issued).
+      if (d.promo_code) {
+        db.run("UPDATE documents SET promo_code = ?, promo_kind = ?, promo_value = ?, promo_applies = ? WHERE id = ?", [d.promo_code, d.promo_kind, d.promo_value, d.promo_applies, newDocId]);
+        writeLines(newDocId, lines, user.id);
+      }
       db.run("UPDATE documents SET status = 'converted', updated_at = ? WHERE id = ?", [now(), d.id]);
       if (limit.approvedBy) {
         audit(db, { action: "credit.override", entity: "document", entityId: newDocId, after: { document: getDoc(newDocId)?.number ?? null, approvedBy: limit.approvedBy }, userId: user.id });
@@ -461,6 +476,17 @@ export function documentRoutes(
       const c = creditCustomer(d.customer_id)!;
       const lpo = input.lpoNumber ?? d.lpo_number;
       if (c.lpo_required && !lpo) throw badRequest("This customer needs an LPO number on the invoice");
+      // A promo code is checked again now: it may have expired or been used up since it was applied.
+      if (d.promo_code) {
+        const code = findCode(db, d.promo_code);
+        const base = db.get<{ b: number }>(`SELECT COALESCE(SUM(${d.prices_include_vat ? "gross_fils" : "net_fils"} + promo_fils), 0) AS b FROM document_lines WHERE document_id = ? AND promo_fils > 0`, [d.id])!.b;
+        const problem = code ? codeProblem(db, code, d, base) : "No such code any more";
+        if (problem) {
+          if (!input.promoOverride || !can(user.role, "credit.override")) throw conflict(`Promo ${d.promo_code}: ${problem}`);
+          db.run("UPDATE documents SET promo_override_by = ? WHERE id = ?", [user.id, d.id]);
+          audit(db, { action: "promo.override", entity: "document", entityId: d.id, after: { document: d.number, code: d.promo_code, problem }, userId: user.id });
+        }
+      }
       const limit = checkCreditLimit(user, d.customer_id, d.gross_fils, input.approval);
       reconcileDocumentStock(db, d.id, user.id, { block: blockStock() });
       const t = now();
@@ -474,7 +500,10 @@ export function documentRoutes(
     return { document: full(req.params.id, user), ...(result.warning ? { warning: result.warning } : {}) };
   });
 
-  type SourceLine = { id: string; position: number; kind: string; description: string; qty: number; unit_price_fils: number; discount_pct: number; part_id: string | null; supplied_by: string; part_stocked: number | null };
+  type SourceLine = {
+    id: string; position: number; kind: string; description: string; qty: number; unit_price_fils: number; discount_pct: number; part_id: string | null; supplied_by: string;
+    part_stocked: number | null; net_fils: number; vat_fils: number; promo_fils: number;
+  };
 
   /**
    * The lines a credit note would take: chosen invoice lines and quantities (or everything still uncredited), each
@@ -538,7 +567,11 @@ export function documentRoutes(
       const rate = vatRate();
       let net = 0, vat = 0, gross = 0;
       lines.forEach(({ line, qty }, i) => {
-        const tt = lineTotals({ qty, unitPriceFils: line.unit_price_fils, discountPct: line.discount_pct }, rate, !!inv.prices_include_vat);
+        // A line with a promo share credits its own (discounted) amounts in proportion, never the list price.
+        const share = (v: number) => Math.round((v * qty) / line.qty);
+        const tt = line.promo_fils > 0
+          ? { netFils: share(line.net_fils), vatFils: share(line.vat_fils), grossFils: share(line.net_fils) + share(line.vat_fils) }
+          : lineTotals({ qty, unitPriceFils: line.unit_price_fils, discountPct: line.discount_pct }, rate, !!inv.prices_include_vat);
         net += tt.netFils; vat += tt.vatFils; gross += tt.grossFils;
         db.run(
           `INSERT INTO document_lines (id, document_id, position, kind, description, qty, unit_price_fils, discount_pct, net_fils, vat_fils, gross_fils,
@@ -620,5 +653,46 @@ export function documentRoutes(
     });
     return { document: full(req.params.id, user) };
   });
+  // ── Promo codes on a draft document ─────────────────────────────────────────────────────────────────────────────
+  const currentLines = (docId: string): LineInput[] =>
+    db.all<LineRow>("SELECT * FROM document_lines WHERE document_id = ? ORDER BY position", [docId]).map((l) => ({
+      kind: l.kind as LineInput["kind"], description: l.description, qty: l.qty, unitPriceFils: l.unit_price_fils, discountPct: l.discount_pct,
+      partId: l.part_id, suppliedBy: l.supplied_by as LineInput["suppliedBy"], poLineId: l.po_line_id,
+    }));
+
+  app.post<{ Params: { id: string } }>("/api/documents/:id/promo", async (req) => {
+    const user = sessionUser(db, req);
+    requireAction(user, "documents.edit");
+    const { code } = z.object({ code: z.string().trim().min(1, "Type the code").max(30) }).parse(req.body);
+    db.tx(() => {
+      const d = getDoc(req.params.id);
+      if (!d) throw notFound("Document not found");
+      if (!linesEditable(d)) throw conflict(`${d.number} can no longer be edited`);
+      const r = findCode(db, code);
+      if (!r) throw badRequest(`No such code: ${code.toUpperCase()}`);
+      const lines = currentLines(d.id);
+      const { baseFils } = promoShares(lines, { kind: r.kind, value: r.value, appliesTo: r.applies_to }, !!d.prices_include_vat);
+      if (!baseFils) throw badRequest(`${r.code} applies to ${r.applies_to === "labour" ? "labour" : "parts"}, and there's none on ${d.number}`);
+      const problem = codeProblem(db, r, d, baseFils);
+      if (problem) throw badRequest(`${r.code}: ${problem}`);
+      db.run("UPDATE documents SET promo_code = ?, promo_kind = ?, promo_value = ?, promo_applies = ?, promo_override_by = NULL WHERE id = ?", [r.code, r.kind, r.value, r.applies_to, d.id]);
+      writeLines(d.id, lines, user.id);
+    });
+    return { document: full(req.params.id, user) };
+  });
+
+  app.delete<{ Params: { id: string } }>("/api/documents/:id/promo", async (req) => {
+    const user = sessionUser(db, req);
+    requireAction(user, "documents.edit");
+    db.tx(() => {
+      const d = getDoc(req.params.id);
+      if (!d) throw notFound("Document not found");
+      if (!linesEditable(d)) throw conflict(`${d.number} can no longer be edited`);
+      db.run("UPDATE documents SET promo_code = NULL, promo_kind = NULL, promo_value = NULL, promo_applies = NULL, promo_override_by = NULL WHERE id = ?", [d.id]);
+      writeLines(d.id, currentLines(d.id), user.id);
+    });
+    return { document: full(req.params.id, user) };
+  });
+
   return { full };
 }

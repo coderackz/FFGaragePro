@@ -47,6 +47,7 @@ export const SYNC_TABLES: SyncTable[] = [
   { name: "settlement_payments", key: "id", insertOnly: true },
   { name: "fixed_assets", key: "id" },
   { name: "message_templates", key: "id" },
+  { name: "promo_codes", key: "id" },
   { name: "supplier_bills", key: "id" },
   { name: "supplier_bill_lines", key: "id", insertOnly: true },
   { name: "supplier_payments", key: "id", insertOnly: true },
