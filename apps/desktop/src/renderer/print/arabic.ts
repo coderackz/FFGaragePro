@@ -24,6 +24,21 @@ export const arabicCss = () => `${fontFaces}
 
 /** Arabic for every printed label. Labels with no entry print in English only. */
 const AR: Record<string, string> = {
+  Employee: "الموظف",
+  Job: "الوظيفة",
+  "Days worked": "أيام العمل",
+  Earnings: "المستحقات",
+  Deductions: "الاستقطاعات",
+  "Basic salary": "الراتب الأساسي",
+  "Housing allowance": "بدل السكن",
+  "Transport allowance": "بدل المواصلات",
+  "Other allowance": "بدلات أخرى",
+  "Unpaid leave": "إجازة بدون راتب",
+  "Advance repayment": "سداد السلفة",
+  "Net salary (WPS)": "صافي الراتب (نظام حماية الأجور)",
+  "Cash bonus": "مكافأة نقدية",
+  "Paid by": "طريقة الدفع",
+  "Received by (employee)": "استلمه (الموظف)",
   "Bill to": "فاتورة إلى",
   Customer: "العميل",
   Vehicle: "المركبة",

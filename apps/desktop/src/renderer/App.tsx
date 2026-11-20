@@ -31,6 +31,8 @@ import { AgingPage } from "./pages/AgingPage";
 import { BillsPage } from "./pages/payables/BillsPage";
 import { EmployeePage } from "./pages/payroll/EmployeePage";
 import { EmployeesPage } from "./pages/payroll/EmployeesPage";
+import { PayrollPage } from "./pages/payroll/PayrollPage";
+import { PayrollRunPage } from "./pages/payroll/PayrollRunPage";
 import { ExpensesPage } from "./pages/payables/ExpensesPage";
 import { MoneyPage } from "./pages/payables/MoneyPage";
 import { PayablesAgingPage } from "./pages/payables/PayablesAgingPage";
@@ -92,6 +94,8 @@ export function App() {
           <>
             <Route path="/employees" element={<EmployeesPage />} />
             <Route path="/employees/:id" element={<EmployeePage />} />
+            <Route path="/payroll" element={<PayrollPage />} />
+            <Route path="/payroll/:id" element={<PayrollRunPage />} />
           </>
         )}
         {canSee("payables.manage") && (

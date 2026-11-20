@@ -342,3 +342,61 @@ export function renderStatementHtml(
   ${bank ? `<div class="terms"><div class="bank">${esc(bank)}</div></div>` : ""}
   <footer><span>Statement · printed ${date(new Date().toISOString())}</span><span>Powered by Fleetfix Garage Pro</span></footer>`, lang);
 }
+
+// ── Payroll ────────────────────────────────────────────────────────────────────────────────────────────────────────
+export interface Payslip {
+  employee: { id: string; name: string; nameAr: string | null; job: string; language: DocLanguage; personId: string | null };
+  month: string; workedDays: number; basicFils: number; allowances: { housing: number; transport: number; other: number };
+  unpaidDays: number; unpaidDeductionFils: number; advanceRepaymentFils: number; extrasFils: number; extrasNote: string | null;
+  bonusFils: number; bonusInWps: boolean; netWpsFils: number; paidBy: string;
+}
+export interface BonusVoucher { month: string; lines: { employeeId: string; name: string; job: string; bonusFils: number }[]; totalFils: number }
+
+const monthLong = (month: string) => new Intl.DateTimeFormat("en-GB", { month: "long", year: "numeric", timeZone: "UTC" }).format(new Date(`${month}-01T00:00:00Z`));
+
+function payslipBody(p: Payslip, garage: Garage, settings: Settings): string {
+  const lang = p.employee.language;
+  const t = (en: string) => L(en, lang);
+  const title = `<div class="title"><div class="en">PAYSLIP</div><div class="ar">قسيمة الراتب</div><div class="meta">${esc(monthLong(p.month))}</div></div>`;
+  const row = (label: string, fils: number, note = "") => (fils ? `<tr><td>${t(label)}${note ? ` <span style="color:#71717a">(${esc(note)})</span>` : ""}</td><td class="r">${money(fils)}</td></tr>` : "");
+  const earnings = [
+    row("Basic salary", p.basicFils), row("Housing allowance", p.allowances.housing), row("Transport allowance", p.allowances.transport),
+    row("Other allowance", p.allowances.other), p.extrasFils > 0 ? row("Extras", p.extrasFils, p.extrasNote ?? "") : "",
+    p.bonusInWps ? row("Cash bonus", p.bonusFils) : "",
+  ].join("");
+  const deductions = [
+    row("Unpaid leave", p.unpaidDeductionFils, p.unpaidDays ? `${p.unpaidDays} day${p.unpaidDays === 1 ? "" : "s"}` : ""),
+    row("Advance repayment", p.advanceRepaymentFils), p.extrasFils < 0 ? row("Extras", -p.extrasFils, p.extrasNote ?? "") : "",
+  ].join("");
+  return `
+  ${garageHeader(garage, settings, title, lang)}
+  <div class="parties"><div class="party"><h3>${t("Employee")}</h3><div class="main">${esc(p.employee.name)}</div>${lang === "en_ar" ? arLine(p.employee.nameAr, "arl main") : ""}
+      <div class="line">${t("Job")}: ${esc(p.employee.job)}${p.employee.personId ? ` · MOHRE ${esc(p.employee.personId)}` : ""}</div></div>
+    <div class="party"><h3>${t("Days worked")}</h3><div class="main">${p.workedDays}</div><div class="line">${t("Paid by")}: ${esc(p.paidBy)}</div></div></div>
+  <table class="items"><thead><tr><th>${H("Earnings", lang)}</th><th class="r">AED</th></tr></thead><tbody>${earnings}</tbody></table>
+  ${deductions ? `<table class="items" style="margin-top:4mm"><thead><tr><th>${H("Deductions", lang)}</th><th class="r">AED</th></tr></thead><tbody>${deductions}</tbody></table>` : ""}
+  <table class="items" style="margin-top:4mm"><tbody><tr><td class="b">${t("Net salary (WPS)")}</td><td class="r b">${money(p.netWpsFils)}</td></tr>
+    ${!p.bonusInWps && p.bonusFils ? `<tr><td>${t("Cash bonus")}</td><td class="r">${money(p.bonusFils)}</td></tr>` : ""}</tbody></table>
+  <div class="sigs two"><div><span></span>${t("Received by (employee)")}</div>${garageSignature(garage, settings, lang)}</div>
+  <footer><span>${esc(monthLong(p.month))} · printed ${date(new Date().toISOString())}</span><span>Powered by Fleetfix Garage Pro</span></footer>`;
+}
+
+/** Payslips for a run: one A4 page each, in English or English + Arabic as each employee chose. */
+export function renderPayslipsHtml(slips: Payslip[], garage: Garage, settings: Settings): string {
+  const lang: DocLanguage = slips.some((s) => s.employee.language === "en_ar") ? "en_ar" : "en";
+  const pages = slips.map((s) => payslipBody(s, garage, settings));
+  return shell(`Payslips ${slips[0] ? monthLong(slips[0].month) : ""}`, pages.join('</div><div class="page" style="page-break-before:always">'), lang);
+}
+
+/** The cash bonus voucher: who gets what, with a column for each person's signature. */
+export function renderBonusVoucherHtml(v: BonusVoucher, garage: Garage, settings: Settings): string {
+  const title = `<div class="title"><div class="en">CASH BONUS</div><div class="meta">${esc(monthLong(v.month))}</div></div>`;
+  const rows = v.lines.map((l, i) => `<tr><td class="n">${i + 1}</td><td>${esc(l.name)}</td><td>${esc(l.job)}</td><td class="r b">${money(l.bonusFils)}</td><td style="width:45mm"></td></tr>`).join("");
+  return shell(`Cash bonus ${monthLong(v.month)}`, `
+  ${garageHeader(garage, settings, title)}
+  <table class="items"><thead><tr><th class="n">#</th><th>Employee</th><th>Job</th><th class="r">Bonus (AED)</th><th>Signature</th></tr></thead>
+    <tbody>${rows}<tr><td></td><td class="b">Total</td><td></td><td class="r b">${money(v.totalFils)}</td><td></td></tr></tbody></table>
+  <div class="sigs two"><div><span></span>Paid by</div>${garageSignature(garage, settings)}</div>
+  <footer><span>Cash bonus · ${esc(monthLong(v.month))}</span><span>Powered by Fleetfix Garage Pro</span></footer>`);
+}
+

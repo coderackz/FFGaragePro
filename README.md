@@ -181,7 +181,30 @@ set. Each tile opens its section with its own Save; every change goes to the Act
 
     npm run e2e:vat                                 # bill + tagged journals → return figures → drill down → filed and locked → books health
 
-Next: Accounting Part 4 (payroll). See `docs/superpowers/specs/2026-11-19-accounting-design.md`.
+**Payroll (Accounting Part 4a):**
+- **Employees:**
+  - pay: basic, housing, transport, other;
+  - WPS details: IBAN or salary card, routing code, MOHRE person ID;
+  - Emirates ID, labour card, passport and visa with their expiry dates. The dashboard lists what expires within 30 days;
+  - leave: annual builds at 2.5 days a month; sick and unpaid leave by dates;
+  - advances, paid from cash or bank and taken back in instalments.
+- **Settings → Payroll:**
+  - the WPS employer details;
+  - "bonus in WPS";
+  - the pay rules the garage chooses (gratuity day rate and cap, leave basis, salary day rate). Nothing is assumed.
+- **The monthly run:**
+  1. The accountant opens the month. The app proposes each person's pay: part months, unpaid leave and advance instalments.
+  2. The accountant types the cash bonuses.
+  3. The owner approves. Approval posts the salaries and the gratuity put aside for that month.
+- **After approval:**
+  - **Download WPS file** (the MOHRE SIF);
+  - **Mark WPS paid** from the bank;
+  - **Print bonus voucher** for signatures, and **Mark bonus paid** from cash;
+  - **Print payslips** in English, or English + Arabic.
+
+    npm run e2e:payroll                             # settings → employees → advance → run → approve → WPS file → paid → payslips → books health
+
+Next: Accounting Part 4b (a leaver's final settlement; payslips by WhatsApp/email). See `docs/superpowers/specs/2026-11-19-accounting-design.md`.
 
 ## Layout
 | Path | What |

@@ -44,6 +44,7 @@ function Frame({ children }: { children: ReactNode }) {
       ? [
           { section: "Payroll" },
           { to: "/employees", label: "Employees", icon: IdCard },
+          { to: "/payroll", label: "Payroll", icon: Banknote },
         ]
       : []),
     { section: "Records" },
