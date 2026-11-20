@@ -248,3 +248,14 @@ describe("review fixes (Part 3a)", () => {
     expect(html).toContain("VAT 5% / ضريبة القيمة المضافة 5%");
   });
 });
+
+describe("credit notes print the amounts they were credited at", () => {
+  it("a promo line's credit shows its discounted amounts, not the list price", () => {
+    const base = SAMPLE_DOCUMENTS.credit_note;
+    const line = { ...base.lines[0]!, description: "Brake pads", qty: 1, unitPriceFils: 10000, discountPct: 0, netFils: 9000, vatFils: 450, grossFils: 9450 };
+    const html = renderDocumentHtml({ ...base, lines: [line], totals: { netFils: 9000, vatFils: 450, grossFils: 9450 } }, SAMPLE_GARAGE, settings());
+    expect(html).toContain("94.50");
+    expect(html).not.toContain("105.00");
+  });
+});
+

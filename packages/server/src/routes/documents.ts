@@ -472,6 +472,9 @@ export function documentRoutes(
       if (!d) throw notFound("Document not found");
       if (d.type !== "invoice") throw badRequest("Only invoices are issued");
       if (d.status !== "draft") throw conflict(`${d.number} is already issued`);
+      if (d.gross_fils <= 0 && d.promo_code && d.promo_discount_fils > 0) {
+        throw badRequest(`Promo ${d.promo_code} takes the whole bill to AED 0.00, and an invoice needs something to charge. Remove the promo, or add a charged line.`);
+      }
       if (d.gross_fils <= 0) throw badRequest("Add at least one charged line before issuing");
       const c = creditCustomer(d.customer_id)!;
       const lpo = input.lpoNumber ?? d.lpo_number;

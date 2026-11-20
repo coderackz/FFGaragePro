@@ -9,7 +9,8 @@ const realDate = z.string().regex(/^\d{4}-\d{2}-\d{2}$/, "Use a date like 2026-0
 
 export const promoSchema = z
   .object({
-    code: z.string().trim().toUpperCase().regex(/^[A-Z0-9_-]{2,30}$/, "Use 2–30 letters, numbers, - or _"),
+    // " (2)": a code made in two places offline, renamed by sync — it stays editable.
+    code: z.string().trim().toUpperCase().regex(/^[A-Z0-9_-]{2,30}( \(\d+\))?$/, "Use 2–30 letters, numbers, - or _"),
     description: z.string().trim().max(200).nullable().optional().transform((v) => v || null),
     kind: z.enum(["percent", "amount"]),
     /** Percent (0.01–100), or fils for a fixed amount. */

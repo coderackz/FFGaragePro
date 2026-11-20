@@ -90,6 +90,19 @@ describe("merge engine", () => {
     expect(JSON.parse(echo!.changed)).toEqual(["plate"]);
   });
 
+  it("same promo code made on both sides offline → the incoming one is renamed, one sync issue, and it can still be edited", async () => {
+    const { A, C, token, sync } = await pair();
+    const terms = { kind: "percent", value: 10, appliesTo: "all", oncePerCustomer: false, active: true };
+    await call(C, "POST", "/api/promo-codes", token, { ...terms, code: "RAMADAN" });
+    const atPc = (await call(A, "POST", "/api/promo-codes", token, { ...terms, code: "ramadan", value: 15 })).body.code;
+    const { pushed } = sync();
+    const codes = (app: App) => app.db.all<{ code: string }>("SELECT code FROM promo_codes ORDER BY code").map((r) => r.code);
+    expect(codes(C)).toEqual(["RAMADAN", "RAMADAN (2)"]);
+    expect(codes(A)).toEqual(codes(C));
+    expect(pushed.result.issues[0]).toMatchObject({ kind: "unique_rename", table: "promo_codes", rowId: atPc.id });
+    expect((await call(C, "PATCH", `/api/promo-codes/${atPc.id}`, token, { active: false })).status).toBe(200);
+  });
+
   it("lines of an invoice issued at the cloud are not replaced by an offline PC's edit; a sync issue is recorded", async () => {
     let inv = "";
     const { A, C, token, sync } = await pair(async (app, t) => {

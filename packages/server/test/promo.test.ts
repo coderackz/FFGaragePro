@@ -102,4 +102,28 @@ describe("promo codes", () => {
     const flagged = (await call(g.app, "GET", "/api/reports/promo-codes", g.owner)).body.codes;
     expect(flagged.find((r: { code: string }) => r.code === "SERVICE10")).toMatchObject({ uses: 2, overLimit: true });
   });
+
+  it("a promo that takes the whole bill is refused at issue with the reason", async () => {
+    const g = await garage();
+    await g.code({ code: "FREE", value: 100 });
+    const inv = await g.doc("invoice", [LABOUR]);
+    expect((await g.apply(inv.id, "FREE")).status).toBe(200);
+    const refused = await g.issue(inv.id);
+    expect(refused.status).toBe(400);
+    expect(refused.body.error).toMatch(/FREE takes the whole bill/);
+  });
+
+  it("a code on documents can't be renamed (its uses would be lost)", async () => {
+    const g = await garage();
+    const made = (await g.code({ code: "ONE", maxUses: 1 })).body.code;
+    const inv = await g.doc("invoice", [LABOUR]);
+    await g.apply(inv.id, "ONE");
+    await g.issue(inv.id);
+    const renamed = await call(g.app, "PATCH", `/api/promo-codes/${made.id}`, g.owner, { code: "ONE2" });
+    expect(renamed.status).toBe(409);
+    expect(renamed.body.error).toMatch(/can't change/);
+    expect((await call(g.app, "PATCH", `/api/promo-codes/${made.id}`, g.owner, { active: false })).status).toBe(200);
+    const unused = (await g.code({ code: "TWO" })).body.code;
+    expect((await call(g.app, "PATCH", `/api/promo-codes/${unused.id}`, g.owner, { code: "TWO2" })).body.code.code).toBe("TWO2");
+  });
 });

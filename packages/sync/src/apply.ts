@@ -26,6 +26,7 @@ const UNIQUE: Record<string, { col: string; label: string; activeOnly?: boolean 
   vehicles: { col: "plate", label: "Vehicle plate" },
   users: { col: "username", label: "Username" },
   parts: { col: "part_no", label: "Part number", activeOnly: true },
+  promo_codes: { col: "code", label: "Promo code" },
 };
 
 /** What may still change on an issued invoice when it arrives from elsewhere (the issue itself, payments' status). */
@@ -388,7 +389,7 @@ const TABLE_LABELS: Record<string, string> = {
   garage: "the garage details", settings: "a setting", users: "a user", customers: "a customer", vehicles: "a vehicle",
   parts: "a part", suppliers: "a supplier", documents: "a document", purchase_orders: "a purchase order", po_lines: "a purchase order line",
   document_lines: "a document's lines", payments: "a payment", receipts: "a receipt", receipt_allocations: "a payment allocation", document_prints: "a print record", audit_log: "an activity log entry", goods_receipts: "a delivery", goods_receipt_lines: "a delivery line",
-  stock_movements: "a stock movement",
+  stock_movements: "a stock movement", promo_codes: "a promo code", message_templates: "a message template",
 };
 
 /** Why a change didn't fit, in words an owner can act on (the database's own message stays in the issue's detail). */

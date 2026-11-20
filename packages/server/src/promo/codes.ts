@@ -32,6 +32,10 @@ export function updateCode(db: Db, id: string, input: unknown) {
   const r = db.get<PromoRow>("SELECT * FROM promo_codes WHERE id = ?", [id]);
   if (!r) throw notFound("Promo code not found");
   const p = promoSchema.parse({ ...asInput(r), ...(input as object) });
+  // Documents carry the code by name: renaming it would lose its uses and orphan its invoices.
+  if (p.code !== r.code && db.get("SELECT 1 FROM documents WHERE promo_code = ?", [r.code])) {
+    throw conflict(`${r.code} is already on documents, so its code can't change. Make a new code instead (and switch this one off).`);
+  }
   const other = findCode(db, p.code);
   if (other && other.id !== id) throw conflict(`${p.code} already exists`);
   db.run(`UPDATE promo_codes SET ${COLS.map((c) => `${c} = ?`).join(", ")}, updated_at = ? WHERE id = ?`, [...vals(p), now(), id]);

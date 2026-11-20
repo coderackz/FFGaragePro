@@ -3,7 +3,7 @@ import { useEffect, useMemo, useState } from "react";
 import { Link, useNavigate, useParams, useSearchParams } from "react-router";
 import { toast } from "sonner";
 import {
-  catalogueLinePrice, CONVERTS_TO, DEFAULT_SETTINGS, DOC_LABELS, DOC_STATUSES, LINE_KINDS, PAYMENT_METHODS, STATUS_LABELS, docTotals, lineTotals, promoShares, type DocType, type LineKind,
+  catalogueLinePrice, CONVERTS_TO, DEFAULT_SETTINGS, DOC_LABELS, DOC_STATUSES, LINE_KINDS, PAYMENT_METHODS, STATUS_LABELS, docTotals, promoShares, type DocType, type LineKind,
 } from "@ffgp/shared";
 import { CustomerPicker } from "../components/CustomerPicker";
 import { CustomerFormModal } from "../components/forms";
@@ -18,6 +18,7 @@ import { useApi } from "../lib/useApi";
 import { CreditNoteDialog } from "../components/CreditNoteDialog";
 import { useOwnerApproval } from "../components/OwnerApproval";
 import { printDocument } from "../print/print";
+import { shownLineTotals } from "../print/templates";
 import { MessageLog } from "../components/MessageLog";
 import { afterAction, askToSend, documentRequest, receiptRequest } from "../messages/triggers";
 import type { MessageEvent } from "@ffgp/shared";
@@ -432,7 +433,7 @@ export function DocumentPage() {
             ))}
           >
             <LinesTable
-              lines={draft.lines} editable={editable} vatRate={vatRate} includeVat={includeVat} onChange={updateLine}
+              type={type} lines={draft.lines} editable={editable} vatRate={vatRate} includeVat={includeVat} onChange={updateLine}
               onRemove={(i) => update({ lines: draft.lines.filter((_, j) => j !== i) })}
               onRequest={type === "jobcard" && !isNew && editable && can("documents.edit") ? onRequest : undefined}
               showCost={can("costs.view")}
@@ -583,8 +584,8 @@ function Row({ label, value, strong }: { label: string; value: string; strong?: 
   );
 }
 
-function LinesTable({ lines, editable, vatRate, includeVat, onChange, onRemove, onRequest, showCost }: {
-  lines: DocLine[]; editable: boolean; vatRate: number; includeVat: boolean; onChange: (i: number, l: Partial<DocLine>) => void; onRemove: (i: number) => void;
+function LinesTable({ type, lines, editable, vatRate, includeVat, onChange, onRemove, onRequest, showCost }: {
+  type: DocType; lines: DocLine[]; editable: boolean; vatRate: number; includeVat: boolean; onChange: (i: number, l: Partial<DocLine>) => void; onRemove: (i: number) => void;
   onRequest?: (i: number) => void; showCost: boolean;
 }) {
   if (lines.length === 0) return <Empty title="No items" />;
@@ -605,7 +606,7 @@ function LinesTable({ lines, editable, vatRate, includeVat, onChange, onRemove, 
       </thead>
       <tbody className="divide-y divide-zinc-100">
         {lines.map((line, i) => {
-          const t = lineTotals(line, vatRate, includeVat);
+          const t = shownLineTotals({ type, pricesIncludeVat: includeVat }, line, vatRate);
           return (
             <tr key={i} className="align-top">
               <td className="px-3 py-1.5">

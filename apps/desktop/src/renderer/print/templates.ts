@@ -121,6 +121,17 @@ const headCss = (lang: DocLanguage, extra = "") => `<style>${PAGE_CSS}${lang ===
 const KIND = { labour: "Labour", part: "Part", other: "Other" } as Record<string, string>;
 
 /** Self-contained A4 HTML for one document. The garage is the seller, so its details lead the page. */
+/**
+ * A line's amounts as shown: a credit note's lines keep what they were credited at (a promo line's discounted
+ * amounts, in proportion), so its stored figures are shown; other documents work them out (with any promo share).
+ */
+export function shownLineTotals(doc: Pick<DocumentFull, "type" | "pricesIncludeVat">, l: DocumentFull["lines"][number], vatRateBp: number) {
+  if (doc.type === "credit_note" && l.netFils !== undefined && l.vatFils !== undefined && l.grossFils !== undefined) {
+    return { netFils: l.netFils, vatFils: l.vatFils, grossFils: l.grossFils };
+  }
+  return lineTotals(l, vatRateBp, doc.pricesIncludeVat);
+}
+
 export function renderDocumentHtml(doc: DocumentFull, garage: Garage, settings: Settings, opts: { copy?: boolean } = {}): string {
   const title = TITLES[doc.type];
   const ds = settings.documents;
@@ -146,7 +157,7 @@ export function renderDocumentHtml(doc: DocumentFull, garage: Garage, settings: 
         const notes = [partNo(l), l.suppliedBy === "fleetfix" ? "Supplied by Fleet Fix" : ""].filter(Boolean).join(" · ");
         return `<tr><td class="n">${i + 1}</td><td>${esc(l.description)}${bi ? arLine(l.partNameAr) : ""}${notes ? `<div class="k">${notes}</div>` : ""}</td><td>${KIND[l.kind] ?? ""}</td><td class="r">${qty(l)}</td><td class="c"><span class="box"></span></td></tr>`;
       }
-      const t = lineTotals(l, garage.vatRateBp, doc.pricesIncludeVat);
+      const t = shownLineTotals(doc, l, garage.vatRateBp);
       const notes = [KIND[l.kind] ?? "", partNo(l), l.suppliedBy === "fleetfix" ? "Supplied by Fleet Fix" : ""].filter(Boolean).join(" · ");
       return `<tr><td class="n">${i + 1}</td><td>${esc(l.description)}${bi ? arLine(l.partNameAr) : ""}<div class="k">${notes}</div></td><td class="r">${qty(l)}</td><td class="r">${money(l.unitPriceFils)}</td><td class="r">${l.discountPct ? `${l.discountPct}%` : "—"}</td><td class="r">${money(t.netFils)}</td><td class="r">${money(t.vatFils)}</td><td class="r b">${money(t.grossFils)}</td></tr>`;
     })
