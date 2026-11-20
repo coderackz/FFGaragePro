@@ -5,7 +5,8 @@ import { linkDownload, readOnlyGuard, SyncClient } from "@ffgp/sync";
 import { call, tempDir } from "../../../packages/server/test/helpers";
 import { api, garageReady, SETUP, startCloud } from "./helpers";
 
-vi.setConfig({ testTimeout: 30_000, hookTimeout: 30_000 });
+// A cloud and a PC per test, each garage built through every migration: Windows CI runners need well over 30 s.
+vi.setConfig({ testTimeout: 90_000, hookTimeout: 90_000 });
 
 describe("books in the cloud", () => {
   it("linked PC never posts; cloud entries arrive by sync", async () => {
