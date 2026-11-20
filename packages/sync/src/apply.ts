@@ -4,7 +4,7 @@ import { recomputeDocument, recomputePart, recomputePurchaseOrder } from "./reco
 import { numState, setState } from "./state";
 import { tableInfo, type SyncTable } from "./tables";
 
-export type IssueKind = "unique_rename" | "frozen_invoice" | "apply_failed" | "frozen_payroll";
+export type IssueKind = "unique_rename" | "frozen_invoice" | "apply_failed" | "frozen_payroll" | "frozen_asset";
 
 export interface SyncIssue {
   id: string;
@@ -338,6 +338,17 @@ function applyEntry(c: Ctx, e: ChangeEntry): boolean {
       return false;
     }
   }
+  // A sold or written-off asset left the books as it stood: its figures and its disposal don't change from elsewhere.
+  if (c.mode === "cloud" && t.name === "fixed_assets" && current?.disposed_on) {
+    const frozen = Object.keys(values).filter((k) => ASSET_FIGURES.has(k) && !same(current[k], values[k]));
+    if (frozen.length) {
+      logOwn(c, t, e.rowId, frozen);
+      addIssue(c, "frozen_asset", "fixed_assets", e.rowId, `${String(current.name)} had already been sold or written off, so changes from ${c.from} were not applied.`, {
+        fields: Object.fromEntries(frozen.map((k) => [k, values[k]])),
+      });
+      return false;
+    }
+  }
   // A settled employee's dates and pay are what their approved final settlement paid on: refused from elsewhere.
   if (c.mode === "cloud" && t.name === "employees" && current && c.db.get(
     "SELECT 1 FROM settlement_approvals a JOIN final_settlements f ON f.id = a.settlement_id WHERE f.employee_id = ?", [e.rowId])) {
@@ -506,6 +517,7 @@ export function changesFor(db: Db, afterSeq: number, device: string, limit = 500
   });
 }
 
+const ASSET_FIGURES = new Set(["account_id", "cost_fils", "in_use_from", "life_months", "residual_fils", "opening_depreciation_fils", "disposed_on", "proceeds_fils", "proceeds_account_id"]);
 const SETTLED_COLUMNS = new Set(["join_date", "left_date", "basic_fils", "housing_fils", "transport_fils", "other_allowance_fils", "leave_balance_days", "leave_balance_date"]);
 
 /**

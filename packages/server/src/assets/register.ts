@@ -1,6 +1,7 @@
 import { assetSchema, depreciationThrough, disposeSchema, dubaiDate, monthlyDepreciation, monthsBetween, SYSTEM_ACCOUNTS as A } from "@ffgp/shared";
 import { checkNotLocked } from "../books/journals";
 import { newId, now, type Db } from "../db";
+import { getSettings } from "../settings";
 import { badRequest, conflict, notFound } from "../errors";
 
 const today = () => dubaiDate(new Date().toISOString());
@@ -70,9 +71,16 @@ const COLS = ["name", "category", "account_id", "cost_fils", "in_use_from", "lif
 const values = (x: ReturnType<typeof assetSchema.parse>) =>
   [x.name, x.category, x.accountId, x.costFils, x.inUseFrom, x.lifeMonths, x.residualFils, x.openingDepreciationFils, x.serial, x.note];
 
+/** Depreciation taken before the books belongs to an asset in use before they started. */
+function checkOpening(db: Db, x: { inUseFrom: string; openingDepreciationFils: number }) {
+  const start = getSettings(db).books.startDate;
+  if (x.openingDepreciationFils > 0 && start && x.inUseFrom >= start) throw badRequest("Depreciation before the books is only for an asset in use before they started");
+}
+
 export function createAsset(db: Db, input: unknown, userId: string) {
   const x = assetSchema.parse(input);
   checkAccount(db, x.accountId);
+  checkOpening(db, x);
   const id = newId();
   const t = now();
   db.run(`INSERT INTO fixed_assets (id, ${COLS.join(", ")}, created_by, created_at, updated_at) VALUES (?, ${COLS.map(() => "?").join(", ")}, ?, ?, ?)`, [id, ...values(x), userId, t, t]);
@@ -87,6 +95,7 @@ export function updateAsset(db: Db, id: string, input: unknown) {
   const current = out(db, r);
   const x = assetSchema.parse({ ...current, ...(input as object) });
   checkAccount(db, x.accountId);
+  checkOpening(db, x);
   db.run(`UPDATE fixed_assets SET ${COLS.map((c) => `${c} = ?`).join(", ")}, updated_at = ? WHERE id = ?`, [...values(x), now(), id]);
   return getAsset(db, id);
 }

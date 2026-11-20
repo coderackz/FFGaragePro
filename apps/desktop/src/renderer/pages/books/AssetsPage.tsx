@@ -1,4 +1,4 @@
-import { ASSET_CATEGORIES, ASSET_CATEGORY_LABELS, type AssetCategory } from "@ffgp/shared";
+import { ASSET_CATEGORIES, ASSET_CATEGORY_LABELS, depreciationThrough, type AssetCategory } from "@ffgp/shared";
 import { Plus, Wrench } from "lucide-react";
 import { useEffect, useState } from "react";
 import { useNavigate } from "react-router";
@@ -71,7 +71,10 @@ export function AssetForm({ open, asset, onClose, onSaved }: { open: boolean; as
   useEffect(() => { if (open) setD(asset ? { ...asset } : blank()); }, [open, asset]);
   const set = (p: Partial<Draft>) => setD((x) => ({ ...x, ...p }));
   const start = settings?.books.startDate ?? null;
-  const beforeBooks = !!start && d.inUseFrom < start;
+  const beforeBooks = !start || d.inUseFrom < start;
+  // What straight line says was taken before the books: offered, since the opening balances should hold the same.
+  const monthBefore = start ? new Date(Date.UTC(Number(start.slice(0, 4)), Number(start.slice(5, 7)) - 2, 1)).toISOString().slice(0, 7) : null;
+  const suggested = monthBefore && d.costFils > 0 && d.lifeMonths > 0 ? depreciationThrough({ costFils: d.costFils, residualFils: d.residualFils, lifeMonths: d.lifeMonths, inUseFrom: d.inUseFrom }, monthBefore) : null;
   const account = d.accountId || usable.find((a) => a.code === "1500")?.id || usable[0]?.id || "";
   const save = async () => {
     setBusy(true);
@@ -99,8 +102,11 @@ export function AssetForm({ open, asset, onClose, onSaved }: { open: boolean; as
         <Field label="Life (months)"><Input inputMode="numeric" value={String(d.lifeMonths)} onChange={(e) => set({ lifeMonths: Number(e.target.value) || 0 })} aria-label="Life (months)" /></Field>
         <Field label="Residual value" hint="What it's expected to be worth at the end"><MoneyInput fils={d.residualFils} onChange={(v) => set({ residualFils: v })} aria-label="Residual value" /></Field>
         {beforeBooks && (
-          <Field label="Depreciation before the books" hint="Already taken before the books started (in your opening balances)">
-            <MoneyInput fils={d.openingDepreciationFils} onChange={(v) => set({ openingDepreciationFils: v })} aria-label="Depreciation before the books" />
+          <Field label="Depreciation before the books" hint={`Already taken before the books started (in your opening balances)${suggested !== null ? `. Straight line says ${formatAED(suggested)}` : ""}`}>
+            <div className="flex gap-2">
+              <MoneyInput fils={d.openingDepreciationFils} onChange={(v) => set({ openingDepreciationFils: v })} aria-label="Depreciation before the books" />
+              {suggested !== null && suggested !== d.openingDepreciationFils && <Button size="sm" variant="ghost" onClick={() => set({ openingDepreciationFils: suggested })}>Use</Button>}
+            </div>
           </Field>
         )}
         <Field label="Serial number"><Input value={d.serial ?? ""} onChange={(e) => set({ serial: e.target.value || null })} aria-label="Serial number" /></Field>

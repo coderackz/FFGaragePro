@@ -6,7 +6,7 @@ import {
 } from "./rules";
 
 /** Changes on this database connection when it last had nothing left to post: nothing changed since, nothing to do. */
-const settled = new WeakMap<Db, number>();
+const settled = new WeakMap<Db, string>();
 const changes = (db: Db) => db.get<{ n: number }>("SELECT total_changes() AS n")!.n;
 
 export const BATCH = 500;
@@ -18,11 +18,14 @@ export const BATCH = 500;
  * and the others carry on. Nothing before the books have a start date; nothing when nothing has changed.
  * Purchases and stock go before job costs, so a job's parts are in work in progress first.
  */
+/** Settled until something changes, or a month ends (depreciation falls due with no change at all). */
+const settledKey = (db: Db) => `${changes(db)}:${new Date(Date.now() + 4 * 3_600_000).toISOString().slice(0, 7)}`;
+
 export function postPending(db: Db, o: { limit?: number } = {}): number {
-  if (settled.get(db) === changes(db)) return 0;
+  if (settled.get(db) === settledKey(db)) return 0;
   const books = getSettings(db).books;
   if (!books.startDate) {
-    settled.set(db, changes(db));
+    settled.set(db, settledKey(db));
     return 0;
   }
   const limit = o.limit ?? BATCH;
@@ -68,7 +71,7 @@ export function postPending(db: Db, o: { limit?: number } = {}): number {
     postSettlements(ctx);
     postStockCorrection(ctx);
   });
-  if (posted < limit) settled.set(db, changes(db));
+  if (posted < limit) settled.set(db, settledKey(db));
   return posted;
 }
 

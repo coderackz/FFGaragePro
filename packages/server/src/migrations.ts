@@ -1170,6 +1170,23 @@ CREATE TABLE fixed_assets (
   created_at TEXT NOT NULL,
   updated_at TEXT NOT NULL
 );
+
+-- Sync issues gain "a sold asset was kept".
+CREATE TABLE sync_issues_new (
+  id TEXT PRIMARY KEY,
+  at TEXT NOT NULL,
+  kind TEXT NOT NULL CHECK (kind IN ('unique_rename','frozen_invoice','apply_failed','frozen_payroll','frozen_asset')),
+  table_name TEXT NOT NULL,
+  row_id TEXT NOT NULL,
+  message TEXT NOT NULL,
+  detail TEXT,
+  dismissed_at TEXT,
+  for_device TEXT
+);
+INSERT INTO sync_issues_new SELECT id, at, kind, table_name, row_id, message, detail, dismissed_at, for_device FROM sync_issues;
+DROP TABLE sync_issues;
+ALTER TABLE sync_issues_new RENAME TO sync_issues;
+CREATE INDEX sync_issues_device ON sync_issues(for_device);
 `,
   },
 ];

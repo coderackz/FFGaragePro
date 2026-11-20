@@ -117,6 +117,7 @@ const CONTROL: Record<string, string> = {
   [SYSTEM_ACCOUNTS.inventory.id]: "Inventory follows the stock: use a stock count or Revalue stock",
   [SYSTEM_ACCOUNTS.wip.id]: "Work in progress follows job cards: change the job card",
   [SYSTEM_ACCOUNTS.vat_output.id]: "Output VAT follows invoices and credit notes: use a credit note, or tag the line with its VAT return box",
+  [SYSTEM_ACCOUNTS.accumulated_depreciation.id]: "Accumulated depreciation follows the fixed asset register: add or change the asset there",
 };
 
 /** Boxes whose VAT can sit on Output VAT: zero-rated (4) and exempt (5) supplies carry none. */

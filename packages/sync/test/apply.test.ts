@@ -521,3 +521,22 @@ describe("final settlements across places (review fixes)", () => {
   });
 });
 
+describe("fixed assets across places (review fixes)", () => {
+  it("I5: a sold asset doesn't take changes from another place, nor more depreciation", async () => {
+    const now = new Date(Date.now() + 4 * 3_600_000).toISOString().slice(0, 10);
+    const start = new Date(Date.UTC(Number(now.slice(0, 4)), Number(now.slice(5, 7)) - 4, 1)).toISOString().slice(0, 10);
+    let assetId = "";
+    const { A, C, token, sync } = await pair(async (app, t) => {
+      await call(app, "PUT", "/api/settings/books", t, { startDate: start });
+      assetId = (await call(app, "POST", "/api/assets", t, { name: "Lift", category: "equipment", accountId: "00000000-0000-4000-8000-0000000a1500", costFils: 1200000, inUseFrom: start, lifeMonths: 36 })).body.asset.id;
+    });
+    await call(A, "PATCH", `/api/assets/${assetId}`, token, { lifeMonths: 12 });
+    expect((await call(C, "POST", `/api/assets/${assetId}/dispose`, token, { date: now, proceedsFils: 0 })).status).toBe(200);
+    const before = C.db.get<{ n: number }>("SELECT COUNT(*) AS n FROM journal_lines WHERE asset_id = ?", [assetId])!.n;
+    const { pushed } = sync();
+    expect(pushed.result.issues.map((i: { kind: string }) => i.kind)).toContain("frozen_asset");
+    expect(C.db.get("SELECT life_months FROM fixed_assets WHERE id = ?", [assetId])).toEqual({ life_months: 36 });
+    expect(C.db.get<{ n: number }>("SELECT COUNT(*) AS n FROM journal_lines WHERE asset_id = ?", [assetId])!.n).toBe(before);
+  });
+});
+

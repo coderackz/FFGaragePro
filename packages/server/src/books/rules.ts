@@ -540,40 +540,74 @@ const nextMonth = (month: string) => {
   return new Date(Date.UTC(y, m, 1)).toISOString().slice(0, 7);
 };
 
-/** Dr Depreciation / Cr Accumulated depreciation for each asset short of what it's due (a negative difference reverses). */
-function depreciationLines(c: PostCtx, assets: AssetRow[], month: string): PostLine[] {
+/** Depreciation posted so far per asset (with what was taken before the books), in one query. */
+function postedByAsset(c: PostCtx, assets: AssetRow[]): Map<string, number> {
+  const posted = new Map(assets.map((a) => [a.id, a.opening_depreciation_fils]));
+  for (const r of c.db.all<{ asset_id: string; v: number }>(
+    `SELECT l.asset_id, SUM(l.credit_fils - l.debit_fils) AS v FROM journal_lines l JOIN journal_entries e ON e.id = l.entry_id
+     WHERE e.source_type = 'depreciation' AND l.account_id = ? AND l.asset_id IS NOT NULL GROUP BY l.asset_id`, [A.accumulated_depreciation.id])) {
+    if (posted.has(r.asset_id)) posted.set(r.asset_id, posted.get(r.asset_id)! + r.v);
+  }
+  return posted;
+}
+
+/**
+ * What an asset should stand at through `month`: its straight-line total, never below the depreciation taken before
+ * the books (that's in the opening balances, the app doesn't reverse it).
+ */
+const targetThrough = (r: AssetRow, month: string) => Math.max(dueThrough(r, month), r.opening_depreciation_fils);
+
+/** Dr Depreciation / Cr Accumulated depreciation for each asset short of its target (a negative difference reverses). */
+function depreciationLines(assets: AssetRow[], posted: Map<string, number>, month: string): PostLine[] {
   return assets.flatMap((r) => {
-    const diff = dueThrough(r, month) - postedDepreciation(c.db, r);
+    const diff = targetThrough(r, month) - (posted.get(r.id) ?? 0);
     return diff ? [debit(A.depreciation.id, diff, { assetId: r.id, memo: r.name }), credit(A.accumulated_depreciation.id, diff, { assetId: r.id, memo: r.name })] : [];
   });
 }
 
+/** Assets the books depreciate: not sold before the books started, and not yet taken off the books by a disposal entry. */
+const assetsInBooks = (c: PostCtx) =>
+  c.db.all<AssetRow>(
+    `SELECT * FROM fixed_assets f WHERE (f.disposed_on IS NULL OR f.disposed_on >= ?) AND ${unposted("'asset_disposal:' || f.id")} ORDER BY in_use_from, created_at`,
+    [c.start],
+  );
+
 /**
- * Monthly depreciation, straight line: each ended month (from the books start) gets one entry for every asset due,
- * the first time it's posted. Assets added or changed after their months were posted catch up in an extra entry for
- * the latest ended month.
+ * Monthly depreciation, straight line. Months after the last one posted each get one entry when they end, for every
+ * asset due; earlier months are never revisited. Assets added or changed after their months were posted catch up in an
+ * extra entry for the latest ended month.
  */
 export function postDepreciation(c: PostCtx): number {
-  const assets = c.db.all<AssetRow>("SELECT * FROM fixed_assets ORDER BY in_use_from, created_at");
+  const assets = assetsInBooks(c);
   if (!assets.length) return 0;
   // The month before this one: the latest that has ended.
   const [ty, tm] = dubaiDate(new Date().toISOString()).split("-").map(Number) as [number, number];
   const lastEnded = new Date(Date.UTC(ty, tm - 2, 1)).toISOString().slice(0, 7);
-  if (lastEnded < c.start.slice(0, 7)) return 0;
+  const startMonth = c.start.slice(0, 7);
+  if (lastEnded < startMonth) return 0;
+  const months = new Map(c.db.all<{ month: string; n: number }>(
+    `SELECT source_id AS month, COUNT(*) AS n FROM journal_entries WHERE source_type = 'depreciation' AND post_key LIKE 'depreciation:%' GROUP BY source_id`,
+  ).map((r) => [r.month, r.n]));
+  const lastPosted = [...months.keys()].sort().at(-1) ?? null;
   const earliest = assets.reduce((m, a) => (a.in_use_from.slice(0, 7) < m ? a.in_use_from.slice(0, 7) : m), lastEnded);
+  const first = lastPosted ? nextMonth(lastPosted) : earliest < startMonth ? startMonth : earliest;
+  const posted = postedByAsset(c, assets);
   let n = 0;
-  for (let month = earliest < c.start.slice(0, 7) ? c.start.slice(0, 7) : earliest; month <= lastEnded; month = nextMonth(month)) {
-    const k = c.db.get<{ n: number }>("SELECT COUNT(*) AS n FROM journal_entries WHERE post_key LIKE ?", [`depreciation:${month}:%`])!.n;
-    if (k > 0 && month !== lastEnded) continue;
-    if (c.full()) break;
-    const lines = depreciationLines(c, assets, month);
-    if (!lines.length) continue;
+  const postMonth = (month: string, k: number) => {
+    const lines = depreciationLines(assets, posted, month);
+    if (!lines.length) return;
     const name = new Intl.DateTimeFormat("en-GB", { month: "long", year: "numeric", timeZone: "UTC" }).format(new Date(`${month}-01T00:00:00Z`));
     if (c.post({
       date: monthEnd(month), narration: k ? `Depreciation ${name} (catch-up)` : `Depreciation ${name}`, sourceType: "depreciation", sourceId: month,
       postKey: `depreciation:${month}:${k + 1}`, userId: null, lines,
-    })) n++;
-  }
+    })) {
+      n++;
+      for (const a of assets) posted.set(a.id, targetThrough(a, month));
+    }
+  };
+  for (let month = first; month <= lastEnded && !c.full(); month = nextMonth(month)) postMonth(month, months.get(month) ?? 0);
+  // Catch-ups (an asset added or changed after its months were posted) go in one entry for the latest ended month.
+  if (lastPosted && first > lastEnded && !c.full()) postMonth(lastEnded, months.get(lastEnded) ?? 0);
   return n;
 }
 
@@ -583,10 +617,11 @@ export function postDepreciation(c: PostCtx): number {
  */
 export function postDisposals(c: PostCtx): number {
   let n = 0;
-  for (const r of c.db.all<AssetRow>(`SELECT * FROM fixed_assets WHERE disposed_on IS NOT NULL AND ${unposted("'asset_disposal:' || fixed_assets.id")}`)) {
+  // A sale before the books started was never in them (nor its cash): nothing to post.
+  for (const r of c.db.all<AssetRow>(`SELECT * FROM fixed_assets WHERE disposed_on IS NOT NULL AND disposed_on >= ? AND ${unposted("'asset_disposal:' || fixed_assets.id")}`, [c.start])) {
     if (c.full()) break;
-    const date = r.disposed_on! < c.start ? c.start : r.disposed_on!;
-    const catchUp = depreciationLines(c, [r], r.disposed_on!.slice(0, 7));
+    const date = r.disposed_on!;
+    const catchUp = depreciationLines([r], postedByAsset(c, [r]), r.disposed_on!.slice(0, 7));
     if (catchUp.length) {
       c.post({ date, narration: `Depreciation to disposal: ${r.name}`, sourceType: "depreciation", sourceId: r.id, postKey: `depreciation_disposal:${r.id}`, userId: null, lines: catchUp });
     }
