@@ -26,6 +26,13 @@ const SYSTEM = {
   cheques_issued: ["2010", "Cheques issued"],
   vat_output: ["2100", "Output VAT"],
   vat_payable: ["2110", "VAT payable"],
+  salaries_payable: ["2200", "Salaries payable"],
+  gratuity_provision: ["2210", "Gratuity provision"],
+  staff_advances: ["1410", "Staff advances"],
+  salaries: ["6000", "Salaries"],
+  allowances: ["6001", "Allowances"],
+  staff_bonus: ["6002", "Staff bonus"],
+  gratuity_expense: ["6003", "End-of-service gratuity"],
   opening_clearing: ["2900", "Opening balance clearing"],
   retained_earnings: ["3200", "Retained earnings"],
   opening_equity: ["3300", "Opening balance equity"],
@@ -50,9 +57,8 @@ export const SYSTEM_ACCOUNTS = Object.fromEntries(
 
 const OTHER: [string, string][] = [
   ["1400", "Prepayments"], ["1500", "Tools and equipment"], ["1510", "Vehicles"], ["1590", "Accumulated depreciation"],
-  ["2200", "Salaries payable"],
   ["3000", "Owner's capital"], ["3100", "Owner's drawings"],
-  ["6000", "Salaries"], ["6010", "Rent"], ["6020", "Utilities"], ["6030", "Bank charges"], ["6040", "Fuel"],
+  ["6010", "Rent"], ["6020", "Utilities"], ["6030", "Bank charges"], ["6040", "Fuel"],
   ["6050", "Repairs and maintenance"], ["6060", "Office and admin"], ["6090", "Other expenses"],
 ];
 

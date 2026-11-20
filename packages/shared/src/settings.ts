@@ -10,7 +10,7 @@ import type { NumberKind } from "./rules";
  * people changing different settings on two PCs never overwrite each other. Every field has a default.
  */
 export const SETTINGS_SECTIONS = [
-  "garage", "documents", "numbering", "tax", "pricing", "inventory", "security", "credit", "messages", "books",
+  "garage", "documents", "numbering", "tax", "pricing", "inventory", "security", "credit", "messages", "books", "payroll",
 ] as const;
 export type SettingsSection = (typeof SETTINGS_SECTIONS)[number];
 
@@ -174,6 +174,16 @@ export const settingsSchemas = {
     ...(Object.fromEntries(MESSAGE_EVENTS.map((e) => [e, eventSchema(e)])) as { [E in MessageEvent]: ReturnType<typeof eventSchema> }),
   }),
   /** The books (Accounting): when they start, the fiscal year, the lock date, and where each payment method is banked. */
+  /** WPS employer details, and how pay is worked out (the garage's choice: no hidden defaults). */
+  payroll: z.object({
+    establishmentId: z.preprocess(blankToNull, z.string().trim().regex(/^\d{13}$/, "The MOHRE establishment ID has 13 digits").nullable()).default(null),
+    employerRoutingCode: z.preprocess(blankToNull, z.string().trim().regex(/^\d{9}$/, "The bank routing code has 9 digits").nullable()).default(null),
+    bonusInWps: z.boolean().default(false),
+    gratuityDayRate: z.enum(["basic_30", "basic_365"]).nullable().default(null),
+    gratuityCap: z.enum(["basic", "gross"]).nullable().default(null),
+    leaveBasis: z.enum(["basic", "gross"]).nullable().default(null),
+    salaryDayRate: z.enum(["gross_30", "gross_365"]).nullable().default(null),
+  }),
   books: z.object({
     startDate: z.preprocess(blankToNull, z.string().regex(/^\d{4}-\d{2}-\d{2}$/, "Use a date like 2026-01-01").nullable()).default(null),
     fiscalYearStartMonth: z.number().int().min(1).max(12).default(1),

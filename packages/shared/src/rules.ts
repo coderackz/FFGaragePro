@@ -42,6 +42,8 @@ export const ACTIONS = [
   "books.post",
   "books.lock",
   "payables.manage",
+  "payroll.manage",
+  "payroll.approve",
 ] as const;
 export type Action = (typeof ACTIONS)[number];
 
@@ -49,7 +51,7 @@ const PERMISSIONS: Record<Role, ReadonlySet<Action>> = {
   owner: new Set(ACTIONS),
   accountant: new Set<Action>([
     "customers.edit", "documents.edit", "invoices.issue", "payments.record", "costs.view", "reports.view", "inventory.edit", "purchases.manage",
-    "credit_notes.issue", "messages.send", "books.view", "books.post", "payables.manage",
+    "credit_notes.issue", "messages.send", "books.view", "books.post", "payables.manage", "payroll.manage",
   ]),
   advisor: new Set<Action>(["customers.edit", "documents.edit", "invoices.issue", "messages.send"]),
 };
