@@ -1,3 +1,4 @@
+import { postedDepreciation, type AssetRow } from "../assets/register";
 import { dubaiDate, SYSTEM_ACCOUNTS as A, type AccountType } from "@ffgp/shared";
 import type { Db } from "../db";
 import { badRequest, conflict } from "../errors";
@@ -165,6 +166,7 @@ export function health(db: Db) {
     check("inventory", stockValue(db), accountBalance(db, A.inventory.id), "Stock at average cost = Inventory"),
     check("output_vat", vat, -accountBalance(db, A.vat_output.id, ["invoice", "credit_note"]), "VAT on invoices less credit notes = Output VAT"),
     check("opening_clearing", 0, -accountBalance(db, A.opening_clearing.id), "Opening balance clearing is zero once the opening balances are in"),
+    ...fixedAssetChecks(db),
   ];
   const late = db.all<{ id: string; number: string; date: string; original_date: string; narration: string }>(
     "SELECT id, number, date, original_date, narration FROM journal_entries WHERE original_date IS NOT NULL ORDER BY date DESC LIMIT 100",
@@ -193,3 +195,23 @@ export function revalueStock(db: Db, userId: string, posts: boolean): EntryOut {
   });
   return getEntry(db, id!)!;
 }
+
+/**
+ * The fixed asset register agrees with the books: the cost of assets still held = the balance of the accounts they
+ * sit in; their depreciation (brought forward and posted) = accumulated depreciation. Only once there's a register.
+ */
+function fixedAssetChecks(db: Db) {
+  const assets = db.all<AssetRow>("SELECT * FROM fixed_assets");
+  if (!assets.length) return [];
+  const held = assets.filter((a) => !a.disposed_on);
+  const accounts = [...new Set(assets.map((a) => a.account_id))];
+  const booksCost = accounts.reduce((s, id) => s + (db.get<{ b: number | null }>("SELECT SUM(debit_fils - credit_fils) AS b FROM journal_lines WHERE account_id = ?", [id])!.b ?? 0), 0);
+  const registerCost = held.reduce((s, a) => s + a.cost_fils, 0);
+  const registerDepreciation = held.reduce((s, a) => s + postedDepreciation(db, a), 0);
+  const booksDepreciation = -(db.get<{ b: number | null }>("SELECT SUM(debit_fils - credit_fils) AS b FROM journal_lines WHERE account_id = ?", [A.accumulated_depreciation.id])!.b ?? 0);
+  const ok = registerCost === booksCost && registerDepreciation === booksDepreciation;
+  const appFils = registerCost - registerDepreciation;
+  const booksFils = booksCost - booksDepreciation;
+  return [{ key: "fixed_assets", ok, appFils, booksFils, differenceFils: appFils - booksFils, note: "Fixed asset register = asset accounts less accumulated depreciation" }];
+}
+

@@ -1,7 +1,8 @@
+import { dueThrough, postedDepreciation, type AssetRow } from "../assets/register";
 import { gratuityAtStart, type Snapshot } from "../payroll/runs";
 import type { SettlementSnapshot } from "../payroll/settlements";
 import { getSettings } from "../settings";
-import { SYSTEM_ACCOUNTS as A, type Settings } from "@ffgp/shared";
+import { dubaiDate, SYSTEM_ACCOUNTS as A, type Settings } from "@ffgp/shared";
 import type { Db } from "../db";
 import type { PostInput, PostLine } from "./post";
 
@@ -525,6 +526,80 @@ export function postSettlements(c: PostCtx): number {
     if (c.post({
       date: p.paid_on, narration: `Final settlement paid: ${p.name}`, sourceType: "settlement_paid", sourceId: p.settlement_id, postKey: `settlement_paid:${p.settlement_id}`,
       userId: null, lines: [debit(A.salaries_payable.id, p.amount_fils), credit(p.account_id, p.amount_fils)],
+    })) n++;
+  }
+  return n;
+}
+
+const monthEnd = (month: string) => {
+  const [y, m] = month.split("-").map(Number) as [number, number];
+  return new Date(Date.UTC(y, m, 0)).toISOString().slice(0, 10);
+};
+const nextMonth = (month: string) => {
+  const [y, m] = month.split("-").map(Number) as [number, number];
+  return new Date(Date.UTC(y, m, 1)).toISOString().slice(0, 7);
+};
+
+/** Dr Depreciation / Cr Accumulated depreciation for each asset short of what it's due (a negative difference reverses). */
+function depreciationLines(c: PostCtx, assets: AssetRow[], month: string): PostLine[] {
+  return assets.flatMap((r) => {
+    const diff = dueThrough(r, month) - postedDepreciation(c.db, r);
+    return diff ? [debit(A.depreciation.id, diff, { assetId: r.id, memo: r.name }), credit(A.accumulated_depreciation.id, diff, { assetId: r.id, memo: r.name })] : [];
+  });
+}
+
+/**
+ * Monthly depreciation, straight line: each ended month (from the books start) gets one entry for every asset due,
+ * the first time it's posted. Assets added or changed after their months were posted catch up in an extra entry for
+ * the latest ended month.
+ */
+export function postDepreciation(c: PostCtx): number {
+  const assets = c.db.all<AssetRow>("SELECT * FROM fixed_assets ORDER BY in_use_from, created_at");
+  if (!assets.length) return 0;
+  // The month before this one: the latest that has ended.
+  const [ty, tm] = dubaiDate(new Date().toISOString()).split("-").map(Number) as [number, number];
+  const lastEnded = new Date(Date.UTC(ty, tm - 2, 1)).toISOString().slice(0, 7);
+  if (lastEnded < c.start.slice(0, 7)) return 0;
+  const earliest = assets.reduce((m, a) => (a.in_use_from.slice(0, 7) < m ? a.in_use_from.slice(0, 7) : m), lastEnded);
+  let n = 0;
+  for (let month = earliest < c.start.slice(0, 7) ? c.start.slice(0, 7) : earliest; month <= lastEnded; month = nextMonth(month)) {
+    const k = c.db.get<{ n: number }>("SELECT COUNT(*) AS n FROM journal_entries WHERE post_key LIKE ?", [`depreciation:${month}:%`])!.n;
+    if (k > 0 && month !== lastEnded) continue;
+    if (c.full()) break;
+    const lines = depreciationLines(c, assets, month);
+    if (!lines.length) continue;
+    const name = new Intl.DateTimeFormat("en-GB", { month: "long", year: "numeric", timeZone: "UTC" }).format(new Date(`${month}-01T00:00:00Z`));
+    if (c.post({
+      date: monthEnd(month), narration: k ? `Depreciation ${name} (catch-up)` : `Depreciation ${name}`, sourceType: "depreciation", sourceId: month,
+      postKey: `depreciation:${month}:${k + 1}`, userId: null, lines,
+    })) n++;
+  }
+  return n;
+}
+
+/**
+ * An asset sold or written off: depreciation is brought up to the disposal month, then its cost and accumulated
+ * depreciation leave the books against the proceeds, with the gain or loss.
+ */
+export function postDisposals(c: PostCtx): number {
+  let n = 0;
+  for (const r of c.db.all<AssetRow>(`SELECT * FROM fixed_assets WHERE disposed_on IS NOT NULL AND ${unposted("'asset_disposal:' || fixed_assets.id")}`)) {
+    if (c.full()) break;
+    const date = r.disposed_on! < c.start ? c.start : r.disposed_on!;
+    const catchUp = depreciationLines(c, [r], r.disposed_on!.slice(0, 7));
+    if (catchUp.length) {
+      c.post({ date, narration: `Depreciation to disposal: ${r.name}`, sourceType: "depreciation", sourceId: r.id, postKey: `depreciation_disposal:${r.id}`, userId: null, lines: catchUp });
+    }
+    const accumulated = postedDepreciation(c.db, r);
+    const proceeds = r.proceeds_fils ?? 0;
+    const gain = proceeds - (r.cost_fils - accumulated);
+    if (c.post({
+      date, narration: `${proceeds ? "Sold" : "Written off"}: ${r.name}`, sourceType: "asset_disposal", sourceId: r.id, postKey: `asset_disposal:${r.id}`, userId: null,
+      lines: [
+        debit(A.accumulated_depreciation.id, accumulated, { assetId: r.id }), ...(proceeds ? [debit(r.proceeds_account_id!, proceeds, { assetId: r.id })] : []),
+        credit(r.account_id, r.cost_fils, { assetId: r.id }),
+        gain >= 0 ? credit(A.disposal_gain.id, gain, { assetId: r.id }) : debit(A.disposal_loss.id, -gain, { assetId: r.id }),
+      ],
     })) n++;
   }
   return n;

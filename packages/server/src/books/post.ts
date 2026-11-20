@@ -7,7 +7,7 @@ import { getSettings } from "../settings";
 export type SourceType =
   | "invoice" | "credit_note" | "receipt" | "goods_receipt" | "stock" | "cogs" | "customer_opening" | "opening" | "manual" | "reversal"
   | "year_close" | "revaluation" | "supplier_bill" | "bill_cancel" | "supplier_payment" | "supplier_opening" | "expense" | "transfer"
-  | "cheque_deposit" | "cheque_clear" | "vat_return" | "payroll_run" | "wps_paid" | "bonus_paid" | "staff_advance" | "payroll_opening" | "final_settlement" | "settlement_paid";
+  | "cheque_deposit" | "cheque_clear" | "vat_return" | "payroll_run" | "wps_paid" | "bonus_paid" | "staff_advance" | "payroll_opening" | "final_settlement" | "settlement_paid" | "depreciation" | "asset_disposal";
 
 export interface PostLine {
   accountId: string;
@@ -20,6 +20,8 @@ export interface PostLine {
   memo?: string | null;
   /** The VAT return box this line belongs to (tagged manual journals and their reversals). */
   vatBox?: VatTag | null;
+  /** The fixed asset a depreciation or disposal line is for. */
+  assetId?: string | null;
 }
 
 export interface PostInput {
@@ -80,9 +82,9 @@ export function postEntry(db: Db, e: PostInput): string | null {
     );
     lines.forEach((l, i) => {
       db.run(
-        `INSERT INTO journal_lines (id, entry_id, position, account_id, debit_fils, credit_fils, customer_id, supplier_id, document_id, memo, vat_box)
-         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
-        [newId(), id, i, l.accountId, l.debitFils, l.creditFils, l.customerId ?? null, l.supplierId ?? null, l.documentId ?? null, l.memo ?? null, l.vatBox ?? null],
+        `INSERT INTO journal_lines (id, entry_id, position, account_id, debit_fils, credit_fils, customer_id, supplier_id, document_id, memo, vat_box, asset_id)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+        [newId(), id, i, l.accountId, l.debitFils, l.creditFils, l.customerId ?? null, l.supplierId ?? null, l.documentId ?? null, l.memo ?? null, l.vatBox ?? null, l.assetId ?? null],
       );
     });
     return id;

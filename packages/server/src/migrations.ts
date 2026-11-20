@@ -1101,6 +1101,77 @@ ALTER TABLE employees ADD COLUMN leave_balance_days REAL;
 ALTER TABLE employees ADD COLUMN leave_balance_date TEXT;
 `,
   },
+  {
+    id: 16,
+    // Accounting Part 5 (fixed assets): the register, depreciation and disposals; asset ids on journal lines.
+    foreignKeysOff: ["journal_entries", "journal_lines", "vat_returns"],
+    sql: `
+CREATE TABLE journal_entries_new (
+  id TEXT PRIMARY KEY,
+  series TEXT NOT NULL DEFAULT '',
+  seq INTEGER NOT NULL,
+  number TEXT NOT NULL,
+  date TEXT NOT NULL,
+  narration TEXT NOT NULL,
+  source_type TEXT NOT NULL CHECK (source_type IN ('invoice', 'credit_note', 'receipt', 'goods_receipt', 'stock', 'cogs', 'customer_opening',
+    'opening', 'manual', 'reversal', 'year_close', 'revaluation', 'supplier_bill', 'bill_cancel', 'supplier_payment', 'supplier_opening', 'expense',
+    'transfer', 'cheque_deposit', 'cheque_clear', 'vat_return', 'payroll_run', 'wps_paid', 'bonus_paid', 'staff_advance', 'payroll_opening',
+    'final_settlement', 'settlement_paid', 'depreciation', 'asset_disposal')),
+  source_id TEXT,
+  post_key TEXT UNIQUE,
+  reverses_id TEXT REFERENCES journal_entries(id),
+  original_date TEXT,
+  created_by TEXT REFERENCES users(id),
+  created_at TEXT NOT NULL,
+  UNIQUE (series, seq)
+);
+INSERT INTO journal_entries_new SELECT id, series, seq, number, date, narration, source_type, source_id, post_key, reverses_id, original_date, created_by, created_at
+  FROM journal_entries;
+DROP TABLE journal_entries;
+ALTER TABLE journal_entries_new RENAME TO journal_entries;
+CREATE INDEX journal_entries_date ON journal_entries(date);
+CREATE INDEX journal_entries_source ON journal_entries(source_type, source_id);
+
+-- Which fixed asset a depreciation or disposal line is for (what has been posted per asset).
+ALTER TABLE journal_lines ADD COLUMN asset_id TEXT;
+CREATE INDEX journal_lines_asset ON journal_lines(asset_id) WHERE asset_id IS NOT NULL;
+
+-- The asset accounts: 1590 Accumulated depreciation becomes one the app keeps; the rest are new (a garage's own
+-- account on one of these codes keeps its name and moves to the code with ".1" after it).
+UPDATE accounts SET code = code || '.1', updated_at = strftime('%Y-%m-%dT%H:%M:%fZ','now')
+  WHERE code IN ('1520', '6070', '4030', '6080') AND system_key IS NULL
+    AND id NOT IN ('00000000-0000-4000-8000-0000000a1520', '00000000-0000-4000-8000-0000000a6070', '00000000-0000-4000-8000-0000000a4030',
+                   '00000000-0000-4000-8000-0000000a6080');
+UPDATE accounts SET system_key = 'accumulated_depreciation' WHERE id = '00000000-0000-4000-8000-0000000a1590';
+INSERT OR IGNORE INTO accounts (id, code, name, type, system_key, active, created_at, updated_at) VALUES ('00000000-0000-4000-8000-0000000a1520', '1520', 'Fit-out and furniture', 'asset', NULL, 1, strftime('%Y-%m-%dT%H:%M:%fZ','now'), strftime('%Y-%m-%dT%H:%M:%fZ','now'));
+INSERT OR IGNORE INTO accounts (id, code, name, type, system_key, active, created_at, updated_at) VALUES ('00000000-0000-4000-8000-0000000a6070', '6070', 'Depreciation', 'expense', 'depreciation', 1, strftime('%Y-%m-%dT%H:%M:%fZ','now'), strftime('%Y-%m-%dT%H:%M:%fZ','now'));
+INSERT OR IGNORE INTO accounts (id, code, name, type, system_key, active, created_at, updated_at) VALUES ('00000000-0000-4000-8000-0000000a4030', '4030', 'Gain on disposal of assets', 'income', 'disposal_gain', 1, strftime('%Y-%m-%dT%H:%M:%fZ','now'), strftime('%Y-%m-%dT%H:%M:%fZ','now'));
+INSERT OR IGNORE INTO accounts (id, code, name, type, system_key, active, created_at, updated_at) VALUES ('00000000-0000-4000-8000-0000000a6080', '6080', 'Loss on disposal of assets', 'expense', 'disposal_loss', 1, strftime('%Y-%m-%dT%H:%M:%fZ','now'), strftime('%Y-%m-%dT%H:%M:%fZ','now'));
+
+-- The fixed asset register. Its cost reaches the books through the bill or journal that paid for it; the register
+-- depreciates it monthly and disposes of it.
+CREATE TABLE fixed_assets (
+  id TEXT PRIMARY KEY,
+  name TEXT NOT NULL,
+  category TEXT NOT NULL CHECK (category IN ('tools', 'equipment', 'vehicle', 'fit_out')),
+  account_id TEXT NOT NULL REFERENCES accounts(id),
+  cost_fils INTEGER NOT NULL,
+  in_use_from TEXT NOT NULL,
+  life_months INTEGER NOT NULL,
+  residual_fils INTEGER NOT NULL DEFAULT 0,
+  opening_depreciation_fils INTEGER NOT NULL DEFAULT 0,
+  serial TEXT,
+  note TEXT,
+  disposed_on TEXT,
+  proceeds_fils INTEGER,
+  proceeds_account_id TEXT REFERENCES accounts(id),
+  disposal_note TEXT,
+  created_by TEXT REFERENCES users(id),
+  created_at TEXT NOT NULL,
+  updated_at TEXT NOT NULL
+);
+`,
+  },
 ];
 
 /** The newest migration this code knows: the garage database's schema version. */
