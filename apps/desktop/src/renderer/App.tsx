@@ -31,6 +31,7 @@ import { JournalEditor } from "./pages/books/JournalEditor";
 import { JournalsPage, JournalView } from "./pages/books/JournalsPage";
 import { ReportPage } from "./pages/books/ReportPage";
 import { AgingPage } from "./pages/AgingPage";
+import { PromoReportPage } from "./pages/PromoReportPage";
 import { BillsPage } from "./pages/payables/BillsPage";
 import { EmployeePage } from "./pages/payroll/EmployeePage";
 import { EmployeesPage } from "./pages/payroll/EmployeesPage";
@@ -94,6 +95,7 @@ export function App() {
         <Route path="/credit-notes" element={<DocumentsPage type="credit_note" />} />
         <Route path="/receipts" element={<ReceiptsPage />} />
         {canSee("reports.view") && <Route path="/reports/aging" element={<AgingPage />} />}
+        {canSee("reports.view") && <Route path="/reports/promo-codes" element={<PromoReportPage />} />}
         {canSee("payroll.manage") && (
           <>
             <Route path="/employees" element={<EmployeesPage />} />

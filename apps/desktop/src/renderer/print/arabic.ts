@@ -64,6 +64,7 @@ const AR: Record<string, string> = {
   "Total (AED, incl. VAT)": "الإجمالي شامل الضريبة",
   "Total credit (AED, incl. VAT)": "إجمالي الإشعار شامل الضريبة",
   Credited: "المبلغ المعاد",
+  "Promo discount": "خصم ترويجي",
   Paid: "المدفوع",
   "Balance due": "الرصيد المستحق",
   Date: "التاريخ",

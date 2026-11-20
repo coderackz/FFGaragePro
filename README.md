@@ -235,6 +235,23 @@ set. Each tile opens its section with its own Save; every change goes to the Act
 
 The accounting module (books, payables and bank, VAT return, payroll, fixed assets) is complete.
 
+**Menu, help, message templates and promo codes:**
+- **The menu** is grouped under Operations, Finance, Accounts, HR & Payroll, Inventory, Reports, Knowledge and Settings.
+  Each role sees only what it can use.
+- **Knowledge → Help & guides:** short how-to pages for each part of the app, with search. They work offline.
+- **Settings → Message templates:** the garage's own email and WhatsApp texts, in English and Arabic, with the same
+  placeholders as the event messages. Pick one in the Send dialog's **Template** box. The per-event texts in
+  Settings → Messages stay the default.
+- **Settings → Promo codes:** % or AED off, on labour, parts or both, with valid dates, a minimum bill, maximum uses and
+  once per customer.
+  - Type the code on a draft estimate, job card or invoice. The discount comes off the matching lines before VAT and
+    prints on the document.
+  - A use counts when the invoice is issued, and a full credit note gives it back. A code that expired or was used up
+    in the meantime is refused at issue, unless the owner issues it anyway (logged).
+  - **Reports → Promo codes:** each code's uses, the discount given and the invoices.
+
+    npm run e2e:promo                               # code → invoice → apply → issue → report → books health
+
 ## Layout
 | Path | What |
 |---|---|

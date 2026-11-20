@@ -3,14 +3,14 @@ import { useEffect, useMemo, useState } from "react";
 import { Link, useNavigate, useParams, useSearchParams } from "react-router";
 import { toast } from "sonner";
 import {
-  catalogueLinePrice, CONVERTS_TO, DEFAULT_SETTINGS, DOC_LABELS, DOC_STATUSES, LINE_KINDS, PAYMENT_METHODS, STATUS_LABELS, docTotals, lineTotals, type DocType, type LineKind,
+  catalogueLinePrice, CONVERTS_TO, DEFAULT_SETTINGS, DOC_LABELS, DOC_STATUSES, LINE_KINDS, PAYMENT_METHODS, STATUS_LABELS, docTotals, lineTotals, promoShares, type DocType, type LineKind,
 } from "@ffgp/shared";
 import { CustomerPicker } from "../components/CustomerPicker";
 import { CustomerFormModal } from "../components/forms";
 import { PartLink, PartPicker } from "../components/PartPicker";
 import { RequestPartDialog } from "../components/RequestPartDialog";
 import { Badge, Button, Card, Empty, Field, Input, Modal, MoneyInput, NumberInput, PageHeader, Select, Spinner, StatusBadge, Textarea } from "../components/ui";
-import { get, patch, post } from "../lib/api";
+import { del, get, patch, post } from "../lib/api";
 import { useAuth } from "../lib/auth";
 import { PAYMENT_LABELS, formatAED, formatDate, formatDateTime, formatKm } from "../lib/format";
 import type { Customer, DocLine, DocumentFull, Vehicle } from "../lib/types";
@@ -101,7 +101,21 @@ export function DocumentPage() {
   const vatRate = garage?.vatRateBp ?? 500;
   // A saved document keeps the VAT choice it was created with; a new one follows Settings → Tax.
   const includeVat = doc ? doc.pricesIncludeVat : (settings?.tax.pricesIncludeVat ?? false);
-  const totals = useMemo(() => docTotals(draft.lines, vatRate, includeVat), [draft.lines, vatRate, includeVat]);
+  // A promo code on the document: its discount spread over the lines it applies to, before VAT (as the server does).
+  const promo = doc?.promo ?? null;
+  const promoLines = useMemo(() => {
+    if (!promo || type === "credit_note") return draft.lines;
+    const charged = draft.lines.map((l) => (l.suppliedBy === "fleetfix" ? { ...l, unitPriceFils: 0, discountPct: 0 } : l));
+    const { shares } = promoShares(charged, promo, includeVat);
+    return charged.map((l, i) => ({ ...l, promoFils: shares[i] ?? 0 }));
+  }, [draft.lines, promo, includeVat, type]);
+  const promoFils = promo ? promoLines.reduce((s, l) => s + (l.promoFils ?? 0), 0) : 0;
+  // A credit note's lines keep the amounts they were credited at (a promo line's discounted ones): the server's totals.
+  const totals = useMemo(
+    () => (doc && type === "credit_note" ? doc.totals : docTotals(promoLines, vatRate, includeVat)),
+    [doc, type, promoLines, vatRate, includeVat],
+  );
+  const [promoCode, setPromoCode] = useState("");
 
   const update = (patchDraft: Partial<Draft>) => {
     setDraft((d) => ({ ...d, ...patchDraft }));
@@ -216,11 +230,36 @@ export function DocumentPage() {
     if (!id) return;
     if (!window.confirm("Issue this tax invoice? After issuing, it can no longer be edited.")) return;
     // Over the customer's credit limit: a warning, a refusal, or the Owner's approval (Settings → Customers & credit).
-    const res = await approval.withApproval((a) => post<{ document: DocumentFull; warning?: string }>(`/api/documents/${id}/issue`, { approval: a }));
+    const issue = (a: unknown, promoOverride?: boolean) => post<{ document: DocumentFull; warning?: string }>(`/api/documents/${id}/issue`, { approval: a, promoOverride });
+    const res = await approval.withApproval(async (a) => {
+      try {
+        return await issue(a);
+      } catch (err) {
+        // The promo code expired or was used up since it was applied: the Owner can issue it anyway (it's logged).
+        const msg = (err as Error).message;
+        if (!msg.startsWith("Promo ") || !can("credit.override") || !window.confirm(`${msg}. Issue it with the discount anyway? This is recorded in the activity log.`)) throw err;
+        return issue(a, true);
+      }
+    });
     docQuery.setData({ document: res.document });
     toast.success(`${res.document.number} issued`);
     if (res.warning) toast.warning(res.warning);
     message("invoice_issued", res.document);
+  });
+
+  const onApplyPromo = () => run("promo", async () => {
+    const id = await save();
+    if (!id || !promoCode.trim()) return;
+    const { document } = await post<{ document: DocumentFull }>(`/api/documents/${id}/promo`, { code: promoCode.trim() });
+    docQuery.setData({ document });
+    setPromoCode("");
+    toast.success(`Promo ${document.promo?.code} applied`);
+  });
+  const onRemovePromo = () => run("promo", async () => {
+    const id = await save();
+    if (!id) return;
+    const { document } = await del<{ document: DocumentFull }>(`/api/documents/${id}/promo`);
+    docQuery.setData({ document });
   });
 
   /** A payment put against this invoice by mistake: taken back off, so it becomes the customer's credit again. */
@@ -414,7 +453,16 @@ export function DocumentPage() {
         {/* Beside the items on wide screens; below them, in two columns, on small garage screens. */}
         <div className="grid content-start gap-5 md:max-[1439px]:grid-cols-2">
           <Card title="Summary">
-            <dl className="flex flex-col gap-2 text-sm">
+            <dl className="flex flex-col gap-2 text-sm" data-testid="doc-summary">
+              {promo && promoFils > 0 && (
+                <div className="flex items-baseline justify-between gap-3 text-emerald-700">
+                  <dt className="min-w-0">
+                    Promo <span className="font-mono">{promo.code}</span>
+                    {editable && <button type="button" className="ml-2 text-xs text-zinc-500 underline hover:text-zinc-800 disabled:opacity-50" disabled={busy === "promo"} onClick={onRemovePromo}>Remove</button>}
+                  </dt>
+                  <dd className="whitespace-nowrap tabular">−{formatAED(promoFils)}</dd>
+                </div>
+              )}
               <Row label="Subtotal" value={formatAED(totals.netFils)} />
               <Row label={`VAT ${vatRate / 100}%`} value={formatAED(totals.vatFils)} />
               <div className="my-1 border-t border-dashed border-zinc-200" />
@@ -439,6 +487,13 @@ export function DocumentPage() {
                 </>
               )}
             </dl>
+            {editable && !isNew && type !== "credit_note" && !promo && (
+              <div className="mt-3 flex items-center gap-2 border-t border-zinc-100 pt-3">
+                <Input className="font-mono uppercase" value={promoCode} onChange={(e) => setPromoCode(e.target.value.toUpperCase())}
+                  onKeyDown={(e) => { if (e.key === "Enter") onApplyPromo(); }} placeholder="Promo code" aria-label="Promo code" />
+                <Button size="sm" busy={busy === "promo"} disabled={!promoCode.trim()} onClick={onApplyPromo}>Apply</Button>
+              </div>
+            )}
           </Card>
           {doc?.vehicle && (
             <Card title="Vehicle">

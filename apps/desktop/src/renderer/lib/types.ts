@@ -27,6 +27,8 @@ export interface Vehicle {
 export interface DocLine {
   id?: string; kind: LineKind; description: string; qty: number; unitPriceFils: number; discountPct: number;
   netFils?: number; vatFils?: number; grossFils?: number;
+  /** This line's share of the document's promo discount (set by the server). */
+  promoFils?: number;
   partId?: string | null; partNo?: string | null; partNameAr?: string | null; partStocked?: boolean | null; partOnHand?: number | null; partUnit?: string | null;
   suppliedBy?: "garage" | "fleetfix"; poLineId?: string | null; orderStatus?: "on_order" | "received" | null;
   purchaseOrderId?: string | null; purchaseOrderNumber?: string | null; costFils?: number | null;
@@ -56,6 +58,7 @@ export interface DocumentFull {
   customer: Customer; vehicle: Vehicle | null; source: DocRef | null; derived: DocRef | null;
   lines: DocLine[]; totals: { netFils: number; vatFils: number; grossFils: number }; paidFils: number; balanceFils: number; payments: Payment[];
   partsCostFils?: number; marginFils?: number; costPending?: boolean; uncostedLines?: number;
+  promo?: { code: string; kind: "percent" | "amount"; value: number; appliesTo: "all" | "labour" | "parts"; discountFils: number } | null;
 }
 export interface DocumentSummary {
   id: string; type: DocType; number: string; status: string; customerName: string; plate: string | null; grossFils: number;

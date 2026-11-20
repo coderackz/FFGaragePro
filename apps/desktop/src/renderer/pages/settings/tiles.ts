@@ -142,6 +142,10 @@ export const TILES: Tile[] = [
     id: "backups", group: "running", title: "Backups", blurb: "Daily copy on this PC · restore", show: holdsGarage, status: backupStatus,
   },
   {
+    id: "promo-codes", group: "running", title: "Promo codes", blurb: "Discount codes with limits", show: always,
+    status: () => muted("Typed on estimates and invoices"),
+  },
+  {
     id: "message-templates", group: "running", title: "Message templates", blurb: "Your own texts for email and WhatsApp", show: always,
     status: () => ok("Picked when sending"),
   },

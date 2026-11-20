@@ -159,6 +159,7 @@ export function renderDocumentHtml(doc: DocumentFull, garage: Garage, settings: 
   const totals = isJob
     ? ""
     : `<table class="totals">
+        ${doc.promo && doc.promo.discountFils > 0 ? `<tr><td>${t("Promo discount")} ${esc(doc.promo.code)} (${doc.promo.kind === "percent" ? `${doc.promo.value}%` : money(doc.promo.value)}${doc.promo.appliesTo === "all" ? "" : ` ${doc.promo.appliesTo}`})</td><td class="r">−${money(doc.promo.discountFils)}</td></tr>` : ""}
         <tr><td>${t("Subtotal (excl. VAT)")}</td><td class="r">${money(doc.totals.netFils)}</td></tr>
         <tr><td>${vatLabel(vatPct, lang)}</td><td class="r">${money(doc.totals.vatFils)}</td></tr>
         <tr class="grand"><td>${t(isCredit ? "Total credit (AED, incl. VAT)" : "Total (AED, incl. VAT)")}</td><td class="r">${money(doc.totals.grossFils)}</td></tr>
