@@ -1,9 +1,14 @@
-import { EMIRATE_BOX, EMIRATE_NAMES, SYSTEM_ACCOUNTS as A, VAT_BOXES, VAT_TAG_INFO, type Emirate, type VatBoxKey, type VatTag } from "@ffgp/shared";
+import { EMIRATE_BOX, EMIRATE_NAMES, SYSTEM_ACCOUNTS as A, VAT_BOXES, VAT_RATE_BP, VAT_TAG_INFO, type Emirate, type VatBoxKey, type VatTag } from "@ffgp/shared";
 import type { Db } from "../db";
-import { customerBalance } from "../ledger";
 import { getSettings } from "../settings";
 
-export interface VatRow { entryId: string; number: string; date: string; narration: string; amountFils: number; vatFils: number; adjustmentFils: number }
+export interface VatRow {
+  entryId: string; number: string; date: string; narration: string; amountFils: number; vatFils: number; adjustmentFils: number;
+  /** Set when the entry belongs to an earlier date that was locked (or filed) when it reached the books. */
+  originalDate: string | null;
+}
+/** VAT no box counts, per entry and VAT account. */
+export interface VatLooseRow extends VatRow { account: "output" | "input" }
 /** "1" appears only while the garage's emirate isn't set: box 1's figures, waiting for their row. */
 export type VatFigureKey = VatBoxKey | "1";
 export interface VatBox { key: VatFigureKey; label: string; amountFils: number; vatFils: number; adjustmentFils: number; rows: VatRow[] }
@@ -16,7 +21,7 @@ export interface VatFigures {
   /** Box 12 (total tax due), box 13 (recoverable tax), box 14 (payable; negative = refundable). */
   dueFils: number; recoverableFils: number; payableFils: number;
   /** Entries in the period that move Output or Input VAT but that no box counts (untagged journals and the like). */
-  notInBox: VatRow[];
+  notInBox: VatLooseRow[];
   /** Customer credit unused at the period end: VAT may be due on these advances. */
   advances: VatAdvance[];
 }
@@ -25,7 +30,7 @@ const SALES_DOCS = new Set(["invoice", "credit_note"]);
 const EXPENSE_DOCS = new Set(["goods_receipt", "supplier_bill", "bill_cancel", "expense"]);
 
 interface LineRow {
-  entry_id: string; number: string; date: string; narration: string; source_type: string; source_id: string | null;
+  entry_id: string; number: string; date: string; original_date: string | null; narration: string; source_type: string; source_id: string | null;
   account_id: string; type: string; debit_fils: number; credit_fils: number; vat_box: VatTag | null;
 }
 
@@ -44,10 +49,10 @@ export function vatFigures(db: Db, from: string, to: string): VatFigures {
   const boxes = new Map<VatFigureKey, VatBox>();
   for (const b of VAT_BOXES) boxes.set(b.key, { key: b.key, label: b.label, amountFils: 0, vatFils: 0, adjustmentFils: 0, rows: [] });
   if (!emirate) boxes.set("1", { key: "1", label: "Standard rated supplies (choose the garage's emirate)", amountFils: 0, vatFils: 0, adjustmentFils: 0, rows: [] });
-  const notInBox = new Map<string, VatRow>();
+  const notInBox = new Map<string, VatLooseRow>();
 
   const lines = db.all<LineRow>(
-    `SELECT e.id AS entry_id, e.number, e.date, e.narration, e.source_type, e.source_id, l.account_id, a.type, l.debit_fils, l.credit_fils, l.vat_box
+    `SELECT e.id AS entry_id, e.number, e.date, e.original_date, e.narration, e.source_type, e.source_id, l.account_id, a.type, l.debit_fils, l.credit_fils, l.vat_box
      FROM journal_entries e JOIN journal_lines l ON l.entry_id = e.id JOIN accounts a ON a.id = l.account_id
      WHERE e.date >= ? AND e.date <= ? AND e.source_type <> 'vat_return' ORDER BY e.date, e.seq, l.position`,
     [countedFrom, to],
@@ -56,7 +61,7 @@ export function vatFigures(db: Db, from: string, to: string): VatFigures {
     const b = boxes.get(key)!;
     let row = b.rows.find((r) => r.entryId === l.entry_id);
     if (!row) {
-      row = { entryId: l.entry_id, number: l.number, date: l.date, narration: l.narration, amountFils: 0, vatFils: 0, adjustmentFils: 0 };
+      row = { entryId: l.entry_id, number: l.number, date: l.date, narration: l.narration, amountFils: 0, vatFils: 0, adjustmentFils: 0, originalDate: l.original_date };
       b.rows.push(row);
     }
     for (const k of ["amountFils", "vatFils", "adjustmentFils"] as const) {
@@ -108,9 +113,14 @@ export function vatFigures(db: Db, from: string, to: string): VatFigures {
       continue;
     }
     if (isOutput || isInput) {
-      const row = notInBox.get(l.entry_id) ?? { entryId: l.entry_id, number: l.number, date: l.date, narration: l.narration, amountFils: 0, vatFils: 0, adjustmentFils: 0 };
+      const account = isOutput ? "output" : "input";
+      const key = `${l.entry_id}:${account}`;
+      const row = notInBox.get(key) ?? {
+        entryId: l.entry_id, number: l.number, date: l.date, narration: l.narration, amountFils: 0, vatFils: 0, adjustmentFils: 0, originalDate: l.original_date, account,
+      };
+      // Output VAT as VAT due (credit), Input VAT as VAT recoverable (debit).
       row.vatFils += isOutput ? credit : -credit;
-      notInBox.set(l.entry_id, row);
+      notInBox.set(key, row);
     }
   }
   // An expense document whose VAT was zero and net nothing to count leaves an empty row: drop those.
@@ -133,12 +143,7 @@ export function vatFigures(db: Db, from: string, to: string): VatFigures {
   const dueFils = b8.vatFils + b8.adjustmentFils;
   const recoverableFils = b11.vatFils + b11.adjustmentFils;
 
-  const advances = db.all<{ id: string; name: string }>("SELECT id, name FROM customers ORDER BY name COLLATE NOCASE").flatMap((c) => {
-    const balance = customerBalance(db, c.id, to).balanceFils;
-    if (balance >= 0) return [];
-    const creditFils = -balance;
-    return [{ customerId: c.id, name: c.name, creditFils, vatInsideFils: Math.round((creditFils * 5) / 105) }];
-  });
+  const advances = advancesAt(db, to);
 
   const ordered = [...(emirate ? [] : [boxes.get("1")!]), ...VAT_BOXES.map((b) => boxes.get(b.key)!)];
   if (emirate) ordered.find((b) => b.key === box1)!.label = `Standard rated supplies in ${EMIRATE_NAMES[emirate]}`;
@@ -149,3 +154,28 @@ export function vatFigures(db: Db, from: string, to: string): VatFigures {
     advances,
   };
 }
+
+const D = (col: string) => `date(${col}, '+4 hours')`;
+
+/**
+ * Money customers paid beyond everything invoiced to them by `to` (and their opening balance): advances, on which VAT
+ * may be due. Credit that comes from credit notes isn't money received, so it isn't counted. One query for all customers.
+ */
+function advancesAt(db: Db, to: string): VatAdvance[] {
+  return db.all<{ id: string; name: string; opening: number; invoiced: number; credited: number; received: number }>(
+    `SELECT c.id, c.name,
+       CASE WHEN c.opening_balance_date IS NULL OR c.opening_balance_date <= :to THEN c.opening_balance_fils ELSE 0 END AS opening,
+       COALESCE((SELECT SUM(gross_fils) FROM documents d WHERE d.customer_id = c.id AND d.type = 'invoice' AND d.status <> 'draft' AND ${D("d.issued_at")} <= :to), 0) AS invoiced,
+       COALESCE((SELECT SUM(gross_fils) FROM documents d WHERE d.customer_id = c.id AND d.type = 'credit_note' AND d.status = 'issued' AND ${D("d.issued_at")} <= :to), 0) AS credited,
+       COALESCE((SELECT SUM(amount_fils) FROM receipts r WHERE r.customer_id = c.id AND ${D("r.received_at")} <= :to), 0) AS received
+     FROM customers c ORDER BY c.name COLLATE NOCASE`,
+    { to },
+  ).flatMap((c) => {
+    const inCredit = -(c.opening + c.invoiced - c.credited - c.received);
+    const paidAhead = c.received - c.invoiced - Math.max(c.opening, 0);
+    const creditFils = Math.min(inCredit, paidAhead);
+    if (creditFils <= 0) return [];
+    return [{ customerId: c.id, name: c.name, creditFils, vatInsideFils: Math.round((creditFils * VAT_RATE_BP) / (10_000 + VAT_RATE_BP)) }];
+  });
+}
+

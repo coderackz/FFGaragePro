@@ -4,7 +4,7 @@ import type { AccountType } from "@ffgp/shared";
 export interface Account { id: string; code: string; name: string; type: AccountType; systemKey: string | null; active: boolean; moneyKind?: string | null }
 export interface EntryLine {
   id: string; accountId: string; code: string; name: string; debitFils: number; creditFils: number;
-  customerId: string | null; supplierId: string | null; documentId: string | null; memo: string | null;
+  customerId: string | null; supplierId: string | null; documentId: string | null; memo: string | null; vatBox?: VatTag | null;
 }
 export interface Entry {
   id: string; number: string; date: string; narration: string; sourceType: string; sourceId: string | null; sourceNumber: string | null;

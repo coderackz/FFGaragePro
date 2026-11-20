@@ -1,6 +1,7 @@
 import { dubaiDate, SYSTEM_ACCOUNTS as A, vatPeriods } from "@ffgp/shared";
 import { audit } from "../audit";
 import { NOT_HERE } from "../books/journals";
+import { postPending } from "../books/pending";
 import { formatDay, postEntry } from "../books/post";
 import { newId, now, type Db } from "../db";
 import { badRequest, conflict } from "../errors";
@@ -56,6 +57,7 @@ export function fileReturn(db: Db, input: { from?: unknown; to?: unknown; refere
   const period = periods.find((p) => p.from === input.from && p.to === input.to);
   if (!period) throw badRequest("That isn't a VAT period in Settings → Tax");
   if (period.to >= on) throw badRequest("A return can be filed once its period has ended");
+  if (s.books.startDate && period.to < s.books.startDate) throw badRequest("That period ends before the books start: file it outside the app");
   if (!s.garage.emirate) throw badRequest("Choose the garage's emirate in Settings → Garage first");
   if (filedRow(db, period.from, period.to)) throw conflict("That return is already filed");
   const clash = overlapping(db, period.from, period.to);
@@ -65,6 +67,10 @@ export function fileReturn(db: Db, input: { from?: unknown; to?: unknown; refere
   if (earlier) throw conflict(`File the return for ${formatDay(earlier.from)}–${formatDay(earlier.to)} first`);
   const reference = typeof input.reference === "string" && input.reference.trim() ? input.reference.trim().slice(0, 60) : null;
 
+  // Everything this place should have posted is posted first; anything that couldn't post would be missing.
+  for (let i = 0; i < 1000 && postPending(db) > 0; i++);
+  const failed = db.get<{ n: number }>("SELECT COUNT(*) AS n FROM book_failures")!.n;
+  if (failed) throw conflict(`${failed} entr${failed === 1 ? "y" : "ies"} couldn't post: see Books health, fix ${failed === 1 ? "it" : "them"}, then file`);
   const f = vatFigures(db, period.from, period.to);
   return db.tx(() => {
     const side = (fils: number) => ({ debitFils: fils > 0 ? fils : 0, creditFils: fils < 0 ? -fils : 0 });

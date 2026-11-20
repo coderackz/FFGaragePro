@@ -49,7 +49,8 @@ export function vatPeriods(tax: { returnPeriod: "monthly" | "quarterly"; firstPe
   if (!tax.firstPeriodStart) return [];
   const step = tax.returnPeriod === "monthly" ? 1 : 3;
   const out: { from: string; to: string }[] = [];
-  for (let from = tax.firstPeriodStart; from <= today && out.length < 600; ) {
+  // Each step moves forward by whole months from a 1st, so the loop always ends.
+  for (let from = tax.firstPeriodStart; from <= today; ) {
     const next = addMonths(from, step);
     out.push({ from, to: dayBefore(next) });
     from = next;

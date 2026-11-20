@@ -52,6 +52,7 @@ test("a VAT return from the books, filed and locked", async ({ page, request }) 
   await page.getByLabel("Credit, line 2").fill("10");
   await page.getByRole("button", { name: "Post" }).click();
   await expect(page.getByRole("heading", { name: /^JV-\d+/ })).toBeVisible();
+  await expect(page.getByText("1 Adjustment (sales VAT)")).toBeVisible();
 
   // The return opens on the oldest due period (the one that can be filed): nothing in it, file it.
   await nav(page, "Books");
@@ -81,6 +82,13 @@ test("a VAT return from the books, filed and locked", async ({ page, request }) 
   await expect(page.getByTestId("period-status")).toHaveText("Filed");
   await expect(page.getByText("FTA-E2E")).toBeVisible();
   await shot("02-filed");
+
+  // The refund, recorded from the filed return: a journal ready to post, from VAT payable into the bank.
+  await page.getByRole("button", { name: "Record the refund" }).click();
+  await expect(page.getByLabel("Narration")).toHaveValue(/VAT refund received/);
+  await expect(page.getByLabel("Debit, line 2")).toHaveValue("60.00");
+  await page.getByRole("button", { name: "Post" }).click();
+  await expect(page.getByRole("heading", { name: /^JV-\d+/ })).toBeVisible();
 
   await nav(page, "Books");
   await page.getByRole("link", { name: /Journals/ }).click();

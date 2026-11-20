@@ -139,7 +139,10 @@ export const settingsSchemas = {
   tax: z.object({
     pricesIncludeVat: z.boolean().default(false),
     returnPeriod: z.enum(["quarterly", "monthly"]).default("quarterly"),
-    firstPeriodStart: z.preprocess(blankToNull, z.string().regex(/^\d{4}-\d{2}-\d{2}$/, "Use a date like 2026-01-01").nullable()).default(null),
+    firstPeriodStart: z.preprocess(
+      blankToNull,
+      z.string().regex(/^\d{4}-\d{2}-\d{2}$/, "Use a date like 2026-01-01").refine((d) => d.endsWith("-01"), "VAT periods start on the first day of a month").nullable(),
+    ).default(null),
   }),
   pricing: z.object({
     labourRateFils: z.number().int().min(0).max(10_000_000_00).nullable().default(null),

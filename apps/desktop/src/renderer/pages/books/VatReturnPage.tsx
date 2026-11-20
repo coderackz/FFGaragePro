@@ -4,7 +4,8 @@ import { Fragment, useEffect, useState } from "react";
 import { Link, useNavigate } from "react-router";
 import { toast } from "sonner";
 import { Badge, Button, Card, Field, Input, Modal, PageHeader, Select, Spinner } from "../../components/ui";
-import { exportPdf, exportXlsx, type ExportSheet } from "../../books/export";
+import { exportPdf, exportXlsx } from "../../books/export";
+import { vatSheet, type VatRow, type VatSheetFigures } from "../../books/vatSheet";
 import type { JournalPrefill } from "./JournalEditor";
 import { BackToBooks } from "./ReportPage";
 import { post } from "../../lib/api";
@@ -16,11 +17,10 @@ const day = (ymd: string) => formatDate(`${ymd}T00:00:00.000Z`);
 const today = () => new Date(Date.now() + 4 * 3_600_000).toISOString().slice(0, 10);
 
 interface Period { from: string; to: string; status: "open" | "due" | "filed"; filedAt: string | null; reference: string | null; payableFils: number | null }
-interface Row { entryId: string; number: string; date: string; narration: string; amountFils: number; vatFils: number; adjustmentFils: number }
-interface Box { key: string; label: string; amountFils: number; vatFils: number; adjustmentFils: number; rows: Row[] }
-interface Figures {
-  from: string; to: string; emirate: Emirate | null; countedFrom: string; boxes: Box[];
-  dueFils: number; recoverableFils: number; payableFils: number; notInBox: Row[];
+type Row = VatRow;
+interface Figures extends VatSheetFigures {
+  emirate: Emirate | null; countedFrom: string;
+  notInBox: (VatRow & { account: "output" | "input" })[];
   advances: { customerId: string; name: string; creditFils: number; vatInsideFils: number }[];
 }
 interface VatReturn extends Figures { filed: { figures: Figures; reference: string | null; filedAt: string; entryId: string | null } | null; changedSinceFiled: boolean }
@@ -53,17 +53,7 @@ export function VatReturnPage() {
   const r = ret.data;
   const f: Figures | undefined = r?.filed ? r.filed.figures : (r ?? undefined);
   const refund = (f?.payableFils ?? 0) < 0;
-  const sheet = (): ExportSheet => ({
-    title: `VAT return ${day(period.from)} – ${day(period.to)}`,
-    subtitle: r?.filed ? `Filed ${formatDate(r.filed.filedAt)}${r.filed.reference ? `, reference ${r.filed.reference}` : ""}` : "Not filed",
-    columns: [{ header: "Box", key: "box", width: 8 }, { header: "Description", key: "label", width: 44 }, { header: "Amount", key: "amount", money: true }, { header: "VAT", key: "vat", money: true }, { header: "Adjustment", key: "adj", money: true }],
-    rows: [
-      ...(f?.boxes ?? []).map((b) => ({ box: b.key, label: b.label, amount: b.amountFils, vat: b.vatFils, adj: b.adjustmentFils })),
-      { box: "12", label: "Total value of due tax for the period", vat: f?.dueFils ?? 0 },
-      { box: "13", label: "Total value of recoverable tax for the period", vat: f?.recoverableFils ?? 0 },
-      { box: "14", label: refund ? "Refundable tax for the period" : "Payable tax for the period", vat: Math.abs(f?.payableFils ?? 0) },
-    ],
-  });
+  const sheet = () => vatSheet(f!, { filedAt: r?.filed?.filedAt ?? null, reference: r?.filed?.reference ?? null });
   const recordPayment = () => {
     const fils = Math.abs(f!.payableFils);
     const vat = { accountId: SYSTEM_ACCOUNTS.vat_payable.id, debitFils: refund ? 0 : fils, creditFils: refund ? fils : 0 };
@@ -135,7 +125,7 @@ export function VatReturnPage() {
                             <tr key={x.entryId}>
                               <td className="w-28 py-1">{day(x.date)}</td>
                               <td className="w-28 py-1"><Link to={`/books/journals/${x.entryId}`} className="font-mono text-brand-700 hover:underline">{x.number}</Link></td>
-                              <td className="py-1">{x.narration}</td>
+                              <td className="py-1">{x.narration}{x.originalDate && <span className="ml-2 text-xs text-amber-700">dated {day(x.originalDate)}, posted late</span>}</td>
                               <td className="py-1 pr-4 text-right tabular">{formatAED(x.amountFils)}</td>
                               <td className="py-1 pr-4 text-right tabular">{formatAED(x.vatFils + x.adjustmentFils)}</td>
                             </tr>
@@ -191,14 +181,15 @@ export function VatReturnPage() {
   );
 }
 
-function RowsTable({ rows }: { rows: Row[] }) {
+function RowsTable({ rows }: { rows: (Row & { account: "output" | "input" })[] }) {
   return (
     <table className="w-full text-sm"><tbody>
       {rows.map((x) => (
-        <tr key={x.entryId} className="border-b border-zinc-100">
+        <tr key={`${x.entryId}:${x.account}`} className="border-b border-zinc-100">
           <td className="w-32 px-4 py-2">{day(x.date)}</td>
           <td className="w-28 py-2"><Link to={`/books/journals/${x.entryId}`} className="font-mono text-[13px] text-brand-700 hover:underline">{x.number}</Link></td>
-          <td className="py-2">{x.narration}</td>
+          <td className="py-2">{x.narration}{x.originalDate && <span className="ml-2 text-xs text-amber-700">dated {day(x.originalDate)}</span>}</td>
+          <td className="py-2 text-zinc-600">{x.account === "output" ? "Output VAT" : "Input VAT"}</td>
           <td className="py-2 pr-4 text-right tabular">{formatAED(x.vatFils)}</td>
         </tr>
       ))}

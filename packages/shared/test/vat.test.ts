@@ -18,4 +18,14 @@ describe("VAT model", () => {
     expect(() => journalLineSchema.parse({ accountId: "a", creditFils: 100, vatBox: "8" })).toThrow();
   });
   it("garage emirate setting", () => expect(settingsSchemas.garage.parse({ emirate: "sharjah" }).emirate).toBe("sharjah"));
+  it("M8: a first VAT period starts on the 1st", () => {
+    expect(() => settingsSchemas.tax.parse({ returnPeriod: "monthly", firstPeriodStart: "2026-01-31" })).toThrow(/first day of a month/);
+    expect(settingsSchemas.tax.parse({ returnPeriod: "monthly", firstPeriodStart: "2026-01-01" }).firstPeriodStart).toBe("2026-01-01");
+  });
+  it("M8: a long history still ends at the current period", () => {
+    const p = vatPeriods({ returnPeriod: "monthly", firstPeriodStart: "1960-01-01" }, "2026-11-20");
+    expect(p[0]).toEqual({ from: "2026-11-01", to: "2026-11-30" });
+    expect(p.at(-1)!.from).toBe("1960-01-01");
+  });
 });
+

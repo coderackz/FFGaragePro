@@ -1,3 +1,4 @@
+import { VAT_TAG_INFO } from "@ffgp/shared";
 import { Plus, Undo2 } from "lucide-react";
 import { useState } from "react";
 import { Link, useNavigate, useParams } from "react-router";
@@ -97,6 +98,7 @@ export function JournalView() {
           columns={[
             { header: "Account", cell: (l) => <Link to={`/books/ledger?accountId=${l.accountId}`} className="hover:underline">{l.code} {l.name}</Link> },
             { header: "Memo", cell: (l) => l.memo ?? "" },
+            ...(e.lines.some((l) => l.vatBox) ? [{ header: "VAT box", cell: (l: Entry["lines"][number]) => (l.vatBox ? VAT_TAG_INFO[l.vatBox].label : "") }] : []),
             { header: "Debit", cell: (l) => amount(l.debitFils), align: "right" },
             { header: "Credit", cell: (l) => amount(l.creditFils), align: "right" },
           ]} />

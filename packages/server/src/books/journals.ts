@@ -119,18 +119,27 @@ const CONTROL: Record<string, string> = {
   [SYSTEM_ACCOUNTS.vat_output.id]: "Output VAT follows invoices and credit notes: use a credit note, or tag the line with its VAT return box",
 };
 
+/** Boxes whose VAT can sit on Output VAT: zero-rated (4) and exempt (5) supplies carry none. */
+const OUTPUT_VAT_TAGS = new Set<VatTag>(["1", "1adj", "2", "3", "6", "7"]);
+
 /**
- * VAT box tags: a tagged line on Output VAT is a VAT return correction (allowed); Output VAT lines take sales boxes and
- * Input VAT lines expense boxes; an adjustment tag is VAT only, so it sits on a VAT account.
+ * VAT box tags: a tagged line on Output VAT is a VAT return correction (allowed); Output VAT lines take sales boxes that
+ * carry VAT, Input VAT lines expense boxes; an adjustment tag is VAT only. Any other tagged line is the box's amount:
+ * sales boxes on income accounts, expense boxes on cost, expense or asset accounts (never bank, cash or VAT payable).
  */
-function checkVatBox(l: JournalLineInput): void {
+function checkVatBox(l: JournalLineInput, accountType: string, isMoney: boolean): void {
   if (!l.vatBox) return;
   const info = VAT_TAG_INFO[l.vatBox];
   const output = l.accountId === SYSTEM_ACCOUNTS.vat_output.id;
   const input = l.accountId === SYSTEM_ACCOUNTS.vat_input.id;
-  if (output && info.side !== "sales") throw badRequest(`Output VAT lines go in a sales box (1–7), not ${info.label}`);
+  if (output && !OUTPUT_VAT_TAGS.has(l.vatBox)) throw badRequest(`Output VAT lines go in a box that carries VAT (1, 2, 3, 6 or 7), not ${info.label}`);
   if (input && info.side !== "expenses") throw badRequest(`Input VAT lines go in an expenses box (9–10), not ${info.label}`);
-  if (info.vatOnly && !output && !input) throw badRequest(`${info.label} is VAT only: put it on Output VAT or Input VAT`);
+  if (output || input) return;
+  if (info.vatOnly) throw badRequest(`${info.label} is VAT only: put it on Output VAT or Input VAT`);
+  const fits = info.side === "sales" ? accountType === "income" : ["expense", "cost_of_sales", "asset"].includes(accountType);
+  if (!fits || l.accountId === SYSTEM_ACCOUNTS.vat_payable.id || isMoney) {
+    throw badRequest(`${info.label} goes on ${info.side === "sales" ? "an income account" : "a cost, expense or asset account"}: tag the line the amount is for`);
+  }
 }
 
 /** Accounts a "VAT transfer" journal moves between (VAT from before the books, brought into VAT payable). */
@@ -142,10 +151,10 @@ function checkAccounts(db: Db, lines: JournalLineInput[], opening: boolean): voi
   for (const l of lines) {
     const taggedVat = l.accountId === SYSTEM_ACCOUNTS.vat_output.id && (!!l.vatBox || vatTransfer);
     if (!opening && CONTROL[l.accountId] && !taggedVat) throw badRequest(CONTROL[l.accountId]!);
-    if (!opening) checkVatBox(l);
-    const a = db.get<{ active: number }>("SELECT active FROM accounts WHERE id = ?", [l.accountId]);
+    const a = db.get<{ active: number; type: string; money_kind: string | null }>("SELECT active, type, money_kind FROM accounts WHERE id = ?", [l.accountId]);
     if (!a) throw badRequest("A line's account doesn't exist");
     if (!a.active) throw badRequest("A line's account is switched off");
+    if (!opening) checkVatBox(l, a.type, !!a.money_kind);
   }
 }
 
@@ -183,7 +192,8 @@ export function postDraft(db: Db, id: string, userId: string, posts: boolean): E
   return db.tx(() => {
     const entryId = postEntry(db, {
       date: j.date, narration: j.narration, sourceType: opening ? "opening" : "manual", sourceId: d.id, postKey: opening ? "opening" : `manual:${d.id}`,
-      lines: toPostLines(j.lines), userId, allowLocked: opening,
+      // Opening balances are before the books (and any VAT return): they carry no VAT box.
+      lines: toPostLines(opening ? j.lines.map((l) => ({ ...l, vatBox: null })) : j.lines), userId, allowLocked: opening,
     });
     if (!entryId) throw conflict(opening ? "The opening balances are already posted" : "This draft is already posted");
     db.run("DELETE FROM journal_drafts WHERE id = ?", [d.id]);
