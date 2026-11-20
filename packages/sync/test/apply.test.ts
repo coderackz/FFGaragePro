@@ -492,3 +492,32 @@ describe("payroll across places (review fixes)", () => {
   });
 });
 
+describe("final settlements across places (review fixes)", () => {
+  const RULES = { gratuityDayRate: "basic_30", gratuityCap: "basic", leaveBasis: "basic", salaryDayRate: "gross_30" };
+  const now = new Date(Date.now() + 4 * 3_600_000).toISOString().slice(0, 10);
+  const month = new Date(Date.UTC(Number(now.slice(0, 4)), Number(now.slice(5, 7)) - 2, 1)).toISOString().slice(0, 7);
+  const lastDay = `${month}-12`;
+  let employeeId = "";
+  const seed = async (app: App, t: string) => {
+    await call(app, "PUT", "/api/settings/books", t, { startDate: `${month}-01` });
+    await call(app, "PUT", "/api/settings/payroll", t, RULES);
+    employeeId = (await call(app, "POST", "/api/employees", t, { name: "Ravi", job: "Mechanic", joinDate: `${month}-01`, basicFils: 300000 })).body.employee.id;
+  };
+
+  it("6: the leaving month's salary isn't paid by both a payroll and a settlement", async () => {
+    const { A, C, token, sync } = await pair(seed);
+    await call(C, "PATCH", `/api/employees/${employeeId}`, token, { leftDate: lastDay });
+    sync();
+    // The PC runs the leaving month with Ravi in it (it hasn't seen the settlement); the cloud settles him.
+    const run = (await call(A, "POST", "/api/payroll/runs", token, { month })).body.run;
+    expect(run.lines).toHaveLength(1);
+    expect((await call(A, "POST", `/api/payroll/runs/${run.id}/approve`, token, {})).status).toBe(200);
+    const s = (await call(C, "POST", `/api/employees/${employeeId}/settlement`, token, {})).body.settlement;
+    expect(s.items.find((i: { key: string }) => i.key === "salary").amountFils).toBeGreaterThan(0);
+    expect((await call(C, "POST", `/api/settlements/${s.id}/approve`, token, { totalFils: s.totalFils })).status).toBe(200);
+    const { pushed } = sync();
+    expect(pushed.result.issues.map((i: { kind: string }) => i.kind)).toContain("frozen_payroll");
+    expect(C.db.get("SELECT COUNT(*) AS n FROM payroll_approvals")).toEqual({ n: 0 });
+  });
+});
+

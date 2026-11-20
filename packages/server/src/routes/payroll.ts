@@ -106,7 +106,7 @@ export function payrollRoutes(app: FastifyInstance, db: Db, options: PayrollRout
   app.post<{ Params: { id: string }; Body: { totalFils?: number } }>("/api/settlements/:id/approve", async (req) => {
     const user = sessionUser(db, req);
     requireAction(user, "payroll.approve");
-    return { settlement: approveSettlement(db, req.params.id, user.id, req.body ?? {}) };
+    return { settlement: approveSettlement(db, req.params.id, user.id, req.body ?? {}, options.posts) };
   });
   app.post<{ Params: { id: string }; Body: { date?: string; accountId?: string } }>("/api/settlements/:id/paid", async (req) => {
     const user = manager(req);

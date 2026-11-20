@@ -14,7 +14,7 @@ const FIELDS = [
   ["payMethod", "pay_method"], ["iban", "iban"], ["cardNumber", "card_number"], ["routingCode", "routing_code"], ["personId", "person_id"],
   ["emiratesId", "emirates_id"], ["emiratesIdExpiry", "emirates_id_expiry"], ["labourCard", "labour_card"], ["labourCardExpiry", "labour_card_expiry"],
   ["passport", "passport"], ["passportExpiry", "passport_expiry"], ["visa", "visa"], ["visaExpiry", "visa_expiry"],
-  ["language", "language"], ["phone", "phone"], ["email", "email"],
+  ["language", "language"], ["phone", "phone"], ["email", "email"], ["leaveBalanceDays", "leave_balance_days"], ["leaveBalanceDate", "leave_balance_date"],
 ] as const;
 type Row = Record<string, unknown> & { id: string };
 export type EmployeeOut = ReturnType<typeof employeeOut>;
@@ -28,8 +28,12 @@ export const employeeOut = (r: Row) => ({
   iban: string | null; cardNumber: string | null; routingCode: string | null; personId: string | null;
   emiratesId: string | null; emiratesIdExpiry: string | null; labourCard: string | null; labourCardExpiry: string | null;
   passport: string | null; passportExpiry: string | null; visa: string | null; visaExpiry: string | null;
-  language: "en" | "en_ar"; phone: string | null; email: string | null;
+  language: "en" | "en_ar"; phone: string | null; email: string | null; leaveBalanceDays: number | null; leaveBalanceDate: string | null;
 };
+
+/** What an approved final settlement was worked out on. */
+export const FROZEN_AFTER_SETTLEMENT = ["joinDate", "leftDate", "basicFils", "housingFils", "transportFils", "otherAllowanceFils", "leaveBalanceDays", "leaveBalanceDate"] as const;
+export const FROZEN_COLUMNS = ["join_date", "left_date", "basic_fils", "housing_fils", "transport_fils", "other_allowance_fils", "leave_balance_days", "leave_balance_date"];
 
 const row = (db: Db, id: string) => db.get<Row>("SELECT * FROM employees WHERE id = ?", [id]);
 
@@ -53,8 +57,14 @@ export function createEmployee(db: Db, input: unknown) {
 export function updateEmployee(db: Db, id: string, input: unknown) {
   const current = row(db, id);
   if (!current) throw notFound("Employee not found");
-  const merged = { ...employeeOut(current), ...(input as object) };
+  const before = employeeOut(current);
+  const merged = { ...before, ...(input as object) };
   const e = employeeSchema.parse(merged);
+  // An approved final settlement paid them on these: a change would pay days twice or not at all. A rehire is a new employee.
+  if (db.get("SELECT 1 FROM settlement_approvals a JOIN final_settlements f ON f.id = a.settlement_id WHERE f.employee_id = ?", [id])) {
+    const frozen = FROZEN_AFTER_SETTLEMENT.filter((k) => (e[k] ?? null) !== (before[k] ?? null));
+    if (frozen.length) throw conflict(`${before.name} has an approved final settlement: their dates and pay can't change (a rehire is a new employee)`);
+  }
   db.run(
     `UPDATE employees SET ${FIELDS.map(([, c]) => `${c} = ?`).join(", ")}, updated_at = ? WHERE id = ?`,
     [...FIELDS.map(([api]) => (e[api] ?? null) as string | number | null), now(), id],
@@ -98,9 +108,13 @@ const repaidFromSalary = (db: Db, employeeId: string) =>
   db.all<{ snapshot_json: string }>("SELECT snapshot_json FROM payroll_approvals").reduce((s, a) =>
     s + (JSON.parse(a.snapshot_json) as { lines: { employeeId: string; advanceRepaymentFils: number }[] }).lines
       .filter((l) => l.employeeId === employeeId).reduce((t, l) => t + l.advanceRepaymentFils, 0), 0)
+  // A settlement clears all advances still owed: what it took back, and any part forgiven (written off to salaries).
   + db.all<{ snapshot_json: string }>(
     "SELECT a.snapshot_json FROM settlement_approvals a JOIN final_settlements f ON f.id = a.settlement_id WHERE f.employee_id = ?", [employeeId],
-  ).reduce((s, a) => s - ((JSON.parse(a.snapshot_json) as { items: { key: string; amountFils: number }[] }).items.find((i) => i.key === "advances")?.amountFils ?? 0), 0);
+  ).reduce((s, a) => {
+    const x = JSON.parse(a.snapshot_json) as { advancesOwedFils?: number; items: { key: string; amountFils: number }[] };
+    return s + (x.advancesOwedFils ?? -(x.items.find((i) => i.key === "advances")?.amountFils ?? 0));
+  }, 0);
 
 /** Advances paid to an employee, with what's still owed on each (repayments go oldest first; cancelled ones owe nothing). */
 export function advancesOf(db: Db, employeeId: string) {
@@ -168,7 +182,8 @@ export function getEmployee(db: Db, id: string) {
   return {
     ...e, leave, advances,
     advanceOwedFils: advances.reduce((s, a) => s + a.owedFils, 0),
-    annualLeaveDays: annualLeaveBalance(e.joinDate, on, leave.filter((l) => l.kind === "annual" && l.from <= on)),
+    annualLeaveDays: annualLeaveBalance(e.joinDate, on, leave.filter((l) => l.kind === "annual" && l.from <= on),
+      e.leaveBalanceDays !== null && e.leaveBalanceDate ? { days: e.leaveBalanceDays, date: e.leaveBalanceDate } : null),
     expiring: expiringDocuments(db).filter((d) => d.employeeId === id),
   };
 }

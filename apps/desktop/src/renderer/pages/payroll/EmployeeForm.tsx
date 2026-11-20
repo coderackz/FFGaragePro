@@ -10,6 +10,7 @@ const blank = (): Draft => ({
   name: "", nameAr: null, job: "", nationality: null, joinDate: today(), leftDate: null, basicFils: 0, housingFils: 0, transportFils: 0, otherAllowanceFils: 0,
   payMethod: "bank", iban: null, cardNumber: null, routingCode: null, personId: null, emiratesId: null, emiratesIdExpiry: null, labourCard: null,
   labourCardExpiry: null, passport: null, passportExpiry: null, visa: null, visaExpiry: null, language: "en", phone: null, email: null,
+  leaveBalanceDays: null, leaveBalanceDate: null,
 });
 const DOCS = [["emiratesId", "Emirates ID"], ["labourCard", "Labour card"], ["passport", "Passport"], ["visa", "Visa"]] as const;
 
@@ -71,6 +72,13 @@ export function EmployeeForm({ open, employee, onClose, onSaved }: { open: boole
             </Field>
           </div>
         ))}
+      </div>
+      <h3 className="mt-5 mb-2 text-xs font-semibold uppercase tracking-wide text-zinc-500">Annual leave from before the app</h3>
+      <div className="grid grid-cols-3 gap-3 max-md:grid-cols-1">
+        <Field label="Leave days owed" hint="Annual leave not yet taken on the date beside it (leave builds from then)">
+          <Input inputMode="decimal" value={d.leaveBalanceDays ?? ""} onChange={(e) => set({ leaveBalanceDays: e.target.value === "" ? null : Number(e.target.value) })} aria-label="Leave days owed" />
+        </Field>
+        <Field label="Owed on"><Input type="date" value={d.leaveBalanceDate ?? ""} onChange={(e) => set({ leaveBalanceDate: e.target.value || null })} aria-label="Owed on" /></Field>
       </div>
       <div className="mt-5 grid grid-cols-3 gap-3 max-md:grid-cols-1">
         <Field label="Payslip language">

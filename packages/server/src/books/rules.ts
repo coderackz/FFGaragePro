@@ -510,7 +510,9 @@ export function postSettlements(c: PostCtx): number {
       lines: [
         debit(A.salaries.id, x.salaryBasicFils), debit(A.allowances.id, salary - x.salaryBasicFils), debit(A.salaries.id, amt("leave")),
         debit(A.gratuity_provision.id, x.gratuityHeldFils), debit(A.gratuity_expense.id, amt("gratuity") - x.gratuityHeldFils),
-        credit(A.staff_advances.id, -amt("advances")), credit(A.salaries_payable.id, x.totalFils),
+        // All advances still owed are cleared: what wasn't taken back is forgiven, a cost of pay.
+        debit(A.salaries.id, (x.advancesOwedFils ?? -amt("advances")) + amt("advances")),
+        credit(A.staff_advances.id, x.advancesOwedFils ?? -amt("advances")), credit(A.salaries_payable.id, x.totalFils),
       ],
     })) n++;
   }

@@ -32,6 +32,9 @@ export const employeeSchema = z
     passport: optText(30), passportExpiry: optDate,
     visa: optText(30), visaExpiry: optDate,
     language: z.enum(["en", "en_ar"]).default("en"),
+    /** Annual leave days owed on a date (from before the app): leave builds up from there instead of from joining. */
+    leaveBalanceDays: z.number().min(-365).max(1000).nullable().optional().transform((v) => v ?? null),
+    leaveBalanceDate: optDate,
     phone: optText(30),
     email: optText(120),
   })
@@ -132,8 +135,14 @@ export function gratuityOwed(i: { basicFils: number; grossFils: number; serviceD
   return Math.min(owed, 24 * (i.cap === "basic" ? i.basicFils : i.grossFils));
 }
 
-/** Annual leave: 2.5 days for each whole month of service, less annual leave taken. */
-export function annualLeaveBalance(joinDate: string, asOf: string, annualTaken: { from: string; to: string }[]): number {
+/**
+ * Annual leave: 2.5 days for each whole month of service, less annual leave taken. With an opening balance (days owed
+ * on a date, from before the app), it builds from that date instead, and only leave taken from then counts.
+ */
+export function annualLeaveBalance(joinDate: string, asOf: string, annualTaken: { from: string; to: string }[], opening?: { days: number; date: string } | null): number {
+  if (opening) {
+    return opening.days + annualLeaveBalance(opening.date, asOf, annualTaken.filter((l) => l.from >= opening.date));
+  }
   const [y1, m1, d1] = joinDate.split("-").map(Number) as [number, number, number];
   const [y2, m2, d2] = asOf.split("-").map(Number) as [number, number, number];
   const months = Math.max((y2 - y1) * 12 + (m2 - m1) - (d2 < d1 ? 1 : 0), 0);
@@ -184,6 +193,8 @@ const monthText = (ymd: string) => new Intl.DateTimeFormat("en-GB", { month: "sh
 export function settlementProposal(i: {
   employee: PayEmployee; lastDay: string; unpaidLeave: { from: string; to: string }[]; annualTaken: { from: string; to: string }[];
   rules: SettlementRules; salaryAlreadyPaid: boolean; gratuityHeldFils: number; advancesOwedFils: number;
+  /** Annual leave owed on a date from before the app; without it, leave builds from joining (flagged when that's before the books). */
+  leaveOpening?: { days: number; date: string } | null; booksStart?: string | null;
 }): SettlementItem[] {
   const e = i.employee;
   const gross = e.basicFils + e.housingFils + e.transportFils + e.otherAllowanceFils;
@@ -196,12 +207,14 @@ export function settlementProposal(i: {
     : item("salary", "Salary to the last day", pay.basicFils + pay.allowancesFils - pay.unpaidDeductionFils,
       `${pay.workedDays} days of ${aedText(gross)} a month at ${RATE_TEXT[i.rules.salaryDayRate]}, less ${pay.unpaidDays} unpaid day${pay.unpaidDays === 1 ? "" : "s"}`);
 
-  const days = annualLeaveBalance(e.joinDate, i.lastDay, i.annualTaken);
+  const days = annualLeaveBalance(e.joinDate, i.lastDay, i.annualTaken, i.leaveOpening);
+  const unknownBefore = !i.leaveOpening && !!i.booksStart && e.joinDate < i.booksStart;
   const leaveBase = i.rules.leaveBasis === "basic" ? e.basicFils : gross;
   const leaveRule = (i.rules.salaryDayRate.endsWith("_30") ? `${i.rules.leaveBasis}_30` : `${i.rules.leaveBasis}_365`) as DayRateRule;
   const perDay = dayRate(leaveBase, leaveRule);
   const leave = item("leave", days >= 0 ? "Leave not taken" : "Leave taken ahead", Math.round(days * perDay),
-    `${Math.abs(days)} day${Math.abs(days) === 1 ? "" : "s"} ${days >= 0 ? "not taken" : "taken ahead"} × ${aedText(Math.round(perDay))} a day (${RATE_TEXT[leaveRule]})`);
+    `${Math.abs(days)} day${Math.abs(days) === 1 ? "" : "s"} ${days >= 0 ? "not taken" : "taken ahead"} × ${aedText(Math.round(perDay))} a day (${RATE_TEXT[leaveRule]})`
+      + (unknownBefore ? `. Counted from joining: no leave balance was entered for before ${monthText(i.booksStart!)}, so leave taken then isn't known: check the days` : ""));
 
   const service = serviceDays(e.joinDate, i.lastDay, i.unpaidLeave);
   const years = Math.floor(service / 365);

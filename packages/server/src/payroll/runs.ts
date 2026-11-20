@@ -197,7 +197,7 @@ export function gratuityHeld(db: Db, employeeId: string): number {
   }
   return held + broughtForward(db, employeeId);
 }
-const broughtForward = (db: Db, employeeId: string) =>
+export const broughtForward = (db: Db, employeeId: string) =>
   -(db.get<{ v: number | null }>(
     "SELECT SUM(l.debit_fils - l.credit_fils) AS v FROM journal_entries e JOIN journal_lines l ON l.entry_id = e.id WHERE e.source_type = 'payroll_opening' AND e.source_id = ? AND l.account_id = '00000000-0000-4000-8000-0000000a2210'",
     [employeeId],
@@ -254,7 +254,9 @@ export function approveRun(db: Db, runId: string, userId: string, o: { netWpsFil
         basicFils: e.basic_fils, grossFils: e.basic_fils + e.housing_fils + e.transport_fils + e.other_allowance_fils,
         serviceDays: serviceDays(e.join_date, asOf, unpaidLeaveOf(db, e.id)), dayRate: rules.gratuityDayRate!, cap: rules.gratuityCap!,
       });
-      l.gratuityFils = owed - gratuityHeld(db, e.id);
+      // Someone already settled: the settlement released their gratuity, so this month puts none aside.
+      const settled = db.get("SELECT 1 FROM settlement_approvals a JOIN final_settlements f ON f.id = a.settlement_id WHERE f.employee_id = ?", [e.id]);
+      l.gratuityFils = settled ? 0 : owed - gratuityHeld(db, e.id);
     }
     const snapshot: Snapshot = { month: r.month, lines };
     db.run("INSERT INTO payroll_approvals (id, run_id, snapshot_json, approved_by, approved_at) VALUES (?, ?, ?, ?, ?)", [newId(), r.id, JSON.stringify(snapshot), userId, now()]);

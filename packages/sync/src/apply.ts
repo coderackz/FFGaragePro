@@ -314,6 +314,7 @@ function applyEntry(c: Ctx, e: ChangeEntry): boolean {
     return true;
   }
   if (t.insertOnly && current) return false;
+  if (c.mode === "cloud" && !current && refusedPayAgain(c, t.name, data)) return false;
 
   // Which fields to take: at the cloud, what the change changed (or everything for a new row); at a PC, the
   // cloud's fields that nothing later changed, except ones this PC changed and hasn't pushed yet.
@@ -333,6 +334,18 @@ function applyEntry(c: Ctx, e: ChangeEntry): boolean {
       logOwn(c, t, e.rowId, refused);
       addIssue(c, "frozen_invoice", "documents", e.rowId, `${invoiceNumber(c, e.rowId)} had already been issued, so changes from ${c.from} were not applied.`, {
         fields: Object.fromEntries(refused.map((k) => [k, values[k]])),
+      });
+      return false;
+    }
+  }
+  // A settled employee's dates and pay are what their approved final settlement paid on: refused from elsewhere.
+  if (c.mode === "cloud" && t.name === "employees" && current && c.db.get(
+    "SELECT 1 FROM settlement_approvals a JOIN final_settlements f ON f.id = a.settlement_id WHERE f.employee_id = ?", [e.rowId])) {
+    const frozen = Object.keys(values).filter((k) => SETTLED_COLUMNS.has(k) && !same(current[k], values[k]));
+    if (frozen.length) {
+      logOwn(c, t, e.rowId, frozen);
+      addIssue(c, "frozen_payroll", "employees", e.rowId, `${String(current.name)} has an approved final settlement, so changes to their dates or pay from ${c.from} were not applied.`, {
+        fields: Object.fromEntries(frozen.map((k) => [k, values[k]])),
       });
       return false;
     }
@@ -492,3 +505,41 @@ export function changesFor(db: Db, afterSeq: number, device: string, limit = 500
     return { ...e, changed: base.filter((col) => !overwritten.has(col)) };
   });
 }
+
+const SETTLED_COLUMNS = new Set(["join_date", "left_date", "basic_fils", "housing_fils", "transport_fils", "other_allowance_fils", "leave_balance_days", "leave_balance_date"]);
+
+/**
+ * A leaver's last month is paid once: by the payroll that includes them, or by their final settlement's salary. An
+ * approval arriving that would pay it a second time (two places, each unaware of the other) is refused with an issue.
+ */
+function refusedPayAgain(c: Ctx, table: string, data: Row): boolean {
+  const settledSalary = (employeeId: string, month: string) => c.db.all<{ snapshot_json: string }>(
+    "SELECT a.snapshot_json FROM settlement_approvals a JOIN final_settlements f ON f.id = a.settlement_id WHERE f.employee_id = ?", [employeeId],
+  ).some((a) => {
+    const x = JSON.parse(a.snapshot_json) as { lastDay: string; items: { key: string; amountFils: number }[] };
+    return x.lastDay.slice(0, 7) === month && (x.items.find((i) => i.key === "salary")?.amountFils ?? 0) > 0;
+  });
+  if (table === "payroll_approvals") {
+    const month = c.db.get<{ month: string }>("SELECT month FROM payroll_runs WHERE id = ?", [String(data.run_id)])?.month;
+    if (!month) return false;
+    const lines = (JSON.parse(String(data.snapshot_json)) as { lines: { employeeId: string; name: string }[] }).lines;
+    const twice = lines.find((l) => settledSalary(l.employeeId, month));
+    if (!twice) return false;
+    addIssue(c, "frozen_payroll", "payroll_runs", String(data.run_id),
+      `The payroll for ${month} from ${c.from} was not approved here: it pays ${twice.name}, whose final settlement already paid that month. Take them out of it and approve again.`, {});
+    return true;
+  }
+  if (table === "settlement_approvals") {
+    const x = JSON.parse(String(data.snapshot_json)) as { employeeId: string; name: string; lastDay: string; items: { key: string; amountFils: number }[] };
+    if ((x.items.find((i) => i.key === "salary")?.amountFils ?? 0) <= 0) return false;
+    const paid = c.db.all<{ snapshot_json: string }>(
+      "SELECT a.snapshot_json FROM payroll_approvals a JOIN payroll_runs r ON r.id = a.run_id WHERE r.month = ?", [x.lastDay.slice(0, 7)],
+    ).some((a) => (JSON.parse(a.snapshot_json) as { lines: { employeeId: string }[] }).lines.some((l) => l.employeeId === x.employeeId));
+    if (!paid) return false;
+    addIssue(c, "frozen_payroll", "final_settlements", String(data.settlement_id),
+      `${x.name}'s final settlement from ${c.from} was not approved here: that month's payroll already paid them. Set its salary to 0 and approve again.`, {});
+    return true;
+  }
+  return false;
+}
+

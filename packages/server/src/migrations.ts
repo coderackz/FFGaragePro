@@ -1096,6 +1096,9 @@ CREATE TABLE settlement_payments (
 );
 -- Payslips are messages to an employee (only people who run payroll see them).
 ALTER TABLE messages ADD COLUMN employee_id TEXT;
+-- Annual leave owed on a date from before the app (leave builds from there).
+ALTER TABLE employees ADD COLUMN leave_balance_days REAL;
+ALTER TABLE employees ADD COLUMN leave_balance_date TEXT;
 `,
   },
 ];
