@@ -26,7 +26,7 @@ export const SECTION_NAMES: Record<string, string> = {
 
 const FIELD_NAMES: Record<string, string> = {
   name: "Garage name", trn: "VAT TRN", address: "Address", phone: "Phone", email: "Email",
-  tradeLicence: "Trade licence", bankName: "Bank", accountName: "Account name", iban: "IBAN",
+  tradeLicence: "Trade licence", emirate: "Emirate", bankName: "Bank", accountName: "Account name", iban: "IBAN",
   logo: "Logo", stamp: "Stamp", signature: "Signature", paper: "Paper", letterheadTopMm: "Letterhead space (mm)", terms: "Invoice terms",
   warranty: "Warranty line", estimateValidDays: "Estimates valid for (days)", showPartNumbers: "Show part numbers",
   showLabourHours: "Show labour hours", jobCardSignature: "Customer signature on job cards",

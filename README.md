@@ -169,7 +169,19 @@ set. Each tile opens its section with its own Save; every change goes to the Act
 
     npm run e2e:payables                            # bill → payment → expense with photo → statement import → reconciled → books health
 
-Next: Accounting Part 3 (VAT return). See `docs/superpowers/specs/2026-11-19-accounting-design.md`.
+**VAT return (Accounting Part 3):**
+- **Books → VAT return** shows the VAT201 figures for each period in Settings → Tax, worked out from the books:
+  - box 1 (in the garage's emirate, Settings → Garage) from invoices less credit notes;
+  - box 9 from bills, parts received and expenses, counting only what carries VAT;
+  - zero-rated, exempt, reverse charge and adjustments from manual journal lines tagged with their **VAT box**.
+- Every box opens to its entries. The page also lists VAT that no box counts, and customer advances unused at the period end.
+- **Mark as filed** (Owner) keeps the figures as filed, posts the settlement into VAT payable (or refundable) dated the
+  period end, and locks the books up to it. Returns are filed in order, once the period has ended.
+- **Record the payment** opens a journal from VAT payable to the bank. Excel and print of the return.
+
+    npm run e2e:vat                                 # bill + tagged journals → return figures → drill down → filed and locked → books health
+
+Next: Accounting Part 4 (payroll). See `docs/superpowers/specs/2026-11-19-accounting-design.md`.
 
 ## Layout
 | Path | What |

@@ -1,7 +1,7 @@
-import { dubaiDate } from "@ffgp/shared";
+import { dubaiDate, VAT_TAG_INFO, VAT_TAGS, type VatTag } from "@ffgp/shared";
 import { Plus, Trash2 } from "lucide-react";
 import { useEffect, useState } from "react";
-import { useNavigate, useParams } from "react-router";
+import { useLocation, useNavigate, useParams } from "react-router";
 import { toast } from "sonner";
 import { Button, Card, Field, Input, PageHeader, Select, Spinner } from "../../components/ui";
 import { money, toFils, type Account, type Draft, type DraftLine, type Entry } from "../../books/types";
@@ -10,14 +10,16 @@ import type { Customer } from "../../lib/types";
 import { useApi } from "../../lib/useApi";
 import { BackToBooks } from "./ReportPage";
 
-interface EditLine { accountId: string; debit: string; credit: string; customerId: string; documentId: string | null; memo: string }
-const blank = (): EditLine => ({ accountId: "", debit: "", credit: "", customerId: "", documentId: null, memo: "" });
+interface EditLine { accountId: string; debit: string; credit: string; customerId: string; documentId: string | null; memo: string; vatBox: VatTag | "" }
+const blank = (): EditLine => ({ accountId: "", debit: "", credit: "", customerId: "", documentId: null, memo: "", vatBox: "" });
+/** A new journal can arrive filled in (the VAT return's "Record the payment"). */
+export interface JournalPrefill { date?: string; narration: string; lines: DraftLine[] }
 const fromDraft = (l: DraftLine): EditLine => ({
   accountId: l.accountId, debit: l.debitFils ? (l.debitFils / 100).toFixed(2) : "", credit: l.creditFils ? (l.creditFils / 100).toFixed(2) : "",
-  customerId: l.customerId ?? "", documentId: l.documentId ?? null, memo: l.memo ?? "",
+  customerId: l.customerId ?? "", documentId: l.documentId ?? null, memo: l.memo ?? "", vatBox: l.vatBox ?? "",
 });
 const toDraft = (l: EditLine): DraftLine => ({
-  accountId: l.accountId, debitFils: toFils(l.debit), creditFils: toFils(l.credit), customerId: l.customerId || null, documentId: l.documentId, memo: l.memo || null,
+  accountId: l.accountId, debitFils: toFils(l.debit), creditFils: toFils(l.credit), customerId: l.customerId || null, documentId: l.documentId, memo: l.memo || null, vatBox: l.vatBox || null,
 });
 
 /**
@@ -27,13 +29,14 @@ const toDraft = (l: EditLine): DraftLine => ({
 export function JournalEditor({ opening = false }: { opening?: boolean }) {
   const { id } = useParams();
   const navigate = useNavigate();
+  const prefill = (useLocation().state as { prefill?: JournalPrefill } | null)?.prefill;
   const accounts = useApi<{ accounts: Account[] }>("/api/books/accounts");
   const customers = useApi<{ customers: Customer[] }>("/api/customers");
   const [draftId, setDraftId] = useState<string | null>(id ?? null);
   const [kind, setKind] = useState<"manual" | "opening">(opening ? "opening" : "manual");
-  const [date, setDate] = useState(dubaiDate(new Date().toISOString()));
-  const [narration, setNarration] = useState(opening ? "Opening balances" : "");
-  const [lines, setLines] = useState<EditLine[]>([blank(), blank()]);
+  const [date, setDate] = useState(prefill?.date ?? dubaiDate(new Date().toISOString()));
+  const [narration, setNarration] = useState(opening ? "Opening balances" : prefill?.narration ?? "");
+  const [lines, setLines] = useState<EditLine[]>(prefill ? prefill.lines.map(fromDraft) : [blank(), blank()]);
   const [loaded, setLoaded] = useState(!id && !opening);
   const [busy, setBusy] = useState<"save" | "post" | null>(null);
 
@@ -100,7 +103,7 @@ export function JournalEditor({ opening = false }: { opening?: boolean }) {
           <Field label="Narration"><Input value={narration} onChange={(e) => setNarration(e.target.value)} aria-label="Narration" placeholder="What it's for, e.g. Rent for November" /></Field>
         </div>
         <table className="w-full text-sm">
-          <thead><tr className="text-left text-xs text-zinc-500"><th className="pb-1">Account</th><th className="pb-1">Customer</th><th className="pb-1">Memo</th><th className="w-32 pb-1 text-right">Debit</th><th className="w-32 pb-1 text-right">Credit</th><th className="w-8" /></tr></thead>
+          <thead><tr className="text-left text-xs text-zinc-500"><th className="pb-1">Account</th><th className="pb-1">Customer</th><th className="pb-1">Memo</th>{kind === "manual" && <th className="pb-1">VAT box</th>}<th className="w-32 pb-1 text-right">Debit</th><th className="w-32 pb-1 text-right">Credit</th><th className="w-8" /></tr></thead>
           <tbody>
             {lines.map((l, i) => (
               <tr key={i}>
@@ -119,6 +122,14 @@ export function JournalEditor({ opening = false }: { opening?: boolean }) {
                   ) : <span className="text-zinc-400">—</span>}
                 </td>
                 <td className="py-1 pr-2"><Input value={l.memo} onChange={(e) => set(i, { memo: e.target.value })} aria-label={`Memo, line ${i + 1}`} /></td>
+                {kind === "manual" && (
+                  <td className="py-1 pr-2">
+                    <Select value={l.vatBox} onChange={(e) => set(i, { vatBox: e.target.value as VatTag | "" })} aria-label={`VAT box, line ${i + 1}`} className="max-w-44">
+                      <option value="">—</option>
+                      {VAT_TAGS.map((t) => <option key={t} value={t}>{VAT_TAG_INFO[t].label}</option>)}
+                    </Select>
+                  </td>
+                )}
                 <td className="py-1 pr-2"><Input inputMode="decimal" className="text-right" value={l.debit} onChange={(e) => set(i, { debit: e.target.value, credit: e.target.value ? "" : l.credit })} aria-label={`Debit, line ${i + 1}`} /></td>
                 <td className="py-1 pr-2"><Input inputMode="decimal" className="text-right" value={l.credit} onChange={(e) => set(i, { credit: e.target.value, debit: e.target.value ? "" : l.debit })} aria-label={`Credit, line ${i + 1}`} /></td>
                 <td className="py-1">{lines.length > 2 && <button type="button" className="text-zinc-400 hover:text-red-700" aria-label={`Remove line ${i + 1}`} onClick={() => setLines((ls) => ls.filter((_, j) => j !== i))}><Trash2 className="size-4" /></button>}</td>
@@ -128,7 +139,7 @@ export function JournalEditor({ opening = false }: { opening?: boolean }) {
           <tfoot>
             <tr className="border-t border-zinc-200 font-medium">
               <td className="pt-2"><Button size="sm" variant="ghost" icon={<Plus className="size-3.5" />} onClick={() => setLines((ls) => [...ls, blank()])}>Add line</Button></td>
-              <td colSpan={2} className={`pt-2 text-right ${diff && kind === "manual" ? "text-red-700" : "text-zinc-500"}`} data-testid="difference">
+              <td colSpan={kind === "manual" ? 3 : 2} className={`pt-2 text-right ${diff && kind === "manual" ? "text-red-700" : "text-zinc-500"}`} data-testid="difference">
                 {diff ? `${kind === "opening" ? "To Opening balance equity" : "Difference"}: ${money(Math.abs(diff))}` : "Balanced"}
               </td>
               <td className="pt-2 pr-2 text-right tabular">{money(debits)}</td>

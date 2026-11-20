@@ -1,3 +1,4 @@
+import type { VatTag } from "@ffgp/shared";
 import type { AccountType } from "@ffgp/shared";
 
 export interface Account { id: string; code: string; name: string; type: AccountType; systemKey: string | null; active: boolean; moneyKind?: string | null }
@@ -11,13 +12,14 @@ export interface Entry {
   lines: EntryLine[];
 }
 export type EntrySummary = Omit<Entry, "lines"> & { totalFils: number };
-export interface DraftLine { accountId: string; debitFils: number; creditFils: number; customerId?: string | null; supplierId?: string | null; documentId?: string | null; memo?: string | null }
+export interface DraftLine { accountId: string; debitFils: number; creditFils: number; customerId?: string | null; supplierId?: string | null; documentId?: string | null; memo?: string | null; vatBox?: VatTag | null }
 export interface Draft { id: string; kind: "manual" | "opening"; date: string; narration: string; lines: DraftLine[]; updatedAt: string }
 
 export const SOURCE_LABELS: Record<string, string> = {
   invoice: "Invoice", credit_note: "Credit note", receipt: "Receipt", goods_receipt: "Parts received", stock: "Stock", cogs: "Parts cost",
   customer_opening: "Customer opening balance", opening: "Opening balances", manual: "Journal", reversal: "Reversal", year_close: "Year end",
-  revaluation: "Stock revaluation",
+  revaluation: "Stock revaluation", supplier_bill: "Bill", bill_cancel: "Bill cancelled", supplier_payment: "Supplier payment", supplier_opening: "Supplier opening balance",
+  expense: "Expense", transfer: "Transfer", cheque_deposit: "Cheques paid in", cheque_clear: "Cheque cleared", vat_return: "VAT return",
 };
 
 /** 1,234.50 (fils → AED, no currency sign: report columns are all AED). */

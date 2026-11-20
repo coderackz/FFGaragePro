@@ -1,4 +1,4 @@
-import { BookOpen, ChartBar, FileSpreadsheet, HeartPulse, ListTree, Scale, ScrollText, Wallet } from "lucide-react";
+import { BookOpen, ChartBar, FileSpreadsheet, HeartPulse, ListTree, Receipt, Scale, ScrollText, Wallet } from "lucide-react";
 import type { ReactNode } from "react";
 import { Link } from "react-router";
 import { PageHeader } from "../../components/ui";
@@ -14,6 +14,7 @@ const CARDS: { to: string; title: string; blurb: string; icon: ReactNode }[] = [
   { to: "/books/journals", title: "Journals", blurb: "All entries; post a journal, reverse one", icon: <BookOpen className="size-5" /> },
   { to: "/books/accounts", title: "Chart of accounts", blurb: "Add, rename or switch off accounts", icon: <ListTree className="size-5" /> },
   { to: "/books/opening", title: "Opening balances", blurb: "Where the books start from", icon: <FileSpreadsheet className="size-5" /> },
+  { to: "/books/vat", title: "VAT return", blurb: "VAT201 figures for each period; file and lock", icon: <Receipt className="size-5" /> },
   { to: "/books/health", title: "Books health", blurb: "Do the books agree with the workshop?", icon: <HeartPulse className="size-5" /> },
   { to: "/bank", title: "Bank & cash", blurb: "Balances, cheques, reconciliation", icon: <Wallet className="size-5" /> },
   { to: "/reports/payables-aging", title: "Payables aging", blurb: "What we owe suppliers, by how late", icon: <ChartBar className="size-5" /> },

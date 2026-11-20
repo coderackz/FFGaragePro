@@ -23,6 +23,7 @@ import { SuppliersPage } from "./pages/SuppliersPage";
 import { AccountsPage } from "./pages/books/AccountsPage";
 import { BooksHome } from "./pages/books/BooksHome";
 import { HealthPage } from "./pages/books/HealthPage";
+import { VatReturnPage } from "./pages/books/VatReturnPage";
 import { JournalEditor } from "./pages/books/JournalEditor";
 import { JournalsPage, JournalView } from "./pages/books/JournalsPage";
 import { ReportPage } from "./pages/books/ReportPage";
@@ -109,6 +110,7 @@ export function App() {
             <Route path="/books/opening" element={<JournalEditor key="opening" opening />} />
             <Route path="/books/accounts" element={<AccountsPage />} />
             <Route path="/books/health" element={<HealthPage />} />
+            <Route path="/books/vat" element={<VatReturnPage />} />
           </>
         )}
         <Route path="/documents/new/:type" element={<DocumentPage />} />

@@ -1,6 +1,7 @@
 import { useEffect, useState } from "react";
 import { toast } from "sonner";
-import { Card, Field, Input, Textarea } from "../../../components/ui";
+import { EMIRATES, EMIRATE_NAMES, type Emirate } from "@ffgp/shared";
+import { Card, Field, Input, Select, Textarea } from "../../../components/ui";
 import { patch } from "../../../lib/api";
 import { useAuth } from "../../../lib/auth";
 import { SectionShell } from "../SectionShell";
@@ -46,6 +47,12 @@ export function GarageSection() {
           <Field label="Garage name" className="sm:col-span-2"><Input {...f("name")} /></Field>
           <Field label="VAT TRN" hint="15 digits. Printed on tax invoices."><Input {...f("trn")} inputMode="numeric" /></Field>
           <Field label="Trade licence no."><Input value={e.tradeLicence ?? ""} onChange={(ev) => extra.set({ tradeLicence: ev.target.value })} /></Field>
+          <Field label="Emirate" hint="Where the garage is: its row in box 1 of the VAT return.">
+            <Select value={e.emirate ?? ""} onChange={(ev) => extra.set({ emirate: (ev.target.value || null) as Emirate | null })} aria-label="Emirate">
+              <option value="">Choose…</option>
+              {EMIRATES.map((m) => <option key={m} value={m}>{EMIRATE_NAMES[m]}</option>)}
+            </Select>
+          </Field>
           <Field label="Phone"><Input {...f("phone")} /></Field>
           <Field label="Email"><Input {...f("email")} type="email" /></Field>
           <Field label="Address" className="sm:col-span-2"><Textarea {...f("address")} rows={3} /></Field>
