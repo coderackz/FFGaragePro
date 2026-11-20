@@ -8,7 +8,8 @@ import { installCapture, localChanges, verifyLicence } from "@ffgp/sync";
 import { api, garageReady, SETUP, startCloud } from "./helpers";
 
 // Each test runs a real cloud and a PC garage (password hashing, file copies): slow on Windows CI runners.
-vi.setConfig({ testTimeout: 30_000, hookTimeout: 30_000 });
+// A cloud and a PC per test, each garage built through every migration: Windows CI runners need well over 30 s.
+vi.setConfig({ testTimeout: 90_000, hookTimeout: 90_000 });
 
 async function raw(url: string, method: string, path: string, headers: Record<string, string>, body?: Uint8Array) {
   return fetch(url + path, { method, headers, body: body as BodyInit | undefined });

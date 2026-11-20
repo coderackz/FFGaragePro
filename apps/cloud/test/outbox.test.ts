@@ -6,7 +6,8 @@ import { Db, SCHEMA_VERSION, startGarageServer, type Mailer, type MailMessage } 
 import { installCapture, localChanges } from "@ffgp/sync";
 import { api, garageReady, makeClock, SETUP, startCloud } from "./helpers";
 
-vi.setConfig({ testTimeout: 30_000, hookTimeout: 30_000 });
+// A cloud and a PC per test, each garage built through every migration: Windows CI runners need well over 30 s.
+vi.setConfig({ testTimeout: 90_000, hookTimeout: 90_000 });
 
 function fakeMailer() {
   const sent: MailMessage[] = [];
