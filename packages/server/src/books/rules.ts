@@ -380,3 +380,20 @@ export function postMoneyMovements(c: PostCtx): number {
   return n;
 }
 
+/** Advances paid to staff: Dr Staff advances / Cr the cash or bank they were paid from. */
+export function postStaffAdvances(c: PostCtx): number {
+  let n = 0;
+  for (const a of c.db.all<{ id: string; paid_on: string; amount_fils: number; paid_from: string; name: string }>(
+    `SELECT a.id, a.paid_on, a.amount_fils, a.paid_from_account_id AS paid_from, e.name FROM staff_advances a JOIN employees e ON e.id = a.employee_id
+     WHERE a.paid_on >= ? AND ${unposted("'staff_advance:' || a.id")} ORDER BY a.created_at`,
+    [c.start],
+  )) {
+    if (c.full()) break;
+    if (c.post({
+      date: a.paid_on, narration: `Advance to ${a.name}`, sourceType: "staff_advance", sourceId: a.id, postKey: `staff_advance:${a.id}`, userId: null,
+      lines: [debit(A.staff_advances.id, a.amount_fils), credit(a.paid_from, a.amount_fils)],
+    })) n++;
+  }
+  return n;
+}
+

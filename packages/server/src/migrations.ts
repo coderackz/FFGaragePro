@@ -867,6 +867,131 @@ CREATE TABLE vat_returns (
 );
 `,
   },
+  {
+    id: 14,
+    // Accounting Part 4a (payroll): employees, leave, advances, monthly runs; the payroll accounts; new entry kinds.
+    foreignKeysOff: ["journal_entries", "journal_lines", "vat_returns"],
+    sql: `
+CREATE TABLE journal_entries_new (
+  id TEXT PRIMARY KEY,
+  series TEXT NOT NULL DEFAULT '',
+  seq INTEGER NOT NULL,
+  number TEXT NOT NULL,
+  date TEXT NOT NULL,
+  narration TEXT NOT NULL,
+  source_type TEXT NOT NULL CHECK (source_type IN ('invoice', 'credit_note', 'receipt', 'goods_receipt', 'stock', 'cogs', 'customer_opening',
+    'opening', 'manual', 'reversal', 'year_close', 'revaluation', 'supplier_bill', 'bill_cancel', 'supplier_payment', 'supplier_opening', 'expense',
+    'transfer', 'cheque_deposit', 'cheque_clear', 'vat_return', 'payroll_run', 'wps_paid', 'bonus_paid', 'staff_advance')),
+  source_id TEXT,
+  post_key TEXT UNIQUE,
+  reverses_id TEXT REFERENCES journal_entries(id),
+  original_date TEXT,
+  created_by TEXT REFERENCES users(id),
+  created_at TEXT NOT NULL,
+  UNIQUE (series, seq)
+);
+INSERT INTO journal_entries_new SELECT id, series, seq, number, date, narration, source_type, source_id, post_key, reverses_id, original_date, created_by, created_at
+  FROM journal_entries;
+DROP TABLE journal_entries;
+ALTER TABLE journal_entries_new RENAME TO journal_entries;
+CREATE INDEX journal_entries_date ON journal_entries(date);
+CREATE INDEX journal_entries_source ON journal_entries(source_type, source_id);
+
+-- The payroll accounts: 6000 Salaries and 2200 Salaries payable already exist; the rest are new.
+UPDATE accounts SET system_key = 'salaries' WHERE id = '00000000-0000-4000-8000-0000000a6000';
+UPDATE accounts SET system_key = 'salaries_payable' WHERE id = '00000000-0000-4000-8000-0000000a2200';
+INSERT OR IGNORE INTO accounts (id, code, name, type, system_key, active, created_at, updated_at) VALUES ('00000000-0000-4000-8000-0000000a1410', '1410', 'Staff advances', 'asset', 'staff_advances', 1, strftime('%Y-%m-%dT%H:%M:%fZ','now'), strftime('%Y-%m-%dT%H:%M:%fZ','now'));
+INSERT OR IGNORE INTO accounts (id, code, name, type, system_key, active, created_at, updated_at) VALUES ('00000000-0000-4000-8000-0000000a2210', '2210', 'Gratuity provision', 'liability', 'gratuity_provision', 1, strftime('%Y-%m-%dT%H:%M:%fZ','now'), strftime('%Y-%m-%dT%H:%M:%fZ','now'));
+INSERT OR IGNORE INTO accounts (id, code, name, type, system_key, active, created_at, updated_at) VALUES ('00000000-0000-4000-8000-0000000a6001', '6001', 'Allowances', 'expense', 'allowances', 1, strftime('%Y-%m-%dT%H:%M:%fZ','now'), strftime('%Y-%m-%dT%H:%M:%fZ','now'));
+INSERT OR IGNORE INTO accounts (id, code, name, type, system_key, active, created_at, updated_at) VALUES ('00000000-0000-4000-8000-0000000a6002', '6002', 'Staff bonus', 'expense', 'staff_bonus', 1, strftime('%Y-%m-%dT%H:%M:%fZ','now'), strftime('%Y-%m-%dT%H:%M:%fZ','now'));
+INSERT OR IGNORE INTO accounts (id, code, name, type, system_key, active, created_at, updated_at) VALUES ('00000000-0000-4000-8000-0000000a6003', '6003', 'End-of-service gratuity', 'expense', 'gratuity_expense', 1, strftime('%Y-%m-%dT%H:%M:%fZ','now'), strftime('%Y-%m-%dT%H:%M:%fZ','now'));
+
+CREATE TABLE employees (
+  id TEXT PRIMARY KEY,
+  name TEXT NOT NULL,
+  name_ar TEXT,
+  job TEXT NOT NULL,
+  nationality TEXT,
+  join_date TEXT NOT NULL,
+  left_date TEXT,
+  basic_fils INTEGER NOT NULL,
+  housing_fils INTEGER NOT NULL DEFAULT 0,
+  transport_fils INTEGER NOT NULL DEFAULT 0,
+  other_allowance_fils INTEGER NOT NULL DEFAULT 0,
+  pay_method TEXT NOT NULL CHECK (pay_method IN ('bank', 'salary_card')),
+  iban TEXT,
+  card_number TEXT,
+  routing_code TEXT,
+  person_id TEXT,
+  emirates_id TEXT, emirates_id_expiry TEXT,
+  labour_card TEXT, labour_card_expiry TEXT,
+  passport TEXT, passport_expiry TEXT,
+  visa TEXT, visa_expiry TEXT,
+  language TEXT NOT NULL DEFAULT 'en' CHECK (language IN ('en', 'en_ar')),
+  phone TEXT,
+  email TEXT,
+  created_at TEXT NOT NULL,
+  updated_at TEXT NOT NULL
+);
+CREATE TABLE employee_leave (
+  id TEXT PRIMARY KEY,
+  employee_id TEXT NOT NULL REFERENCES employees(id),
+  kind TEXT NOT NULL CHECK (kind IN ('annual', 'sick', 'unpaid')),
+  from_date TEXT NOT NULL,
+  to_date TEXT NOT NULL,
+  note TEXT,
+  created_by TEXT REFERENCES users(id),
+  created_at TEXT NOT NULL
+);
+CREATE INDEX employee_leave_employee ON employee_leave(employee_id, from_date);
+CREATE TABLE staff_advances (
+  id TEXT PRIMARY KEY,
+  employee_id TEXT NOT NULL REFERENCES employees(id),
+  amount_fils INTEGER NOT NULL CHECK (amount_fils > 0),
+  paid_on TEXT NOT NULL,
+  paid_from_account_id TEXT NOT NULL REFERENCES accounts(id),
+  instalment_fils INTEGER NOT NULL CHECK (instalment_fils > 0),
+  note TEXT,
+  created_by TEXT REFERENCES users(id),
+  created_at TEXT NOT NULL
+);
+CREATE INDEX staff_advances_employee ON staff_advances(employee_id);
+CREATE TABLE payroll_runs (
+  id TEXT PRIMARY KEY,
+  month TEXT NOT NULL UNIQUE,
+  status TEXT NOT NULL DEFAULT 'draft' CHECK (status IN ('draft', 'approved')),
+  approved_by TEXT REFERENCES users(id),
+  approved_at TEXT,
+  wps_paid_on TEXT,
+  wps_bank_account_id TEXT REFERENCES accounts(id),
+  bonus_paid_on TEXT,
+  bonus_cash_account_id TEXT REFERENCES accounts(id),
+  created_by TEXT REFERENCES users(id),
+  created_at TEXT NOT NULL,
+  updated_at TEXT NOT NULL
+);
+CREATE TABLE payroll_lines (
+  id TEXT PRIMARY KEY,
+  run_id TEXT NOT NULL REFERENCES payroll_runs(id),
+  employee_id TEXT NOT NULL REFERENCES employees(id),
+  worked_days INTEGER NOT NULL,
+  basic_fils INTEGER NOT NULL,
+  allowances_fils INTEGER NOT NULL,
+  unpaid_days INTEGER NOT NULL DEFAULT 0,
+  unpaid_deduction_fils INTEGER NOT NULL DEFAULT 0,
+  advance_repayment_fils INTEGER NOT NULL DEFAULT 0,
+  extras_fils INTEGER NOT NULL DEFAULT 0,
+  extras_note TEXT,
+  bonus_fils INTEGER NOT NULL DEFAULT 0,
+  net_fils INTEGER NOT NULL,
+  gratuity_fils INTEGER NOT NULL DEFAULT 0,
+  bonus_in_wps INTEGER NOT NULL DEFAULT 0,
+  created_at TEXT NOT NULL,
+  updated_at TEXT NOT NULL,
+  UNIQUE (run_id, employee_id)
+);
+`,
+  },
 ];
 
 /** The newest migration this code knows: the garage database's schema version. */

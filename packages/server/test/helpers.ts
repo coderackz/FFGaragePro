@@ -80,3 +80,9 @@ export async function receiveFrom(app: App, token: string, supplierId: string, n
   if (r.status !== 200) throw new Error(JSON.stringify(r.body));
   return r.body.purchaseOrder.receipts.at(-1) as { id: string };
 }
+
+/** An employee as the payroll tests create one (paid by bank, with a MOHRE person ID). */
+export const EMPLOYEE = {
+  name: "Ravi Kumar", job: "Mechanic", nationality: "India", joinDate: "2024-01-01", basicFils: 300000, housingFils: 100000, transportFils: 50000,
+  payMethod: "bank", iban: "AE070331234567890123456", routingCode: "803320101", personId: "10012345678901",
+};
