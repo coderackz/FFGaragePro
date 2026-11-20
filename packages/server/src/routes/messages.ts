@@ -58,7 +58,7 @@ export function messageRoutes(app: FastifyInstance, db: Db, onQueued: () => void
     const { to } = testInput.parse(req.body);
     const name = garage(db)?.name ?? "your garage";
     const message = queueMessage(db, {
-      event: "test", channel: "email", customerId: null, contactId: null, documentId: null, receiptId: null, recipient: to,
+      event: "test", channel: "email", customerId: null, employeeId: null, contactId: null, documentId: null, receiptId: null, recipient: to,
       subject: `Test email from ${name}`,
       body: `This is a test email from ${name}, sent by Fleetfix Garage Pro. If you can read it, email is set up correctly.`,
       attachment: null, dedupeKey: null,

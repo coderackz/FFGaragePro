@@ -166,3 +166,61 @@ export function buildSif(i: SifInput): { fileName: string; text: string } {
   const scr = ["SCR", i.establishmentId, i.employerRoutingCode, date, time.slice(0, 4), `${i.month.slice(5)}${i.month.slice(0, 4)}`, i.lines.length, aed(total), "AED", i.reference].join(",");
   return { fileName: `${i.establishmentId}${date.slice(2).replace(/-/g, "")}${time}.SIF`, text: [...edr, scr, ""].join("\r\n") };
 }
+
+// ── A leaver's final settlement ────────────────────────────────────────────────────────────────────────────────────
+export type SettlementKey = "salary" | "leave" | "gratuity" | "advances";
+export interface SettlementItem { key: SettlementKey; label: string; proposedFils: number; amountFils: number; how: string; reason: string | null }
+export interface SettlementRules { salaryDayRate: SalaryDayRate; gratuityDayRate: GratuityDayRate; gratuityCap: "basic" | "gross"; leaveBasis: "basic" | "gross" }
+
+const aedText = (fils: number) => (fils / 100).toLocaleString("en-US", { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+const RATE_TEXT: Record<DayRateRule, string> = { gross_30: "Gross ÷ 30", gross_365: "Gross × 12 ÷ 365", basic_30: "Basic ÷ 30", basic_365: "Basic × 12 ÷ 365" };
+const monthText = (ymd: string) => new Intl.DateTimeFormat("en-GB", { month: "short", year: "numeric", timeZone: "UTC" }).format(new Date(`${ymd}T00:00:00Z`));
+
+/**
+ * What a leaver is owed, item by item, each with how it was worked out: salary to the last day (unless that month's
+ * payroll already paid it), leave not taken (or taken ahead, deducted), gratuity (after one year of service), less
+ * advances still owed. The accountant may change an amount, with a reason, before the owner approves.
+ */
+export function settlementProposal(i: {
+  employee: PayEmployee; lastDay: string; unpaidLeave: { from: string; to: string }[]; annualTaken: { from: string; to: string }[];
+  rules: SettlementRules; salaryAlreadyPaid: boolean; gratuityHeldFils: number; advancesOwedFils: number;
+}): SettlementItem[] {
+  const e = i.employee;
+  const gross = e.basicFils + e.housingFils + e.transportFils + e.otherAllowanceFils;
+  const item = (key: SettlementKey, label: string, fils: number, how: string): SettlementItem => ({ key, label, proposedFils: fils, amountFils: fils, how, reason: null });
+
+  const month = i.lastDay.slice(0, 7);
+  const pay = proposeLine({ month, employee: { ...e, leftDate: i.lastDay }, unpaidLeave: i.unpaidLeave, salaryDayRate: i.rules.salaryDayRate, advanceDueFils: 0 });
+  const salary = i.salaryAlreadyPaid
+    ? item("salary", "Salary to the last day", 0, `Paid in the ${monthText(i.lastDay)} payroll`)
+    : item("salary", "Salary to the last day", pay.basicFils + pay.allowancesFils - pay.unpaidDeductionFils,
+      `${pay.workedDays} days of ${aedText(gross)} a month at ${RATE_TEXT[i.rules.salaryDayRate]}, less ${pay.unpaidDays} unpaid day${pay.unpaidDays === 1 ? "" : "s"}`);
+
+  const days = annualLeaveBalance(e.joinDate, i.lastDay, i.annualTaken);
+  const leaveBase = i.rules.leaveBasis === "basic" ? e.basicFils : gross;
+  const leaveRule = (i.rules.salaryDayRate.endsWith("_30") ? `${i.rules.leaveBasis}_30` : `${i.rules.leaveBasis}_365`) as DayRateRule;
+  const perDay = dayRate(leaveBase, leaveRule);
+  const leave = item("leave", days >= 0 ? "Leave not taken" : "Leave taken ahead", Math.round(days * perDay),
+    `${Math.abs(days)} day${Math.abs(days) === 1 ? "" : "s"} ${days >= 0 ? "not taken" : "taken ahead"} × ${aedText(Math.round(perDay))} a day (${RATE_TEXT[leaveRule]})`);
+
+  const service = serviceDays(e.joinDate, i.lastDay, i.unpaidLeave);
+  const years = Math.floor(service / 365);
+  const rest = service - years * 365;
+  const gratuity = service < 365
+    ? item("gratuity", "End-of-service gratuity", 0, `Under one year of service (${service} days): no gratuity`)
+    : item("gratuity", "End-of-service gratuity",
+      gratuityOwed({ basicFils: e.basicFils, grossFils: gross, serviceDays: service, dayRate: i.rules.gratuityDayRate, cap: i.rules.gratuityCap }),
+      `${years} year${years === 1 ? "" : "s"} ${rest} days: 21 days of basic a year (30 after five), at ${RATE_TEXT[i.rules.gratuityDayRate]}, capped at 2 years of ${i.rules.gratuityCap}`);
+
+  const advances = item("advances", "Advances still owed", -i.advancesOwedFils, i.advancesOwedFils ? "Taken from the settlement" : "None owed");
+  return [salary, leave, gratuity, advances];
+}
+
+export const settlementTotal = (items: { amountFils: number }[]) => items.reduce((s, x) => s + x.amountFils, 0);
+
+export const settlementEditSchema = z.object({
+  key: z.enum(["salary", "leave", "gratuity", "advances"]),
+  amountFils: z.number().int().min(-10_000_000_00).max(10_000_000_00),
+  reason: z.string().trim().min(3, "Say why the amount is changed").max(200),
+});
+

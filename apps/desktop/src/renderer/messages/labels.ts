@@ -11,4 +11,5 @@ export const EVENT_LABELS: Record<MessageEvent, string> = {
   payment_due: "Payment due soon",
   payment_overdue: "Payment overdue",
   statement: "Monthly statement",
+  payslip: "Payslip",
 };

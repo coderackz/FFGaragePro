@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { annualLeaveBalance, buildSif, can, runLineEditSchema, gratuityOwed, proposeLine, serviceDays, settingsSchemas, SYSTEM_ACCOUNTS } from "../src";
+import { annualLeaveBalance, buildSif, can, gratuityOwed, MESSAGE_EVENTS, proposeLine, runLineEditSchema, serviceDays, settingsSchemas, settlementEditSchema, settlementProposal, settlementTotal, SYSTEM_ACCOUNTS } from "../src";
 
 const emp = { basicFils: 300000, housingFils: 100000, transportFils: 50000, otherAllowanceFils: 0, joinDate: "2024-01-01", leftDate: null };
 const sifLine = { name: "Ravi", personId: "10012345678901", routingCode: "803320101", account: "AE070331234567890123456", from: "2026-10-01", to: "2026-10-31", days: 31, fixedFils: 450000, variableFils: 0, leaveDays: 0 };
@@ -61,6 +61,39 @@ describe("payroll maths", () => {
   it("I10: editing one field of a line leaves the note alone", () => {
     expect(runLineEditSchema.parse({ bonusFils: 100 })).not.toHaveProperty("extrasNote");
     expect(runLineEditSchema.parse({ extrasNote: "" }).extrasNote).toBeNull();
+  });
+  const leaver = { ...emp, joinDate: "2024-01-01", leftDate: "2026-10-12" };
+  const rules = { salaryDayRate: "gross_30", gratuityDayRate: "basic_30", gratuityCap: "basic", leaveBasis: "basic" } as const;
+  const settle = (o: Partial<Parameters<typeof settlementProposal>[0]> = {}) =>
+    settlementProposal({ employee: leaver, lastDay: "2026-10-12", unpaidLeave: [], annualTaken: [], rules, salaryAlreadyPaid: false, gratuityHeldFils: 0, advancesOwedFils: 0, ...o });
+  it("a final settlement: salary to the last day, leave, gratuity, less advances", () => {
+    const items = settle({ advancesOwedFils: 20000 });
+    const by = Object.fromEntries(items.map((i) => [i.key, i.amountFils]));
+    expect(by.salary).toBe(180000);
+    expect(by.leave).toBe(Math.round(2.5 * 33 * 10000));
+    expect(by.gratuity).toBe(gratuityOwed({ basicFils: 300000, grossFils: 450000, serviceDays: serviceDays("2024-01-01", "2026-10-12", []), dayRate: "basic_30", cap: "basic" }));
+    expect(by.advances).toBe(-20000);
+    expect(items.every((i) => i.how.length > 0 && i.amountFils === i.proposedFils && i.reason === null)).toBe(true);
+    expect(settlementTotal(items)).toBe(by.salary! + by.leave! + by.gratuity! - 20000);
+  });
+  it("under a year: no gratuity", () => {
+    const g = settle({ employee: { ...leaver, joinDate: "2026-01-01" }, gratuityHeldFils: 50000 }).find((i) => i.key === "gratuity")!;
+    expect(g.amountFils).toBe(0);
+    expect(g.how).toMatch(/Under one year/);
+  });
+  it("negative leave balance deducts", () => {
+    const l = settle({ employee: { ...leaver, joinDate: "2026-06-01" }, annualTaken: [{ from: "2026-08-01", to: "2026-08-20" }] }).find((i) => i.key === "leave")!;
+    expect(l.amountFils).toBe(Math.round((2.5 * 4 - 20) * 10000));
+  });
+  it("salary already paid in the payroll", () => {
+    const s = settle({ salaryAlreadyPaid: true }).find((i) => i.key === "salary")!;
+    expect(s.amountFils).toBe(0);
+    expect(s.how).toMatch(/Paid in the Oct 2026 payroll/);
+  });
+  it("payslip is a message event; a settlement change needs a reason", () => {
+    expect(MESSAGE_EVENTS).toContain("payslip");
+    expect(() => settlementEditSchema.parse({ key: "leave", amountFils: 100, reason: "" })).toThrow();
+    expect(settlementEditSchema.parse({ key: "leave", amountFils: 100, reason: "Agreed" }).reason).toBe("Agreed");
   });
 });
 

@@ -56,6 +56,12 @@ export const DEFAULT_MESSAGE_TEXTS: Record<MessageEvent, EventTexts> = {
     subjectAr: "الفاتورة {doc_number} متأخرة السداد",
     textAr: "عزيزي {contact}، الفاتورة {doc_number} بمبلغ {amount} كانت مستحقة بتاريخ {due_date} ولم تُسدَّد بعد. يرجى ترتيب السداد. {garage}، {garage_phone}",
   },
+  payslip: {
+    subjectEn: "Your payslip for {doc_number}",
+    textEn: "Dear {contact}, please find attached your payslip for {doc_number}. {garage}",
+    subjectAr: "قسيمة راتبك لشهر {doc_number}",
+    textAr: "عزيزي {contact}، مرفق قسيمة راتبك لشهر {doc_number}. {garage}",
+  },
   statement: {
     subjectEn: "Statement of account from {garage}",
     textEn: "Dear {contact}, please find attached your statement of account. Balance due: {balance}. {garage}, {garage_phone}",

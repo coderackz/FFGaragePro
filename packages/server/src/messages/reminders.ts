@@ -51,7 +51,7 @@ export function queueReminders(db: Db, today: string): number {
         });
         const ar = r.language === "ar";
         queueMessage(db, {
-          event, channel: "email", customerId: c.id, contactId: r.contactId, documentId: inv.id, receiptId: null, recipient: r.email,
+          event, channel: "email", customerId: c.id, employeeId: null, contactId: r.contactId, documentId: inv.id, receiptId: null, recipient: r.email,
           subject: fillTemplate(ar ? settings.subjectAr : settings.subjectEn, values), body: fillTemplate(ar ? settings.textAr : settings.textEn, values),
           attachment: null, dedupeKey,
         }, null);

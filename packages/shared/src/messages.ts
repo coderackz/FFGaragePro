@@ -4,7 +4,7 @@ import { formatAED } from "./money";
 /** What a message is about. `estimate_resent` = "Extra work needs approval". */
 export const MESSAGE_EVENTS = [
   "vehicle_received", "estimate_ready", "estimate_resent", "vehicle_ready", "invoice_issued", "payment_received",
-  "payment_due", "payment_overdue", "statement",
+  "payment_due", "payment_overdue", "statement", "payslip",
 ] as const;
 export type MessageEvent = (typeof MESSAGE_EVENTS)[number];
 
@@ -85,6 +85,8 @@ const ROLE: Record<MessageEvent, Role> = {
   payment_due: "getsInvoices",
   payment_overdue: "getsInvoices",
   statement: "getsStatements",
+  // Payslips go to the employee (from the employee record), never to a customer's contacts.
+  payslip: "getsStatements",
 };
 
 /**
@@ -125,6 +127,8 @@ export const messageInputSchema = z
     event: z.enum([...MESSAGE_EVENTS, "test"]),
     channel: z.enum(MESSAGE_CHANNELS),
     customerId: z.string().uuid().nullable().optional().transform((v) => v ?? null),
+    /** Payslips: the employee it's for (only people who run payroll see these messages). */
+    employeeId: z.string().uuid().nullable().optional().transform((v) => v ?? null),
     contactId: z.string().nullable().optional().transform((v) => v ?? null),
     documentId: z.string().uuid().nullable().optional().transform((v) => v ?? null),
     receiptId: z.string().uuid().nullable().optional().transform((v) => v ?? null),

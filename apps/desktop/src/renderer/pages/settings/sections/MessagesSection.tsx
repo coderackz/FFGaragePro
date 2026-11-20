@@ -20,6 +20,7 @@ const EVENT_HINTS: Record<MessageEvent, string> = {
   payment_due: "Automatic email before the due date · to the invoices contacts",
   payment_overdue: "Automatic email after the due date · to the invoices contacts",
   statement: "From the dashboard each month · to the statements contacts · statement PDF",
+  payslip: "From an approved payroll · to each employee · payslip PDF (only payroll staff see these)",
 };
 
 const REMINDERS: MessageEvent[] = ["payment_due", "payment_overdue"];
