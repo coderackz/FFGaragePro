@@ -269,3 +269,17 @@ describe("promo on the printed invoice", () => {
   });
 });
 
+describe("purchase order in packs", () => {
+  it("prints the packs and the price per pack", () => {
+    const po = {
+      id: "p1", number: "PO-00001", status: "sent", version: 1, notes: null, createdAt: "2026-11-21T08:00:00.000Z", updatedAt: "2026-11-21T08:00:00.000Z", createdBy: null,
+      supplier: { id: "s1", name: "Lube Co", trn: null, phone: null, email: null, address: null, notes: null, isFleetfix: false, termsDays: 30, openingBalanceFils: 0, openingBalanceDate: null },
+      editable: false, netFils: 332800,
+      lines: [{ id: "l1", partId: "x", partNo: "5W30", description: "Engine oil 5W-30", qty: 416, jobDocumentId: null, unitCostFils: 800, netFils: 332800, packName: "Drum 208 L", packSize: 208 }],
+    };
+    const html = T.renderPurchaseOrderHtml(po as never, SAMPLE_GARAGE, settings());
+    expect(html).toContain("2 × Drum 208 L");
+    expect(html).toContain("1,664.00");
+  });
+});
+

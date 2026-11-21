@@ -289,7 +289,25 @@ export function partRoutes(app: FastifyInstance, db: Db): void {
 
   // ---- CSV import ----
 
-  const COLUMNS = ["part_no", "name", "name_ar", "brand", "unit", "stocked", "sell_price", "cost", "qty", "reorder_level", "location", "fits"] as const;
+  const COLUMNS = ["part_no", "name", "name_ar", "brand", "unit", "stocked", "sell_price", "cost", "qty", "reorder_level", "location", "fits", "category", "numbers", "fitment"] as const;
+  const KINDS: Record<string, "oem" | "aftermarket" | "supplier" | "old"> = { OEM: "oem", AM: "aftermarket", AFTERMARKET: "aftermarket", SUP: "supplier", SUPPLIER: "supplier", OLD: "old" };
+  /** "OEM:04152-YZZA1; AM:W 68/3" (no kind: OEM). */
+  const csvNumbers = (cell: string) => cell.split(";").map((x) => x.trim()).filter(Boolean).map((x) => {
+    const m = /^([A-Za-z]+)\s*:\s*(.+)$/.exec(x);
+    const kind = m ? KINDS[m[1]!.toUpperCase()] : "oem";
+    if (!kind) throw badRequest(`numbers: "${x}" — start with OEM:, AM:, SUP: or OLD:`);
+    return { number: (m ? m[2]! : x).trim().slice(0, 60), kind, brand: null };
+  });
+  /** "Toyota|Land Cruiser|2016-2021|1GR-FE; Nissan|Patrol||" — years 2016-2021, 2016, 2016- or -2021, or blank. */
+  const csvFitments = (cell: string) => cell.split(";").map((x) => x.trim()).filter(Boolean).map((x) => {
+    const [make = "", model = "", years = "", engine = ""] = x.split("|").map((y) => y.trim());
+    if (!make) throw badRequest(`fitment: "${x}" — start with the make`);
+    const y = /^(\d{4})?\s*(-)?\s*(\d{4})?$/.exec(years);
+    if (!y || (years && !y[1] && !y[3])) throw badRequest(`fitment: "${x}" — years should look like 2016-2021, 2016 or 2016-`);
+    const from = y[1] ? Number(y[1]) : null;
+    const to = y[3] ? Number(y[3]) : y[2] ? null : from;
+    return { make, model: model || null, yearFrom: from, yearTo: to, engine: engine || null, note: null };
+  });
   type Column = (typeof COLUMNS)[number];
   class RollBack extends Error {}
 
@@ -335,7 +353,19 @@ export function partRoutes(app: FastifyInstance, db: Db): void {
               throw badRequest(`stocked: "${cell("stocked")}" should be yes or no`);
             }
             const text = (c: Column, keep: string | null) => (has(c) ? cell(c) || null : keep);
+            let categoryId = existing?.category_id ?? null;
+            if (has("category")) {
+              const name = cell("category");
+              const cat = name ? db.get<{ id: string }>("SELECT id FROM part_categories WHERE name = ? COLLATE NOCASE", [name]) : null;
+              if (name && !cat) throw badRequest(`category: "${name}" isn't a category (Settings → Inventory)`);
+              categoryId = cat?.id ?? null;
+            }
             const parsed = partSchema.safeParse({
+              categoryId,
+              // Its specs stay while the category does.
+              attributes: categoryId && categoryId === existing?.category_id ? JSON.parse(existing.attributes_json || "{}") : {},
+              numbers: has("numbers") ? csvNumbers(cell("numbers")) : [],
+              fitments: has("fitment") ? csvFitments(cell("fitment")) : [],
               partNo, name: cell("name"),
               brand: text("brand", existing?.brand ?? null),
               unit: text("unit", existing?.unit ?? null) ?? "each",
@@ -353,7 +383,7 @@ export function partRoutes(app: FastifyInstance, db: Db): void {
             }
             const cost = money("cost");
             const qty = num("qty");
-            const id = savePart(parsed.data, existing);
+            const id = savePart(parsed.data, existing, (k) => (k === "category" ? has("category") : k === "numbers" ? has("numbers") : k === "fitments" ? has("fitment") : false));
             if (existing) updated++;
             else {
               created++;

@@ -231,13 +231,22 @@ export const adjustmentSchema = z.object({
   unitCostFils: money.optional(),
 });
 
-export const poLineSchema = z.object({
-  partId: z.string().uuid().nullable().optional(),
-  description: text(500).min(1, "Description is required"),
-  qty: z.number().positive().max(100000),
-  unitCostFils: money.default(0),
-  jobDocumentId: z.string().uuid().nullable().optional(),
-});
+export const poLineSchema = z
+  .object({
+    partId: z.string().uuid().nullable().optional(),
+    description: text(500).min(1, "Description is required"),
+    /** Always in the part's own unit (litres, each…), even when bought in packs. */
+    qty: z.number().positive().max(100000),
+    unitCostFils: money.default(0),
+    jobDocumentId: z.string().uuid().nullable().optional(),
+    /** Bought in packs ("Drum 208 L" holding 208): kept so the PO prints "2 × Drum 208 L". */
+    packName: optionalText(60),
+    packSize: z.number().positive().max(100000).nullable().optional().transform((v) => v ?? null),
+  })
+  .refine((l) => !l.packName === !l.packSize, { message: "A pack needs its name and size", path: ["packSize"] })
+  .refine((l) => !l.packSize || Math.abs(l.qty / l.packSize - Math.round(l.qty / l.packSize)) < 1e-6, {
+    message: "The quantity must be a whole number of packs", path: ["qty"],
+  });
 export const poSchema = z.object({
   supplierId: z.string().uuid(),
   notes: optionalText(4000),
