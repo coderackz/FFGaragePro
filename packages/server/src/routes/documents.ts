@@ -32,7 +32,7 @@ interface LineRow {
   discount_pct: number; net_fils: number; vat_fils: number; gross_fils: number; part_id: string | null; supplied_by: string; part_name_ar?: string | null;
   promo_fils?: number;
   po_line_id: string | null; part_no?: string | null; part_stocked?: number | null; part_on_hand?: number | null; part_unit?: string | null; po_qty?: number | null; po_received?: number | null; po_number?: string | null;
-  po_id?: string | null; po_status?: string | null; unit_ids_json?: string;
+  po_id?: string | null; po_status?: string | null; unit_ids_json?: string; part_tracking?: string | null; part_is_kit?: number | null;
 }
 const unitIdsOf = (l: { unit_ids_json?: string }) => JSON.parse(l.unit_ids_json || "[]") as string[];
 
@@ -245,7 +245,7 @@ export function documentRoutes(
     const d = getDoc(id);
     if (!d) throw notFound("Document not found");
     const lines = db.all<LineRow>(
-      `SELECT dl.*, p.part_no, p.name_ar AS part_name_ar, p.stocked AS part_stocked, p.on_hand AS part_on_hand, p.unit AS part_unit, pl.qty AS po_qty, pl.received_qty AS po_received, po.number AS po_number, po.id AS po_id, po.status AS po_status
+      `SELECT dl.*, p.part_no, p.name_ar AS part_name_ar, p.stocked AS part_stocked, p.tracking AS part_tracking, p.is_kit AS part_is_kit, p.on_hand AS part_on_hand, p.unit AS part_unit, pl.qty AS po_qty, pl.received_qty AS po_received, po.number AS po_number, po.id AS po_id, po.status AS po_status
        FROM document_lines dl
        LEFT JOIN parts p ON p.id = dl.part_id
        LEFT JOIN po_lines pl ON pl.id = dl.po_line_id
@@ -297,6 +297,7 @@ export function documentRoutes(
         purchaseOrderId: l.po_id ?? null, purchaseOrderNumber: l.po_number ?? null,
         orderStatus: !l.po_line_id || l.po_status === "cancelled" ? null : (l.po_received ?? 0) >= (l.po_qty ?? 0) ? "received" : "on_order",
         unitIds: unitIdsOf(l), units: lineUnits(db, l.unit_ids_json),
+        partTracking: l.part_id && l.part_stocked ? l.part_tracking ?? "none" : "none", partIsKit: !!l.part_is_kit,
         ...(cost ? { costFils: cost.lineCosts.get(l.id) ?? null } : {}),
       })),
       totals: { netFils: d.net_fils, vatFils: d.vat_fils, grossFils: d.gross_fils },

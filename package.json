@@ -25,7 +25,8 @@
     "e2e:assets": "playwright test -c playwright.assets.config.ts",
     "e2e:promo": "playwright test -c playwright.promo.config.ts",
     "e2e:integrations": "playwright test -c playwright.integrations.config.ts",
-    "e2e:catalogue": "playwright test -c playwright.catalogue.config.ts"
+    "e2e:catalogue": "playwright test -c playwright.catalogue.config.ts",
+    "e2e:tracked": "playwright test -c playwright.tracked.config.ts"
   },
   "devDependencies": {
     "@playwright/test": "^1.65.1",

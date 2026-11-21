@@ -8,6 +8,7 @@ import {
 import { CustomerPicker } from "../components/CustomerPicker";
 import { CustomerFormModal } from "../components/forms";
 import { PartLink, PartPicker } from "../components/PartPicker";
+import { UnitChooser } from "../components/trackedFields";
 import { RequestPartDialog } from "../components/RequestPartDialog";
 import { Badge, Button, Card, Empty, Field, Input, Modal, MoneyInput, NumberInput, PageHeader, Select, Spinner, StatusBadge, Textarea } from "../components/ui";
 import { del, get, patch, post } from "../lib/api";
@@ -122,7 +123,15 @@ export function DocumentPage() {
     setDraft((d) => ({ ...d, ...patchDraft }));
     setDirty(true);
   };
-  const updateLine = (i: number, patchLine: Partial<DocLine>) => update({ lines: draft.lines.map((l, j) => (j === i ? { ...l, ...patchLine } : l)) });
+  const updateLine = (i: number, patchLine: Partial<DocLine>) => update({
+    lines: draft.lines.map((l, j) => {
+      if (j !== i) return l;
+      const next = { ...l, ...patchLine };
+      // Fewer tyres than picked: keep the first ones picked.
+      const keep = Math.max(0, Math.floor(next.qty));
+      return next.unitIds && next.unitIds.length > keep ? { ...next, unitIds: next.unitIds.slice(0, keep), units: (next.units ?? []).filter((u) => next.unitIds!.slice(0, keep).includes(u.id)) } : next;
+    }),
+  });
 
   const cleanLines = () => draft.lines.filter((l) => l.description.trim() !== "" || l.unitPriceFils > 0);
 
@@ -140,9 +149,10 @@ export function DocumentPage() {
       toast.error(problem);
       return null;
     }
-    const lines = cleanLines().map(({ kind, description, qty, unitPriceFils, discountPct, partId, suppliedBy, poLineId }) => ({
+    const lines = cleanLines().map(({ kind, description, qty, unitPriceFils, discountPct, partId, suppliedBy, poLineId, unitIds }) => ({
       kind, description: description.trim(), qty, unitPriceFils, discountPct,
       partId: kind === "part" ? partId ?? null : null, suppliedBy: kind === "part" ? suppliedBy ?? "garage" : "garage", poLineId: poLineId ?? null,
+      unitIds: kind === "part" && partId && (suppliedBy ?? "garage") === "garage" ? unitIds ?? [] : [],
     }));
     const body = { vehicleId: draft.vehicleId, odometer: draft.odometer, notes: draft.notes, lines, ...(type === "invoice" && !isNew ? { lpoNumber: draft.lpoNumber } : {}),
       ...(!isNew && draft.language !== doc?.language ? { language: draft.language } : {}),
@@ -634,7 +644,7 @@ function LinesTable({ type, lines, promoFils, vehicleId, editable, vatRate, incl
                 ) : (
                   line.description
                 )}
-                {line.kind === "part" && <PartControls vehicleId={vehicleId} line={line} editable={editable} showCost={showCost} onChange={(p) => onChange(i, p)} onRequest={onRequest && (() => onRequest(i))} />}
+                {line.kind === "part" && <PartControls vehicleId={vehicleId} line={line} editable={editable} showCost={showCost} fitsUnits={type !== "estimate"} onChange={(p) => onChange(i, p)} onRequest={onRequest && (() => onRequest(i))} />}
               </td>
               <td className="px-2 py-1.5 text-right tabular">
                 {editable ? <NumberInput value={line.qty} onChange={(qty) => onChange(i, { qty })} className="h-8" aria-label="Quantity" /> : line.qty}
@@ -664,17 +674,19 @@ function LinesTable({ type, lines, promoFils, vehicleId, editable, vatRate, incl
 }
 
 /** The row of part details under a part line: Fleet Fix supply, order status, shelf warning, request button. */
-function PartControls({ line, editable, showCost, onChange, onRequest, vehicleId }: {
+function PartControls({ line, editable, showCost, fitsUnits, onChange, onRequest, vehicleId }: {
   line: DocLine; editable: boolean; showCost: boolean; onChange: (p: Partial<DocLine>) => void; onRequest?: () => void; vehicleId?: string | null;
+  /** Job cards and invoices fit tyres and batteries one by one; estimates don't. */
+  fitsUnits: boolean;
 }) {
   const fleetfix = line.suppliedBy === "fleetfix";
   const short = line.partStocked && !fleetfix && line.pickedOnHand !== undefined && line.qty > line.pickedOnHand;
-  const canRequest = onRequest && !fleetfix && !line.poLineId && line.description.trim() !== "";
+  const canRequest = onRequest && !fleetfix && !line.poLineId && !line.partIsKit && line.description.trim() !== "";
   const hasAny = line.partId || fleetfix || line.orderStatus || editable || (showCost && line.costFils !== undefined);
   if (!hasAny) return null;
   return (
     <div className="mt-1 flex flex-wrap items-center gap-x-3 gap-y-1 text-xs">
-      <PartLink line={line} editable={editable} vehicleId={vehicleId} onUnlink={() => onChange({ partId: null, partNo: null, partStocked: null, partOnHand: null, pickedOnHand: undefined })} />
+      <PartLink line={line} editable={editable} vehicleId={vehicleId} onUnlink={() => onChange({ partId: null, partNo: null, partStocked: null, partOnHand: null, pickedOnHand: undefined, partTracking: "none", partIsKit: false, unitIds: [], units: [] })} />
       {editable ? (
         <label className="inline-flex items-center gap-1 text-zinc-600">
           <input type="checkbox" checked={fleetfix} disabled={!!line.poLineId} onChange={(e) => onChange(e.target.checked ? { suppliedBy: "fleetfix", unitPriceFils: 0, discountPct: 0 } : { suppliedBy: "garage" })} />
@@ -693,6 +705,16 @@ function PartControls({ line, editable, showCost, onChange, onRequest, vehicleId
         <button type="button" onClick={onRequest} className="inline-flex items-center gap-1 font-medium text-brand-700 hover:underline">
           <PackagePlus className="size-3.5" />Request part
         </button>
+      )}
+      {fitsUnits && !fleetfix && line.partId && line.partTracking && line.partTracking !== "none" && (
+        editable ? (
+          <UnitChooser partId={line.partId} qty={line.qty} chosen={line.unitIds ?? []} current={line.units ?? []}
+            onChange={(unitIds, units) => onChange({ unitIds, units })} />
+        ) : (line.units ?? []).length > 0 && (
+          <span className="text-zinc-600">
+            {(line.units ?? []).map((u) => (line.partTracking === "dot" ? `DOT ${u.code}` : `${u.code}${u.warrantyEnds ? ` · warranty to ${formatDate(u.warrantyEnds)}` : ""}`)).join(", ")}
+          </span>
+        )
       )}
     </div>
   );

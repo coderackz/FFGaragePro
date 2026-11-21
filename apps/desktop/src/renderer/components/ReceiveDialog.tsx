@@ -1,4 +1,5 @@
 import { useEffect, useMemo, useState } from "react";
+import { splitCodes, UnitCodesInput } from "./trackedFields";
 import { toast } from "sonner";
 import { poLineNetFils, roundFils } from "@ffgp/shared";
 import { post } from "../lib/api";
@@ -7,7 +8,11 @@ import { formatAED } from "../lib/format";
 import type { PurchaseOrder } from "../lib/types";
 import { Button, Field, Input, Modal, MoneyInput, NumberInput } from "./ui";
 
-interface Row { poLineId: string; description: string; remaining: number; qty: number; unitCostFils: number; packSize: number | null; packCostFils: number | null }
+interface Row {
+  poLineId: string; description: string; remaining: number; qty: number; unitCostFils: number; packSize: number | null; packCostFils: number | null;
+  /** Tyres and batteries: each one's DOT or serial, as typed. */
+  tracking: "none" | "dot" | "serial"; codes: string;
+}
 
 /** Records a delivery against a purchase order: what arrived, what it cost, and the supplier's invoice. */
 export function ReceiveDialog({ po, open, onClose, onDone }: { po: PurchaseOrder; open: boolean; onClose: () => void; onDone: (po: PurchaseOrder) => void }) {
@@ -23,7 +28,7 @@ export function ReceiveDialog({ po, open, onClose, onDone }: { po: PurchaseOrder
     if (!open) return;
     setRows(po.lines.filter((l) => l.id && l.qty - (l.receivedQty ?? 0) > 0).map((l) => {
       const remaining = Math.round((l.qty - (l.receivedQty ?? 0)) * 1000) / 1000;
-      return { poLineId: l.id!, description: l.description, remaining, qty: remaining, unitCostFils: l.unitCostFils ?? 0, packSize: l.packSize ?? null, packCostFils: l.packCostFils ?? null };
+      return { poLineId: l.id!, description: l.description, remaining, qty: remaining, unitCostFils: l.unitCostFils ?? 0, packSize: l.packSize ?? null, packCostFils: l.packCostFils ?? null, tracking: l.partTracking ?? "none", codes: "" };
     }));
     setInvoiceNo(""); setInvoiceDate(new Date().toISOString().slice(0, 10)); setVatTouched(false);
   }, [open, po]);
@@ -41,7 +46,7 @@ export function ReceiveDialog({ po, open, onClose, onDone }: { po: PurchaseOrder
     try {
       const res = await post<{ purchaseOrder: PurchaseOrder }>(`/api/purchase-orders/${po.id}/receive`, {
         supplierInvoiceNo: invoiceNo || null, supplierInvoiceDate: invoiceDate || null, vatFils,
-        lines: rows.filter((r) => r.qty > 0).map(({ poLineId, qty, unitCostFils }) => ({ poLineId, qty, unitCostFils })),
+        lines: rows.filter((r) => r.qty > 0).map(({ poLineId, qty, unitCostFils, tracking, codes }) => ({ poLineId, qty, unitCostFils, units: tracking === "none" ? [] : splitCodes(codes) })),
       });
       toast.success(res.purchaseOrder.status === "received" ? `${po.number} fully received` : "Delivery recorded");
       onDone(res.purchaseOrder);
@@ -60,8 +65,11 @@ export function ReceiveDialog({ po, open, onClose, onDone }: { po: PurchaseOrder
         <thead><tr className="text-left text-xs text-zinc-500 uppercase"><th className="py-1.5 font-medium">Item</th><th className="w-24 text-right font-medium">Waiting</th><th className="w-24 pl-2 text-right font-medium">Received</th><th className="w-32 pl-2 text-right font-medium">Cost each</th></tr></thead>
         <tbody className="divide-y divide-zinc-100">
           {rows.map((r, i) => (
-            <tr key={r.poLineId}>
-              <td className="py-1.5">{r.description}</td>
+            <tr key={r.poLineId} className="align-top">
+              <td className="py-1.5">
+                {r.description}
+                {r.tracking !== "none" && r.qty > 0 && <UnitCodesInput tracking={r.tracking} qty={r.qty} value={r.codes} onChange={(codes) => setRow(i, { codes })} label={`Codes for ${r.description}`} />}
+              </td>
               <td className="text-right tabular text-zinc-500">{r.remaining}</td>
               <td className="pl-2"><NumberInput value={r.qty} onChange={(qty) => setRow(i, { qty })} className={r.qty > r.remaining ? "h-8 border-red-400" : "h-8"} aria-label="Received quantity" /></td>
               <td className="pl-2"><MoneyInput fils={r.unitCostFils} onChange={(unitCostFils) => setRow(i, { unitCostFils })} className="h-8" aria-label="Cost each" /></td>

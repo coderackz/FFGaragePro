@@ -24,9 +24,15 @@ and margin (Owner and Accountant only). Parts list import from CSV.
   all searchable), vehicles each part fits (the job card's picker shows fitting parts first; "Fits this vehicle" adds
   one from a line), packs ("Box of 10" — a purchase order buys and prints in packs, stock stays in units), and
   "Replaced by" for superseded numbers. The CSV import takes category, other numbers and fitment.
+- **Tyres and batteries one by one:** a part tracked by DOT or by serial has a `stock_units` row per unit (DOT or
+  serial entered on receiving; picked on the job card, oldest DOT first; printed on the invoice with a battery's
+  warranty end; found by serial). Units never move stock themselves; two computers fitting the same unit offline:
+  the earlier document keeps it and the other gets a sync issue. **Kits:** a part made of stocked parts, sold at its
+  own price; its parts leave the shelf and its cost is theirs.
 - Every stock change is a row in `stock_movements` (append-only); `packages/server/src/stock.ts` is the only writer.
 
     npm run e2e:catalogue                           # part with category, numbers, fitment, pack → picker "Fits" → replaced by → PO in packs
+    npm run e2e:tracked                             # tyre by DOT received → kit → job card picks oldest DOTs + kit → battery found by serial
 
 **Fleetfix Cloud — Stage 1 (browser app, development):** `apps/cloud` hosts every garage, each on its own
 SQLite file, running the same garage server; the browser app is the same screens. Fleet Fix staff create a

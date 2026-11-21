@@ -49,7 +49,19 @@ Use one PC as the main computer, or link the garage to Fleetfix Cloud: every PC 
 - Other numbers: add the OEM and other brands' numbers. Searching any of them finds the part.
 - Fits: list the vehicles a part fits (make, model, years, engine). On a job card the part picker shows "Fits" for the job's vehicle and lists fitting parts before you type. "Fits this vehicle" on a part line adds the job's vehicle to that part.
 - Packs: say how a part is bought, such as "Box of 10". On a purchase order choose the pack, the number of packs and the price per pack. Stock is still counted in the part's own unit.
-- Replaced by: when a supplier replaces a number, mark the old part as replaced. The parts list shows a "Replaced" badge and the picker points to the new part.`,
+- Replaced by: when a supplier replaces a number, mark the old part as replaced. The parts list shows a "Replaced" badge and the picker points to the new part.
+
+## Tyres and batteries, one by one
+- On the part, set "Track each unit" to Tyres (by DOT) or Batteries (by serial). For a battery, enter the warranty in months.
+- Receiving: type each tyre's DOT (week and year made, like 2524) or each battery's serial, one per unit. You can paste a list.
+- On a job card or invoice, the part line lists the tyres on the shelf, oldest DOT first. "Pick the oldest" picks as many as the quantity, or tick the ones you fit.
+- The invoice prints each DOT, or the battery's serial and the date its warranty ends (counted from the day it was fitted).
+- Parts → "Find a serial or DOT" shows where a battery or tyre was fitted: the job, the customer and the vehicle.
+- Taking stock off (damaged, lost) asks which ones went. A credit note that puts a tyre back on the shelf puts that tyre back.
+
+## Kits
+- A kit is a service package, such as "Minor service": one part made of other stocked parts (1 oil filter, 4.5 L of oil). Tick "This is a kit" on a new part and add its parts.
+- Sold at the kit's own price. Its parts come off the shelf, and its cost is what they cost. The part page shows how many kits the shelf can make.`,
   },
   {
     slug: "books", title: "The books", area: "Accounts",

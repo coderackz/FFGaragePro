@@ -46,6 +46,7 @@ export function PartPicker({ line, onChange, onPick, priceOf, vehicleId }: {
   const pick = (p: Part) => {
     onChange({
       partId: p.id, partNo: p.partNo, partStocked: p.stocked, partOnHand: p.onHand, partUnit: p.unit, pickedOnHand: p.onHand,
+      partTracking: p.stocked ? p.tracking ?? "none" : "none", partIsKit: !!p.isKit, unitIds: [], units: [],
       description: `${p.name} (${p.partNo})`, unitPriceFils: line.suppliedBy === "fleetfix" ? 0 : priceOf ? priceOf(p) : p.sellPriceFils,
     });
     onPick?.(p);
@@ -106,7 +107,7 @@ export function PartLink({ line, editable, onUnlink, vehicleId }: { line: DocLin
       toast.success("Saved: this part fits this vehicle");
     } catch (e) { toast.error((e as Error).message); }
   };
-  const shelf = line.partStocked ? `${line.partOnHand ?? 0} on shelf` : "bought per job";
+  const shelf = line.partIsKit ? "kit (its parts come off the shelf)" : line.partStocked ? `${line.partOnHand ?? 0} on shelf` : "bought per job";
   return (
     <span className="inline-flex items-center gap-1 rounded bg-zinc-100 px-1.5 py-0.5 text-xs text-zinc-600">
       <span className="font-mono">{line.partNo}</span> · <span className={clsx(line.partStocked && (line.partOnHand ?? 0) < 0 && "text-red-700")}>{shelf}</span>

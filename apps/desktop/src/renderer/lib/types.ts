@@ -36,7 +36,15 @@ export interface DocLine {
   pickedOnHand?: number;
   /** Tyres and batteries tracked one by one: the units this line fits. */
   unitIds?: string[];
-  units?: { id: string; code: string; kind: "dot" | "serial"; warrantyEnds: string | null }[];
+  units?: { id: string; code: string; kind?: "dot" | "serial"; warrantyEnds: string | null }[];
+  partTracking?: "none" | "dot" | "serial";
+  partIsKit?: boolean;
+}
+/** A tyre or battery tracked one by one. */
+export interface StockUnit {
+  id: string; partId?: string; code: string; status?: "in_stock" | "fitted" | "returned" | "written_off"; receivedAt?: string; fittedAt?: string | null;
+  warrantyEnds: string | null; documentId?: string | null; documentNumber?: string | null; unitCostFils?: number;
+  partNo?: string; partName?: string; customerName?: string | null; vehiclePlate?: string | null;
 }
 export interface Payment { id: string; amountFils: number; method: string; reference: string | null; paidAt: string; createdBy: string | null; receiptNumber?: string; receiptId?: string }
 export interface DocRef { id: string; number: string; type: DocType; issuedAt?: string | null }
@@ -85,6 +93,9 @@ export interface Part {
   chain?: { id: string; partNo: string; name: string }[];
   /** Search results: which other number matched, whether it fits the job's vehicle, the replaced part it stands in for. */
   matchedBy?: string | null; fitsVehicle?: boolean; replacesPartNo?: string | null;
+  // Tracked stock and kits (inventory v2, Part 2).
+  tracking?: "none" | "dot" | "serial"; warrantyMonths?: number; isKit?: boolean; kitAvailable?: number | null;
+  components?: { id?: string; partId: string; partNo: string; name: string; unit: string; qty: number; onHand: number }[];
 }
 export interface PartCategory {
   id: string; name: string; parentId: string | null; position: number;
@@ -107,7 +118,7 @@ export interface PoLine {
   id?: string; partId: string | null; partNo?: string | null; stocked?: boolean | null; description: string; qty: number; receivedQty?: number;
   jobDocumentId: string | null; jobDocumentNumber?: string | null; unitCostFils?: number; netFils?: number;
   /** Bought in packs: qty and unitCostFils are still in the part's unit. */
-  packName?: string | null; packSize?: number | null; packCostFils?: number | null;
+  packName?: string | null; packSize?: number | null; packCostFils?: number | null; partTracking?: "none" | "dot" | "serial";
 }
 export interface GoodsReceipt {
   id: string; supplierInvoiceNo: string | null; supplierInvoiceDate: string | null; netFils: number; vatFils: number; grossFils: number;

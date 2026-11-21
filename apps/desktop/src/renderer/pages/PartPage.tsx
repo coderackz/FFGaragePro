@@ -3,13 +3,14 @@ import { useState } from "react";
 import { Link, useParams } from "react-router";
 import { AdjustStockModal, PartFormModal } from "../components/inventoryForms";
 import { fitmentText } from "../components/catalogueFields";
+import { dotAge } from "../components/trackedFields";
 import { PART_NUMBER_KIND_LABELS } from "@ffgp/shared";
 import { toast } from "sonner";
 import { post } from "../lib/api";
 import { Badge, Button, Card, Empty, Input, Modal, PageHeader, Spinner, Table } from "../components/ui";
 import { useAuth } from "../lib/auth";
-import { formatAED, formatDateTime } from "../lib/format";
-import type { Part, PartCategory, StockMovement } from "../lib/types";
+import { formatAED, formatDate, formatDateTime } from "../lib/format";
+import type { Part, PartCategory, StockMovement, StockUnit } from "../lib/types";
 import { useApi, useDebounced } from "../lib/useApi";
 import { stockTone } from "./PartsPage";
 
@@ -35,7 +36,7 @@ export function PartPage() {
       <PageHeader
         back={<Link to="/parts" className="mb-1 inline-flex items-center gap-1 text-sm text-zinc-500 hover:text-zinc-800"><ArrowLeft className="size-3.5" /> Parts</Link>}
         title={part.name}
-        subtitle={<span className="flex items-center gap-2"><span className="font-mono">{part.partNo}</span>{part.stocked ? <Badge>Stocked</Badge> : <Badge tone="brand">Bought per job</Badge>}{!part.active && <Badge tone="red">Inactive</Badge>}</span>}
+        subtitle={<span className="flex items-center gap-2"><span className="font-mono">{part.partNo}</span>{part.isKit ? <Badge tone="zinc">Kit</Badge> : part.stocked ? <Badge>Stocked</Badge> : <Badge tone="brand">Bought per job</Badge>}{!part.active && <Badge tone="red">Inactive</Badge>}</span>}
         actions={can("inventory.edit") && (
           <>
             <Button icon={<Pencil className="size-4" />} onClick={() => setEditing(true)}>Edit</Button>
@@ -64,10 +65,17 @@ export function PartPage() {
               </dl>
             )}
           </Card>
+        ) : part.isKit ? (
+          <Card title="Kit">
+            <div className="text-3xl font-semibold tabular" data-testid="kits-available">{part.kitAvailable ?? 0}</div>
+            <div className="mt-1 text-sm text-zinc-500">can be made from the shelf</div>
+          </Card>
         ) : (
           <Card title="Stock"><p className="text-sm text-zinc-500">Not kept on the shelf. Request it from a job card when it's needed.</p></Card>
         )}
         <CatalogueCard part={part} canEdit={can("inventory.edit")} onReplace={() => setReplacing(true)} onChanged={() => void reload()} />
+        {part.isKit && <KitCard part={part} />}
+        {part.stocked && part.tracking && part.tracking !== "none" && <UnitsCard part={part} showCost={showCost} />}
         <Card title="Movements" className="col-span-3" padded={false}>
           <Table
             rows={movements}
@@ -94,6 +102,57 @@ export function PartPage() {
       <AdjustStockModal open={adjusting} part={part} onClose={() => setAdjusting(false)} onSaved={() => void reload()} />
       <ReplaceModal open={replacing} part={part} onClose={() => setReplacing(false)} onSaved={() => void reload()} />
     </>
+  );
+}
+
+/** A kit's parts: how many of each go in one kit, and what's on the shelf. */
+function KitCard({ part }: { part: Part }) {
+  return (
+    <Card title="Parts in the kit" className="col-span-3" padded={false}>
+      <Table
+        rows={part.components ?? []}
+        rowKey={(c) => c.partId}
+        columns={[
+          { header: "Part no", cell: (c) => <Link className="font-mono text-brand-700 hover:underline" to={`/parts/${c.partId}`}>{c.partNo}</Link> },
+          { header: "Name", cell: (c) => c.name },
+          { header: "In one kit", align: "right", cell: (c) => `${c.qty} ${c.unit === "each" ? "" : c.unit}` },
+          { header: "On the shelf", align: "right", cell: (c) => <span className={c.onHand < c.qty ? "text-red-700" : ""}>{c.onHand}</span> },
+        ]}
+      />
+    </Card>
+  );
+}
+
+/** Tyres or batteries one by one: what's on the shelf (oldest DOT first) and where the others were fitted. */
+function UnitsCard({ part, showCost }: { part: Part; showCost: boolean }) {
+  const [status, setStatus] = useState<"in_stock" | "fitted" | "written_off">("in_stock");
+  const units = useApi<{ units: StockUnit[] }>(`/api/parts/${part.id}/units?status=${status}`);
+  const dot = part.tracking === "dot";
+  return (
+    <Card title={dot ? "Tyres by DOT" : "Batteries by serial"} className="col-span-3" padded={false}
+      actions={
+        <div className="inline-flex rounded-md border border-zinc-300 bg-white p-0.5 text-xs">
+          {([["in_stock", "On the shelf"], ["fitted", "Fitted"], ["written_off", "Written off"]] as const).map(([v, label]) => (
+            <button key={v} type="button" onClick={() => setStatus(v)} className={`rounded px-2 py-0.5 ${status === v ? "bg-ink text-white" : "text-zinc-600 hover:bg-zinc-100"}`}>{label}</button>
+          ))}
+        </div>
+      }>
+      <Table
+        rows={units.data?.units ?? []}
+        rowKey={(u) => u.id}
+        empty={<Empty title={status === "in_stock" ? "None on the shelf" : "None"} />}
+        columns={[
+          { header: dot ? "DOT" : "Serial", cell: (u) => <span className="font-mono">{u.code}</span> },
+          ...(dot ? [{ header: "Age", cell: (u: StockUnit) => dotAge(u.code) || "—" }] : []),
+          { header: "Received", cell: (u) => formatDateTime(u.receivedAt ?? null) },
+          ...(status === "fitted" ? [
+            { header: "Fitted on", cell: (u: StockUnit) => (u.documentId ? <Link className="font-mono text-brand-700 hover:underline" to={`/documents/${u.documentId}`}>{u.documentNumber}</Link> : "—") },
+            ...(!dot ? [{ header: "Warranty to", cell: (u: StockUnit) => formatDate(u.warrantyEnds) }] : []),
+          ] : []),
+          ...(showCost ? [{ header: "Cost", align: "right" as const, cell: (u: StockUnit) => formatAED(u.unitCostFils ?? 0) }] : []),
+        ]}
+      />
+    </Card>
   );
 }
 

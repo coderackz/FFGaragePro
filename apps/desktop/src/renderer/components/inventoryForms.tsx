@@ -6,11 +6,13 @@ import { useAuth } from "../lib/auth";
 import type { Part, PartCategory, Supplier } from "../lib/types";
 import { useApi } from "../lib/useApi";
 import { AttributeFields, FitmentRows, NumberRows, PackRows, type Fitments, type Numbers, type Packs } from "./catalogueFields";
+import { TrackingFields, UnitChooser, UnitCodesInput, splitCodes, type KitRow, type Tracking } from "./trackedFields";
 import { Button, Field, Input, Modal, MoneyInput, NumberInput, Select, Textarea } from "./ui";
 
 const emptyPart = {
   partNo: "", name: "", nameAr: "", brand: "", unit: "each", stocked: true, sellPriceFils: 0, reorderLevel: 0, location: "", fits: "", active: true,
   categoryId: null as string | null, attributes: {} as Record<string, string | number>, numbers: [] as Numbers, fitments: [] as Fitments, packs: [] as Packs,
+  tracking: "none" as Tracking, warrantyMonths: 0, isKit: false, components: [] as KitRow[],
 };
 
 export function PartFormModal({ open, part, onClose, onSaved }: { open: boolean; part?: Part | null; onClose: () => void; onSaved: (p: Part) => void }) {
@@ -23,6 +25,8 @@ export function PartFormModal({ open, part, onClose, onSaved }: { open: boolean;
       ? {
         partNo: part.partNo, name: part.name, nameAr: part.nameAr ?? "", brand: part.brand ?? "", unit: part.unit, stocked: part.stocked, sellPriceFils: part.sellPriceFils, reorderLevel: part.reorderLevel, location: part.location ?? "", fits: part.fits ?? "", active: part.active,
         categoryId: part.categoryId ?? null, attributes: part.attributes ?? {}, numbers: part.numbers ?? [], fitments: part.fitments ?? [], packs: part.packs ?? [],
+        tracking: part.tracking ?? "none", warrantyMonths: part.warrantyMonths ?? 0, isKit: !!part.isKit,
+        components: (part.components ?? []).map((c) => ({ partId: c.partId, partNo: c.partNo, qty: c.qty })),
       }
       : { ...emptyPart, reorderLevel: settings?.inventory.defaultReorderLevel ?? 0 });
   }, [open, part]); // eslint-disable-line react-hooks/exhaustive-deps
@@ -44,7 +48,11 @@ export function PartFormModal({ open, part, onClose, onSaved }: { open: boolean;
         fitments: form.fitments.filter((f) => f.make.trim()).map(({ id: _, ...f }) => f),
         packs: form.packs.filter((p) => p.name.trim()).map(({ name, size }) => ({ name, size })),
         attributes: form.attributes,
+        tracking: form.isKit || !form.stocked ? "none" : form.tracking,
+        warrantyMonths: form.tracking === "serial" ? form.warrantyMonths : 0,
+        components: form.isKit ? form.components.filter((c) => c.partNo.trim()).map(({ partId, qty }) => ({ partId, qty })) : [],
       };
+      if (form.isKit && body.components.some((c) => !c.partId)) throw new Error("A kit part isn't a stocked part: check the part numbers");
       const res = part ? await patch<{ part: Part }>(`/api/parts/${part.id}`, body) : await post<{ part: Part }>("/api/parts", body);
       toast.success(part ? "Part saved" : "Part added");
       onSaved(res.part);
@@ -80,12 +88,14 @@ export function PartFormModal({ open, part, onClose, onSaved }: { open: boolean;
             {["each", "set", "pair", "litre", "kg", "metre"].map((u) => <option key={u} value={u}>{u}</option>)}
           </Select>
         </Field>
-        <Field label="Kept on the shelf?" hint={form.stocked ? "Stock is counted and comes off when used on a job." : "Bought for each job when needed."}>
-          <Select value={form.stocked ? "yes" : "no"} onChange={(e) => set("stocked", e.target.value === "yes")} disabled={!!part && part.onHand !== 0}>
-            <option value="yes">Yes — stocked</option>
-            <option value="no">No — buy per job</option>
-          </Select>
-        </Field>
+        {!form.isKit && (
+          <Field label="Kept on the shelf?" hint={form.stocked ? "Stock is counted and comes off when used on a job." : "Bought for each job when needed."}>
+            <Select value={form.stocked ? "yes" : "no"} onChange={(e) => set("stocked", e.target.value === "yes")} disabled={!!part && part.onHand !== 0}>
+              <option value="yes">Yes — stocked</option>
+              <option value="no">No — buy per job</option>
+            </Select>
+          </Field>
+        )}
         {form.stocked && <Field label="Reorder when at or below"><NumberInput value={form.reorderLevel} onChange={(v) => set("reorderLevel", v)} /></Field>}
         <Field label="Shelf / bin"><Input value={form.location} onChange={(e) => set("location", e.target.value)} /></Field>
         <Field label="Category">
@@ -99,6 +109,8 @@ export function PartFormModal({ open, part, onClose, onSaved }: { open: boolean;
         <NumberRows rows={form.numbers} onChange={(v) => set("numbers", v)} />
         <FitmentRows rows={form.fitments} onChange={(v) => set("fitments", v)} />
         <PackRows rows={form.packs} unit={form.unit} onChange={(v) => set("packs", v)} />
+        <TrackingFields stocked={form.stocked} tracking={form.tracking} warrantyMonths={form.warrantyMonths} isKit={form.isKit} components={form.components}
+          lockedKit={!!part && part.onHand !== 0} onChange={(p) => setForm((f) => ({ ...f, ...p }))} />
         {part && (
           <label className="col-span-2 flex items-center gap-2 text-sm">
             <input type="checkbox" checked={form.active} onChange={(e) => set("active", e.target.checked)} /> Active (shown when picking parts)
@@ -119,18 +131,23 @@ export function AdjustStockModal({ open, part, onClose, onSaved }: { open: boole
   const [reason, setReason] = useState<(typeof ADJUSTMENT_REASONS)[number]>("count");
   const [costFils, setCostFils] = useState(0);
   const [note, setNote] = useState("");
+  const [codes, setCodes] = useState("");
+  const [unitIds, setUnitIds] = useState<string[]>([]);
   const [busy, setBusy] = useState(false);
   useEffect(() => {
-    if (open) { setDirection("in"); setQty(1); setReason(part.onHand === 0 ? "opening" : "count"); setCostFils(part.avgCostFils ?? 0); setNote(""); }
+    if (open) { setDirection("in"); setQty(1); setReason(part.onHand === 0 ? "opening" : "count"); setCostFils(part.avgCostFils ?? 0); setNote(""); setCodes(""); setUnitIds([]); }
   }, [open, part]);
   const opening = reason === "opening";
+  const tracking = part.stocked ? part.tracking ?? "none" : "none";
+  const goingIn = opening || direction === "in";
 
   const submit = async (e: FormEvent) => {
     e.preventDefault();
     setBusy(true);
     try {
       await post(`/api/parts/${part.id}/adjustments`, {
-        qty: opening || direction === "in" ? qty : -qty, reason, note: note || null, ...(opening ? { unitCostFils: costFils } : {}),
+        qty: goingIn ? qty : -qty, reason, note: note || null, ...(opening ? { unitCostFils: costFils } : {}),
+        ...(tracking !== "none" ? (goingIn ? { units: splitCodes(codes) } : { unitIds }) : {}),
       });
       toast.success("Stock updated");
       onSaved();
@@ -161,6 +178,13 @@ export function AdjustStockModal({ open, part, onClose, onSaved }: { open: boole
         )}
         <Field label={`Quantity (${part.unit})`}><NumberInput value={qty} onChange={setQty} /></Field>
         {opening && <Field label="Cost each (AED)"><MoneyInput fils={costFils} onChange={setCostFils} /></Field>}
+        {tracking !== "none" && (
+          <Field label={goingIn ? (tracking === "dot" ? "Each tyre's DOT" : "Each battery's serial") : "Which ones went"} className="col-span-2">
+            {goingIn
+              ? <UnitCodesInput tracking={tracking} qty={qty} value={codes} onChange={setCodes} label="Unit codes" />
+              : <div className="text-xs"><UnitChooser partId={part.id} qty={qty} chosen={unitIds} current={[]} onChange={(ids) => setUnitIds(ids)} /></div>}
+          </Field>
+        )}
         <Field label="Note" className="col-span-2"><Textarea value={note} onChange={(e) => setNote(e.target.value)} className="min-h-14" /></Field>
         <div className="col-span-2 text-sm text-zinc-500">Now on the shelf: <span className="font-medium text-zinc-800 tabular">{part.onHand}</span></div>
       </form>
