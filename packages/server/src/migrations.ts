@@ -1419,8 +1419,35 @@ ALTER TABLE parts ADD COLUMN lead_time_days INTEGER NOT NULL DEFAULT 7;
     id: 24,
     // Inventory v2, Part 4: returns to the supplier and cores going back (debit notes, RTS), core write-offs,
     // warranty claims (WC), core deposits on parts and deliveries, and the Core deposits account (a garage's own
-    // account on 1220 keeps its name and moves to "1220.1").
+    // account on 1220 keeps its name and moves to "1220.1"). Journal entries gain the two new sources.
+    foreignKeysOff: ["journal_entries", "journal_lines", "vat_returns"],
     sql: `
+CREATE TABLE journal_entries_new (
+  id TEXT PRIMARY KEY,
+  series TEXT NOT NULL DEFAULT '',
+  seq INTEGER NOT NULL,
+  number TEXT NOT NULL,
+  date TEXT NOT NULL,
+  narration TEXT NOT NULL,
+  source_type TEXT NOT NULL CHECK (source_type IN ('invoice', 'credit_note', 'receipt', 'goods_receipt', 'stock', 'cogs', 'customer_opening',
+    'opening', 'manual', 'reversal', 'year_close', 'revaluation', 'supplier_bill', 'bill_cancel', 'supplier_payment', 'supplier_opening', 'expense',
+    'transfer', 'cheque_deposit', 'cheque_clear', 'vat_return', 'payroll_run', 'wps_paid', 'bonus_paid', 'staff_advance', 'payroll_opening',
+    'final_settlement', 'settlement_paid', 'depreciation', 'asset_disposal', 'supplier_return', 'core_writeoff')),
+  source_id TEXT,
+  post_key TEXT UNIQUE,
+  reverses_id TEXT REFERENCES journal_entries(id),
+  original_date TEXT,
+  created_by TEXT REFERENCES users(id),
+  created_at TEXT NOT NULL,
+  UNIQUE (series, seq)
+);
+INSERT INTO journal_entries_new SELECT id, series, seq, number, date, narration, source_type, source_id, post_key, reverses_id, original_date, created_by, created_at
+  FROM journal_entries;
+DROP TABLE journal_entries;
+ALTER TABLE journal_entries_new RENAME TO journal_entries;
+CREATE INDEX journal_entries_date ON journal_entries(date);
+CREATE INDEX journal_entries_source ON journal_entries(source_type, source_id);
+
 ALTER TABLE parts ADD COLUMN core_fils INTEGER NOT NULL DEFAULT 0;
 ALTER TABLE goods_receipt_lines ADD COLUMN core_fils INTEGER NOT NULL DEFAULT 0;
 ALTER TABLE stock_movements ADD COLUMN supplier_return_id TEXT;

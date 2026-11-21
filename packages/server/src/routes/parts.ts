@@ -15,7 +15,7 @@ export interface PartRow {
   created_at: string; updated_at: string; name_ar: string | null;
   category_id: string | null; attributes_json: string; spec_text: string; superseded_by: string | null;
   tracking: "none" | "dot" | "serial"; warranty_months: number; is_kit: number;
-  max_level: number; preferred_supplier_id: string | null; lead_time_days: number;
+  max_level: number; preferred_supplier_id: string | null; lead_time_days: number; core_fils: number;
 }
 interface SupplierRow {
   id: string; name: string; trn: string | null; phone: string | null; email: string | null; address: string | null;
@@ -29,7 +29,7 @@ export function partOut(p: PartRow, showCost: boolean) {
     lowStock: !!p.stocked && p.on_hand <= p.reorder_level,
     categoryId: p.category_id, attributes: JSON.parse(p.attributes_json || "{}") as Record<string, string | number>, supersededById: p.superseded_by,
     tracking: p.tracking ?? "none", warrantyMonths: p.warranty_months ?? 0, isKit: !!p.is_kit,
-    maxLevel: p.max_level ?? 0, preferredSupplierId: p.preferred_supplier_id ?? null, leadTimeDays: p.lead_time_days ?? 7,
+    maxLevel: p.max_level ?? 0, preferredSupplierId: p.preferred_supplier_id ?? null, leadTimeDays: p.lead_time_days ?? 7, coreFils: p.core_fils ?? 0,
     ...(showCost ? { avgCostFils: p.avg_cost_fils, stockValueFils: Math.round(Math.max(0, p.on_hand) * p.avg_cost_fils) } : {}),
   };
 }
@@ -62,7 +62,7 @@ function kitInfo(db: Db, p: PartRow) {
   return { components, kitAvailable: kitAvailable(components, new Map(components.map((c) => [c.partId, c.onHand]))) };
 }
 
-type Sent = "category" | "categoryId" | "numbers" | "fitments" | "packs" | "tracking" | "warrantyMonths" | "kit" | "maxLevel" | "preferredSupplierId" | "leadTimeDays";
+type Sent = "category" | "categoryId" | "numbers" | "fitments" | "packs" | "tracking" | "warrantyMonths" | "kit" | "maxLevel" | "preferredSupplierId" | "leadTimeDays" | "coreFils";
 
 export function partRoutes(app: FastifyInstance, db: Db): void {
   const getPart = (id: string) => db.get<PartRow>("SELECT * FROM parts WHERE id = ?", [id]);
@@ -140,6 +140,7 @@ export function partRoutes(app: FastifyInstance, db: Db): void {
     if (present("maxLevel")) db.run("UPDATE parts SET max_level = ? WHERE id = ?", [input.maxLevel, id]);
     if (present("preferredSupplierId")) db.run("UPDATE parts SET preferred_supplier_id = ? WHERE id = ?", [input.preferredSupplierId, id]);
     if (present("leadTimeDays")) db.run("UPDATE parts SET lead_time_days = ? WHERE id = ?", [input.leadTimeDays, id]);
+    if (present("coreFils")) db.run("UPDATE parts SET core_fils = ? WHERE id = ?", [input.coreFils, id]);
   }
   /** Which catalogue parts a request body carries ("category": the category or its specs). */
   const sent = (body: unknown) => (k: Sent) => {

@@ -99,7 +99,8 @@ export function ledger(db: Db, q: { accountId?: string; from?: string; to?: stri
   const lines = db.all<{ entry_id: string; number: string; date: string; narration: string; source_type: string; source_id: string | null; source_number: string | null; debit_fils: number; credit_fils: number; memo: string | null }>(
     `SELECT l.entry_id, e.number, e.date, e.narration, e.source_type, e.source_id, l.debit_fils, l.credit_fils, l.memo,
        COALESCE((SELECT number FROM documents WHERE id = e.source_id), (SELECT number FROM receipts WHERE id = e.source_id),
-                (SELECT supplier_invoice_no FROM goods_receipts WHERE id = e.source_id)) AS source_number
+                (SELECT supplier_invoice_no FROM goods_receipts WHERE id = e.source_id),
+  (SELECT number FROM supplier_returns WHERE id = e.source_id)) AS source_number
      FROM journal_lines l JOIN journal_entries e ON e.id = l.entry_id
      WHERE ${filter} AND (:from IS NULL OR e.date >= :from) AND e.date <= :to ORDER BY e.date, e.series, e.seq, l.position`,
     params,

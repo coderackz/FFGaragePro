@@ -74,7 +74,8 @@ interface EntryRow {
   original_date: string | null; created_by_name: string | null; created_at: string; reversed_by: string | null; source_number: string | null;
 }
 const SOURCE_NUMBER = `COALESCE((SELECT number FROM documents WHERE id = e.source_id), (SELECT number FROM receipts WHERE id = e.source_id),
-  (SELECT supplier_invoice_no FROM goods_receipts WHERE id = e.source_id))`;
+  (SELECT supplier_invoice_no FROM goods_receipts WHERE id = e.source_id),
+  (SELECT number FROM supplier_returns WHERE id = e.source_id))`;
 export const ENTRY_SELECT = `SELECT e.*, u.name AS created_by_name, (SELECT r.id FROM journal_entries r WHERE r.reverses_id = e.id) AS reversed_by,
   ${SOURCE_NUMBER} AS source_number FROM journal_entries e LEFT JOIN users u ON u.id = e.created_by`;
 

@@ -7,6 +7,7 @@ import { getSettings } from "../settings";
 export type SourceType =
   | "invoice" | "credit_note" | "receipt" | "goods_receipt" | "stock" | "cogs" | "customer_opening" | "opening" | "manual" | "reversal"
   | "year_close" | "revaluation" | "supplier_bill" | "bill_cancel" | "supplier_payment" | "supplier_opening" | "expense" | "transfer"
+  | "supplier_return" | "core_writeoff"
   | "cheque_deposit" | "cheque_clear" | "vat_return" | "payroll_run" | "wps_paid" | "bonus_paid" | "staff_advance" | "payroll_opening" | "final_settlement" | "settlement_paid" | "depreciation" | "asset_disposal";
 
 export interface PostLine {

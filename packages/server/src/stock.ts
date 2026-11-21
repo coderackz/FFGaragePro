@@ -16,6 +16,8 @@ export interface Movement {
   poLineId?: string | null;
   note?: string | null;
   userId: string;
+  /** Going back to the supplier on this return (its debit note posts the stock; postStock skips it). */
+  supplierReturnId?: string | null;
 }
 
 /** Quantities are REAL (litres); keep them to 3 decimals so 4.5 + 0.7 − 5.2 is exactly 0. */
@@ -38,9 +40,9 @@ export function postMovement(db: Db, m: Movement): void {
   }
   const t = now();
   db.run(
-    `INSERT INTO stock_movements (id, part_id, qty, unit_cost_fils, reason, document_id, po_line_id, note, created_by, created_at)
-     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
-    [newId(), m.partId, qty, unitCost, m.reason, m.documentId ?? null, m.poLineId ?? null, m.note ?? null, m.userId, t],
+    `INSERT INTO stock_movements (id, part_id, qty, unit_cost_fils, reason, document_id, po_line_id, note, created_by, created_at, supplier_return_id)
+     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+    [newId(), m.partId, qty, unitCost, m.reason, m.documentId ?? null, m.poLineId ?? null, m.note ?? null, m.userId, t, m.supplierReturnId ?? null],
   );
   db.run("UPDATE parts SET on_hand = ?, avg_cost_fils = ?, updated_at = ? WHERE id = ?", [round3(part.on_hand + qty), avg, t, m.partId]);
 }

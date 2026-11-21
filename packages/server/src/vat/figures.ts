@@ -27,7 +27,7 @@ export interface VatFigures {
 }
 
 const SALES_DOCS = new Set(["invoice", "credit_note"]);
-const EXPENSE_DOCS = new Set(["goods_receipt", "supplier_bill", "bill_cancel", "expense"]);
+const EXPENSE_DOCS = new Set(["goods_receipt", "supplier_bill", "bill_cancel", "expense", "supplier_return"]);
 
 interface LineRow {
   entry_id: string; number: string; date: string; original_date: string | null; narration: string; source_type: string; source_id: string | null;
@@ -76,6 +76,11 @@ export function vatFigures(db: Db, from: string, to: string): VatFigures {
     if (sourceType === "goods_receipt") {
       const g = db.get<{ net_fils: number; vat_fils: number }>("SELECT net_fils, vat_fils FROM goods_receipts WHERE id = ?", [id]);
       return g && g.vat_fils !== 0 ? g.net_fils : 0;
+    }
+    if (sourceType === "supplier_return") {
+      // A debit note takes its VAT-bearing net off box 9.
+      const r = db.get<{ net_fils: number; vat_fils: number }>("SELECT net_fils, vat_fils FROM supplier_returns WHERE id = ?", [id]);
+      return r && r.vat_fils !== 0 ? -r.net_fils : 0;
     }
     if (sourceType === "expense") {
       const x = db.get<{ net_fils: number; vat: string }>("SELECT net_fils, vat FROM expenses WHERE id = ?", [id]);

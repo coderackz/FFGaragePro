@@ -65,6 +65,26 @@ export function checkIncomingCodes(db: Db, partId: string, qty: number, codes: s
   return serials;
 }
 
+/**
+ * Tyres and batteries going back to the supplier: the units chosen (exactly `qty`, on the shelf) become `returned`.
+ * A part that isn't tracked takes none.
+ */
+export function returnUnitsToSupplier(db: Db, partId: string, qty: number, unitIds: string[]): void {
+  const p = getPart(db, partId);
+  if (!isTracked(p)) {
+    if (unitIds.length) throw badRequest("This part isn't tracked one by one");
+    return;
+  }
+  if (!Number.isInteger(qty)) throw badRequest(`${p.part_no}: tyres and batteries go back in whole units`);
+  if (unitIds.length !== qty || new Set(unitIds).size !== qty) throw badRequest(`${p.part_no}: choose which ${qty === 1 ? "one goes" : `${qty} go`} back`);
+  const t = now();
+  for (const id of unitIds) {
+    const u = getUnit(db, id);
+    if (!u || u.part_id !== partId || u.status !== "in_stock") throw badRequest(`${p.part_no}: that one isn't on the shelf`);
+    db.run("UPDATE stock_units SET status = 'returned', updated_at = ? WHERE id = ?", [t, id]);
+  }
+}
+
 /** Puts checked codes on the shelf as units (call inside db.tx). */
 export function addUnits(db: Db, partId: string, codes: string[], unitCostFils: number, poLineId: string | null): void {
   const t = now();

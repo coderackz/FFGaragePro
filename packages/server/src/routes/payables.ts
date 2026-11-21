@@ -1,5 +1,5 @@
 import type { FastifyInstance } from "fastify";
-import { can, dubaiDate } from "@ffgp/shared";
+import { can, coreWriteoffSchema, dubaiDate, supplierReturnSchema } from "@ffgp/shared";
 import { requireAction, sessionUser } from "../auth";
 import type { Db } from "../db";
 import { badRequest, notFound } from "../errors";
@@ -11,7 +11,8 @@ import { allocatePayment, createPayment, listPayments } from "../payables/paymen
 import {
   chequesInHand, chequesIssued, clearCheques, createExpense, createTransfer, depositCheques, expensePhoto, listExpenses, moneyAccounts,
 } from "../payables/money";
-import type { NumberSource } from "../numbering";
+import { reserveNumber, type NumberSource } from "../numbering";
+import { coresOwed, createSupplierReturn, listReturns, returnOut, writeOffCores } from "../payables/returns";
 import { supplierOut } from "./parts";
 
 const YMD = /^\d{4}-\d{2}-\d{2}$/;
@@ -74,6 +75,35 @@ export function payablesRoutes(app: FastifyInstance, db: Db, o: PayablesRouteOpt
     const user = sessionUser(db, req);
     requireAction(user, "payables.manage");
     return { bill: cancelBill(db, req.params.id, req.body?.reason ?? "", user.id) };
+  });
+
+  // ── Debit notes: parts and cores returned, cores written off (warranty credits come from claims) ──
+  app.get<{ Querystring: { supplierId?: string } }>("/api/supplier-returns", async (req) => {
+    requireAction(sessionUser(db, req), "payables.manage");
+    return { supplierReturns: listReturns(db, req.query.supplierId || null) };
+  });
+  app.get<{ Params: { id: string } }>("/api/supplier-returns/:id", async (req) => {
+    requireAction(sessionUser(db, req), "payables.manage");
+    return { supplierReturn: returnOut(db, req.params.id) };
+  });
+  app.post("/api/supplier-returns", async (req) => {
+    const user = sessionUser(db, req);
+    requireAction(user, "payables.manage");
+    const input = supplierReturnSchema.parse(req.body);
+    const reserved = await reserveNumber(o.numbers, "supplier_return");
+    const id = db.tx(() => createSupplierReturn(db, input, user, o.numbers, reserved));
+    return { supplierReturn: returnOut(db, id) };
+  });
+  app.get<{ Querystring: { supplierId?: string } }>("/api/cores", async (req) => {
+    requireAction(sessionUser(db, req), "payables.manage");
+    return { cores: coresOwed(db, req.query.supplierId || null) };
+  });
+  app.post("/api/cores/write-offs", async (req) => {
+    const user = sessionUser(db, req);
+    requireAction(user, "payables.manage");
+    const input = coreWriteoffSchema.parse(req.body);
+    db.tx(() => writeOffCores(db, input, user));
+    return { cores: coresOwed(db, input.supplierId) };
   });
 
   // ── Paying suppliers ──

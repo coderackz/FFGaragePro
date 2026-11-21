@@ -42,8 +42,22 @@ export function supplierItems(db: Db, supplierId: string, asOf: string = today()
   )) {
     items.push({ target: "bill", id: b.id, number: b.supplier_invoice_no, date: b.bill_date, dueDate: b.due_date ?? addDays(b.bill_date, s.terms_days), grossFils: b.gross_fils, owedFils: b.gross_fils - allocated("bill", b.id) });
   }
-  return items.sort((a, b) => a.dueDate.localeCompare(b.dueDate) || a.date.localeCompare(b.date));
+  items.sort((a, b) => a.dueDate.localeCompare(b.dueDate) || a.date.localeCompare(b.date));
+  // Debit notes (returns, cores, warranty credits) settle what's still owed, oldest due first.
+  let credit = debitNotes(db, supplierId, asOf);
+  for (const i of items) {
+    if (credit <= 0) break;
+    if (i.owedFils <= 0) continue;
+    const take = Math.min(credit, i.owedFils);
+    i.owedFils -= take;
+    credit -= take;
+  }
+  return items;
 }
+
+/** What the supplier's debit notes up to `asOf` take off what's owed. */
+const debitNotes = (db: Db, supplierId: string, asOf: string) =>
+  db.get<{ g: number | null }>("SELECT SUM(gross_fils) AS g FROM supplier_returns WHERE supplier_id = ? AND return_date <= ?", [supplierId, asOf])!.g ?? 0;
 
 /** Items still owed, oldest due first (what a payment is split across). */
 export const supplierOpenItems = (db: Db, supplierId: string, asOf?: string) => supplierItems(db, supplierId, asOf).filter((i) => i.owedFils > 0);
@@ -59,12 +73,12 @@ export function supplierBalance(db: Db, supplierId: string, asOf: string = today
   const opening = s.opening_balance_fils < 0 && (!s.opening_balance_date || s.opening_balance_date <= asOf) ? s.opening_balance_fils : 0;
   const items = supplierItems(db, supplierId, asOf);
   const paid = db.get<{ p: number | null }>("SELECT SUM(amount_fils) AS p FROM supplier_payments WHERE supplier_id = ? AND paid_at <= ?", [supplierId, asOf])!.p ?? 0;
-  const balanceFils = opening + items.reduce((t, i) => t + i.grossFils, 0) - paid;
+  const balanceFils = opening + items.reduce((t, i) => t + i.grossFils, 0) - paid - debitNotes(db, supplierId, asOf);
   const overdueFils = items.filter((i) => i.owedFils > 0 && i.dueDate < asOf).reduce((t, i) => t + i.owedFils, 0);
   return { balanceFils, overdueFils, advanceFils: Math.max(0, -balanceFils) };
 }
 
-export interface SupplierStatementRow { date: string; kind: "opening" | "goods_receipt" | "bill" | "payment"; number: string; description: string; debitFils: number; creditFils: number; balanceFils: number }
+export interface SupplierStatementRow { date: string; kind: "opening" | "goods_receipt" | "bill" | "payment" | "debit_note"; number: string; description: string; debitFils: number; creditFils: number; balanceFils: number }
 
 /** A supplier's statement for [from, to]: what we were billed (credit) and paid (debit), with a running balance owed. */
 export function supplierStatement(db: Db, supplierId: string, from: string, to: string) {
@@ -84,7 +98,14 @@ export function supplierStatement(db: Db, supplierId: string, from: string, to: 
   )) {
     rows.push({ date: p.paid_at, kind: "payment", number: p.number, description: `Payment (${p.method.replace("_", " ")}${p.reference ? `, ${p.reference}` : ""})`, debitFils: p.amount_fils, creditFils: 0 });
   }
-  const order = { opening: 0, goods_receipt: 1, bill: 2, payment: 3 } as const;
+  const KIND = { return: "Parts returned", core: "Cores returned", warranty: "Warranty credit" } as Record<string, string>;
+  for (const r of db.all<{ return_date: string; number: string; kind: string; gross_fils: number; supplier_ref: string | null }>(
+    "SELECT return_date, number, kind, gross_fils, supplier_ref FROM supplier_returns WHERE supplier_id = ? AND return_date BETWEEN ? AND ?",
+    [supplierId, from, to],
+  )) {
+    rows.push({ date: r.return_date, kind: "debit_note", number: r.number, description: `${KIND[r.kind] ?? "Debit note"}${r.supplier_ref ? `, their ref ${r.supplier_ref}` : ""}`, debitFils: r.gross_fils, creditFils: 0 });
+  }
+  const order = { opening: 0, goods_receipt: 1, bill: 2, payment: 3, debit_note: 4 } as const;
   rows.sort((a, b) => a.date.localeCompare(b.date) || order[a.kind] - order[b.kind]);
   let running = openingFils;
   return {

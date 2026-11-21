@@ -139,10 +139,15 @@ export function purchaseRoutes(app: FastifyInstance, db: Db, docs: { full: Docum
       const line = lines.get(r.poLineId)!;
       return line.part_id ? checkIncomingCodes(db, line.part_id, r.qty, r.units, line.description, seenCodes) : r.units.length ? (() => { throw badRequest(`${line.description}: this line isn't a part`); })() : [];
     });
-    // Whole packs at the PO's price are packs × the pack price, like the PO itself.
-    const net = input.lines.reduce((sum, r) => {
+    // A part's core deposit (per unit) is part of the supplier's bill; it's owed back until the old unit returns.
+    const cores = input.lines.map((r) => {
       const l = lines.get(r.poLineId)!;
-      return sum + poLineNet({ qty: r.qty, unit_cost_fils: r.unitCostFils, pack_size: l.pack_size, pack_cost_fils: l.pack_cost_fils });
+      return r.coreFils ?? (l.part_id ? db.get<{ c: number }>("SELECT core_fils AS c FROM parts WHERE id = ?", [l.part_id])?.c ?? 0 : 0);
+    });
+    // Whole packs at the PO's price are packs × the pack price, like the PO itself.
+    const net = input.lines.reduce((sum, r, i) => {
+      const l = lines.get(r.poLineId)!;
+      return sum + poLineNet({ qty: r.qty, unit_cost_fils: r.unitCostFils, pack_size: l.pack_size, pack_cost_fils: l.pack_cost_fils }) + roundFils(r.qty * cores[i]!);
     }, 0);
     const receiptId = newId();
     const t = now();
@@ -153,8 +158,8 @@ export function purchaseRoutes(app: FastifyInstance, db: Db, docs: { full: Docum
     );
     for (const [i, r] of input.lines.entries()) {
       const line = lines.get(r.poLineId)!;
-      db.run("INSERT INTO goods_receipt_lines (id, receipt_id, po_line_id, qty, unit_cost_fils) VALUES (?, ?, ?, ?, ?)", [
-        newId(), receiptId, line.id, r.qty, r.unitCostFils,
+      db.run("INSERT INTO goods_receipt_lines (id, receipt_id, po_line_id, qty, unit_cost_fils, core_fils) VALUES (?, ?, ?, ?, ?, ?)", [
+        newId(), receiptId, line.id, r.qty, r.unitCostFils, cores[i]!,
       ]);
       line.received_qty = round3(line.received_qty + r.qty);
       // A different price on the delivery replaces the pack price too (the line is then priced per unit).

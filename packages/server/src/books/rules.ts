@@ -102,8 +102,8 @@ export function postGoodsReceipts(c: PostCtx): number {
   );
   for (const g of rows) {
     if (c.full()) break;
-    const lines = c.db.all<{ qty: number; cost: number; part_id: string | null; job: string | null; stocked: number | null }>(
-      `SELECT gl.qty, gl.unit_cost_fils AS cost, pl.part_id, pl.job_document_id AS job, pt.stocked
+    const lines = c.db.all<{ qty: number; cost: number; core: number; part_id: string | null; job: string | null; stocked: number | null }>(
+      `SELECT gl.qty, gl.unit_cost_fils AS cost, gl.core_fils AS core, pl.part_id, pl.job_document_id AS job, pt.stocked
        FROM goods_receipt_lines gl JOIN po_lines pl ON pl.id = gl.po_line_id LEFT JOIN parts pt ON pt.id = pl.part_id WHERE gl.receipt_id = ?`,
       [g.id],
     );
@@ -113,14 +113,68 @@ export function postGoodsReceipts(c: PostCtx): number {
       if (l.job) return jobInvoiced(c.db, l.job) ? debit(A.cogs_parts.id, value) : debit(A.wip.id, value, { documentId: l.job });
       return debit(A.purchases_other.id, value);
     });
+    // Core deposits paid with the delivery: an asset until the old units go back (or are written off).
+    const coreValue = lines.reduce((s, l) => s + Math.round(l.qty * l.core), 0);
     // Rounding between the lines and the receipt's net goes on the last line, so the bill is exact.
-    const linesNet = posted.reduce((s, l) => s + l.debitFils, 0);
+    const linesNet = posted.reduce((s, l) => s + l.debitFils, 0) + coreValue;
     if (posted.length) posted[posted.length - 1]!.debitFils += g.net_fils - linesNet;
+    if (coreValue) posted.push(debit(A.core_deposits.id, coreValue));
     const date = g.invoice_date && /^\d{4}-\d{2}-\d{2}$/.test(g.invoice_date) && g.invoice_date >= c.start ? g.invoice_date : g.day;
     const id = c.post({
       date, narration: `Parts from ${g.supplier_name}${g.invoice_no ? `, invoice ${g.invoice_no}` : ""}`, sourceType: "goods_receipt", sourceId: g.id,
       postKey: `goods_receipt:${g.id}`, userId: null,
       lines: [...posted, debit(A.vat_input.id, g.gross_fils - g.net_fils), credit(A.payables.id, g.gross_fils, { supplierId: g.supplier_id })],
+    });
+    if (id) n++;
+  }
+  return n;
+}
+
+/**
+ * Debit notes to suppliers: Dr payables (supplier) gross / Cr input VAT, and the net to what was credited — parts
+ * returned off the shelf come off inventory at their cost (any difference from the credit is a stock adjustment),
+ * cores go off core deposits, warranty credits off the cost of parts sold.
+ */
+export function postSupplierReturns(c: PostCtx): number {
+  let n = 0;
+  const rows = c.db.all<{ id: string; number: string; kind: string; supplier_id: string; supplier_name: string; net_fils: number; vat_fils: number; gross_fils: number; day: string }>(
+    `SELECT r.id, r.number, r.kind, r.supplier_id, s.name AS supplier_name, r.net_fils, r.vat_fils, r.gross_fils, r.return_date AS day
+     FROM supplier_returns r JOIN suppliers s ON s.id = r.supplier_id
+     WHERE r.return_date >= ? AND ${unposted("'supplier_return:' || r.id")} ORDER BY r.return_date, r.seq`,
+    [c.start],
+  );
+  for (const r of rows) {
+    if (c.full()) break;
+    const lines: PostLine[] = [debit(A.payables.id, r.gross_fils, { supplierId: r.supplier_id }), credit(A.vat_input.id, r.vat_fils)];
+    if (r.kind === "return") {
+      const cost = c.db.get<{ v: number | null }>("SELECT SUM(ROUND(qty * unit_cost_fils)) AS v FROM supplier_return_lines WHERE return_id = ?", [r.id])!.v ?? 0;
+      lines.push(credit(A.inventory.id, cost));
+      if (r.net_fils !== cost) lines.push(credit(A.stock_adjustments.id, r.net_fils - cost));
+    } else lines.push(credit(r.kind === "core" ? A.core_deposits.id : A.cogs_parts.id, r.net_fils));
+    const what = r.kind === "return" ? "Parts returned to" : r.kind === "core" ? "Cores returned to" : "Warranty credit from";
+    const id = c.post({
+      date: r.day, narration: `${r.number}: ${what} ${r.supplier_name}`, sourceType: "supplier_return", sourceId: r.id,
+      postKey: `supplier_return:${r.id}`, userId: null, lines: lines.filter((l) => l.debitFils || l.creditFils),
+    });
+    if (id) n++;
+  }
+  return n;
+}
+
+/** Cores written off (the old unit never went back): Dr stock adjustments / Cr core deposits. */
+export function postCoreWriteoffs(c: PostCtx): number {
+  let n = 0;
+  const rows = c.db.all<{ id: string; value_fils: number; part: string; supplier: string; day: string }>(
+    `SELECT w.id, w.value_fils, p.name AS part, s.name AS supplier, date(w.created_at, ${DUBAI}) AS day FROM core_writeoffs w
+     JOIN parts p ON p.id = w.part_id JOIN suppliers s ON s.id = w.supplier_id
+     WHERE date(w.created_at, ${DUBAI}) >= ? AND w.value_fils <> 0 AND ${unposted("'core_writeoff:' || w.id")} ORDER BY w.created_at`,
+    [c.start],
+  );
+  for (const w of rows) {
+    if (c.full()) break;
+    const id = c.post({
+      date: w.day, narration: `Core deposit written off: ${w.part} (${w.supplier})`, sourceType: "core_writeoff", sourceId: w.id,
+      postKey: `core_writeoff:${w.id}`, userId: null, lines: [debit(A.stock_adjustments.id, w.value_fils), credit(A.core_deposits.id, w.value_fils)],
     });
     if (id) n++;
   }
@@ -138,7 +192,7 @@ export function postStock(c: PostCtx): number {
     `SELECT m.id, m.qty, m.unit_cost_fils AS cost, m.reason, m.document_id, d.type AS doc_type, d.number AS doc_number, p.name AS part,
             date(m.created_at, ${DUBAI}) AS day
      FROM stock_movements m JOIN parts p ON p.id = m.part_id LEFT JOIN documents d ON d.id = m.document_id
-     WHERE m.reason <> 'receive' AND (m.reason = 'opening' OR date(m.created_at, ${DUBAI}) >= ?) AND ROUND(ABS(m.qty) * m.unit_cost_fils) <> 0
+     WHERE m.reason <> 'receive' AND m.supplier_return_id IS NULL AND (m.reason = 'opening' OR date(m.created_at, ${DUBAI}) >= ?) AND ROUND(ABS(m.qty) * m.unit_cost_fils) <> 0
        AND ${unposted("'stock:' || m.id")} ORDER BY m.created_at, m.rowid`,
     [c.start],
   );
