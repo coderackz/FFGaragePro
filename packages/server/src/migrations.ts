@@ -1405,6 +1405,16 @@ ALTER TABLE sync_issues_new RENAME TO sync_issues;
 CREATE INDEX sync_issues_device ON sync_issues(for_device);
 `,
   },
+  {
+    id: 23,
+    // Inventory v2, Part 3: planning. The reorder level is the minimum; order up to a maximum, from a preferred
+    // supplier, who takes so many days to deliver.
+    sql: `
+ALTER TABLE parts ADD COLUMN max_level REAL NOT NULL DEFAULT 0;
+ALTER TABLE parts ADD COLUMN preferred_supplier_id TEXT REFERENCES suppliers(id);
+ALTER TABLE parts ADD COLUMN lead_time_days INTEGER NOT NULL DEFAULT 7;
+`,
+  },
 ];
 
 /** The newest migration this code knows: the garage database's schema version. */

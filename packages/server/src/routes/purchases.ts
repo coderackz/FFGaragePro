@@ -7,6 +7,7 @@ import { newId, now, type Db } from "../db";
 import { badRequest, conflict, notFound } from "../errors";
 import { addUnits, checkIncomingCodes } from "../units";
 import { postMovement, round3 } from "../stock";
+import { orderPrice } from "../inventory/planning";
 import type { DocumentOut } from "./documents";
 import { getSettings } from "../settings";
 import { reserveNumber, takeNumber, type NumberSource, type Reserved } from "../numbering";
@@ -295,6 +296,34 @@ export function purchaseRoutes(app: FastifyInstance, db: Db, docs: { full: Docum
   });
 
   /** "Request part" on a job-card line: adds it to the supplier's open draft PO, or buys and receives it in one step. */
+  /**
+   * Suggested orders made into draft purchase orders: one new draft per supplier, priced at the supplier's last
+   * price (else the average cost). Returns the drafts made.
+   */
+  app.post("/api/inventory/suggested-orders", async (req) => {
+    const user = sessionUser(db, req);
+    requireAction(user, "purchases.manage");
+    const { lines } = z.object({
+      lines: z.array(z.object({ partId: z.string().uuid(), supplierId: z.string().uuid(), qty: z.number().positive().max(100000) })).min(1, "Nothing to order").max(2000),
+    }).parse(req.body);
+    const bySupplier = new Map<string, typeof lines>();
+    for (const l of lines) bySupplier.set(l.supplierId, [...(bySupplier.get(l.supplierId) ?? []), l]);
+    const reserved: (Reserved | null)[] = [];
+    for (let i = 0; i < bySupplier.size; i++) reserved.push(await reserveNumber(numbers, "purchase_order"));
+    const made = db.tx(() => [...bySupplier.entries()].map(([supplierId, ls], i) => {
+      checkSupplier(supplierId);
+      const poId = createPo(user, supplierId, null, reserved[i] ?? null);
+      for (const l of ls) {
+        const p = db.get<{ name: string; part_no: string; stocked: number }>("SELECT name, part_no, stocked FROM parts WHERE id = ?", [l.partId]);
+        if (!p) throw badRequest("Part not found");
+        addLine(poId, { partId: l.partId, description: `${p.name} (${p.part_no})`, qty: l.qty, unitCostFils: orderPrice(db, l.partId, supplierId), jobDocumentId: null, packName: null, packSize: null, packCostFils: null });
+      }
+      updateNet(poId);
+      return poId;
+    }));
+    return { purchaseOrders: made.map((id) => full(id, user)) };
+  });
+
   app.post("/api/purchase-requests", async (req) => {
     const user = sessionUser(db, req);
     requireAction(user, "documents.edit");

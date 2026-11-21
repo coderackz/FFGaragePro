@@ -213,7 +213,12 @@ export const partSchema = z.object({
   warrantyMonths: z.number().int().min(0).max(120).default(0),
   isKit: z.boolean().default(false),
   components: z.array(z.object({ partId: z.string().uuid(), qty: z.number().positive().max(100000) })).max(50).default([]),
+  // Planning (Part 3): reorder at `reorderLevel` (the minimum), order up to `maxLevel`; who from, and how long it takes.
+  maxLevel: z.number().min(0).max(1_000_000).default(0),
+  preferredSupplierId: z.string().uuid().nullable().optional().transform((v) => v ?? null),
+  leadTimeDays: z.number().int().min(0).max(365).default(7),
 }).superRefine((p, ctx) => {
+  if (p.maxLevel > 0 && p.maxLevel < p.reorderLevel) ctx.addIssue({ code: "custom", path: ["maxLevel"], message: "Order up to can't be below the reorder level" });
   if (p.isKit && p.stocked) ctx.addIssue({ code: "custom", path: ["stocked"], message: "A kit isn't stocked itself: its parts are" });
   if (p.isKit && p.tracking !== "none") ctx.addIssue({ code: "custom", path: ["tracking"], message: "A kit can't be tracked one by one" });
   if (p.isKit && !p.components.length) ctx.addIssue({ code: "custom", path: ["components"], message: "Add the parts the kit is made of" });

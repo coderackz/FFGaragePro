@@ -24,6 +24,7 @@ import { accountingPushers, integrationRunner, type IntegrationRunner } from "./
 import { messageRoutes } from "./routes/messages";
 import { customerRoutes } from "./routes/customers";
 import { documentRoutes } from "./routes/documents";
+import { inventoryRoutes } from "./routes/inventory";
 import { partRoutes } from "./routes/parts";
 import { purchaseRoutes } from "./routes/purchases";
 import { receiptRoutes } from "./routes/receipts";
@@ -123,6 +124,7 @@ export async function buildApp(options: AppOptions): Promise<GarageAppInstance> 
   contactRoutes(app, db);
   const documents = documentRoutes(app, db, options.numbers, { throttle, clock: now });
   partRoutes(app, db);
+  inventoryRoutes(app, db);
   purchaseRoutes(app, db, documents, options.numbers);
   syncIssueRoutes(app, db);
   reportRoutes(app, db);
