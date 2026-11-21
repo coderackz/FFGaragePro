@@ -217,6 +217,8 @@ export const partSchema = z.object({
   maxLevel: z.number().min(0).max(1_000_000).default(0),
   preferredSupplierId: z.string().uuid().nullable().optional().transform((v) => v ?? null),
   leadTimeDays: z.number().int().min(0).max(365).default(7),
+  /** Part 4: the core deposit the supplier charges per unit, owed back until the old unit is returned. */
+  coreFils: money.default(0),
 }).superRefine((p, ctx) => {
   if (p.maxLevel > 0 && p.maxLevel < p.reorderLevel) ctx.addIssue({ code: "custom", path: ["maxLevel"], message: "Order up to can't be below the reorder level" });
   if (p.isKit && p.stocked) ctx.addIssue({ code: "custom", path: ["stocked"], message: "A kit isn't stocked itself: its parts are" });
@@ -292,8 +294,50 @@ export const receiveSchema = z.object({
     poLineId: z.string().uuid(), qty: z.number().positive().max(100000), unitCostFils: money,
     /** A tracked part: each unit's DOT code or serial, one per unit received. */
     units: z.array(text(60).min(1)).max(1000).default([]),
+    /** The core deposit per unit on this delivery (defaults to the part's). */
+    coreFils: money.optional(),
   })).min(1, "Receive at least one line"),
 });
+
+// ---- Returns, cores and warranty claims (inventory v2, Part 4) ----
+
+/** A return to the supplier (parts off the shelf) or cores going back: both make a debit note. */
+export const supplierReturnSchema = z.object({
+  supplierId: z.string().uuid(),
+  kind: z.enum(["return", "core"]),
+  reason: z.string().trim().min(3, "Give a reason").max(500),
+  /** The supplier's own reference (their credit note or return number). */
+  supplierRef: optionalText(60),
+  /** VAT on the debit note; by default the garage's rate on the net. */
+  vatFils: money.optional(),
+  lines: z.array(z.object({
+    partId: z.string().uuid(), qty: z.number().positive().max(100000), unitCreditFils: money,
+    /** Tyres and batteries: the units going back. */
+    unitIds: z.array(z.string().uuid()).max(1000).default([]),
+  })).min(1, "Add at least one part").max(200),
+});
+export const coreWriteoffSchema = z.object({
+  supplierId: z.string().uuid(), partId: z.string().uuid(), qty: z.number().int().positive().max(100000),
+  reason: z.string().trim().min(3, "Give a reason").max(500),
+});
+export const warrantyClaimSchema = z.object({
+  supplierId: z.string().uuid(), partId: z.string().uuid(),
+  /** A battery (or tyre) claimed by its serial. */
+  unitId: z.string().uuid().nullable().optional().transform((v) => v ?? null),
+  qty: z.number().int().positive().max(1000).default(1),
+  reason: z.string().trim().min(3, "Say what failed").max(500),
+  /** The job the part failed on, if any. */
+  documentId: z.string().uuid().nullable().optional().transform((v) => v ?? null),
+});
+export const warrantyResolveSchema = z.object({
+  outcome: z.enum(["replaced", "credited", "rejected"]),
+  note: optionalText(500),
+  /** Replaced, a tracked part: the replacement's serial or DOT, one per unit. */
+  replacementCodes: z.array(text(60).min(1)).max(1000).default([]),
+  /** Credited: the amount before VAT, and the VAT (by default the garage's rate). */
+  creditFils: money.optional(),
+  vatFils: money.optional(),
+}).refine((r) => r.outcome !== "credited" || (r.creditFils ?? 0) > 0, { message: "Enter what the supplier credited", path: ["creditFils"] });
 
 export const requestPartSchema = z.object({
   documentId: z.string().uuid(),

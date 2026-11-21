@@ -1415,6 +1415,80 @@ ALTER TABLE parts ADD COLUMN preferred_supplier_id TEXT REFERENCES suppliers(id)
 ALTER TABLE parts ADD COLUMN lead_time_days INTEGER NOT NULL DEFAULT 7;
 `,
   },
+  {
+    id: 24,
+    // Inventory v2, Part 4: returns to the supplier and cores going back (debit notes, RTS), core write-offs,
+    // warranty claims (WC), core deposits on parts and deliveries, and the Core deposits account (a garage's own
+    // account on 1220 keeps its name and moves to "1220.1").
+    sql: `
+ALTER TABLE parts ADD COLUMN core_fils INTEGER NOT NULL DEFAULT 0;
+ALTER TABLE goods_receipt_lines ADD COLUMN core_fils INTEGER NOT NULL DEFAULT 0;
+ALTER TABLE stock_movements ADD COLUMN supplier_return_id TEXT;
+UPDATE accounts SET code = code || '.1', updated_at = strftime('%Y-%m-%dT%H:%M:%fZ','now')
+  WHERE code = '1220' AND system_key IS NULL AND id <> '00000000-0000-4000-8000-0000000a1220';
+INSERT OR IGNORE INTO accounts (id, code, name, type, system_key, active, created_at, updated_at) VALUES ('00000000-0000-4000-8000-0000000a1220', '1220', 'Core deposits', 'asset', 'core_deposits', 1, strftime('%Y-%m-%dT%H:%M:%fZ','now'), strftime('%Y-%m-%dT%H:%M:%fZ','now'));
+CREATE TABLE supplier_returns (
+  id TEXT PRIMARY KEY,
+  series TEXT NOT NULL DEFAULT '',
+  seq INTEGER NOT NULL,
+  number TEXT NOT NULL UNIQUE,
+  supplier_id TEXT NOT NULL REFERENCES suppliers(id),
+  kind TEXT NOT NULL CHECK (kind IN ('return','core','warranty')),
+  return_date TEXT NOT NULL,
+  reason TEXT NOT NULL,
+  supplier_ref TEXT,
+  net_fils INTEGER NOT NULL,
+  vat_fils INTEGER NOT NULL,
+  gross_fils INTEGER NOT NULL,
+  created_by TEXT REFERENCES users(id),
+  created_at TEXT NOT NULL
+);
+CREATE INDEX supplier_returns_supplier ON supplier_returns(supplier_id, return_date);
+CREATE TABLE supplier_return_lines (
+  id TEXT PRIMARY KEY,
+  return_id TEXT NOT NULL REFERENCES supplier_returns(id),
+  position INTEGER NOT NULL,
+  part_id TEXT NOT NULL REFERENCES parts(id),
+  description TEXT NOT NULL,
+  qty REAL NOT NULL,
+  unit_credit_fils INTEGER NOT NULL,
+  unit_cost_fils INTEGER NOT NULL DEFAULT 0,
+  net_fils INTEGER NOT NULL,
+  unit_ids_json TEXT NOT NULL DEFAULT '[]'
+);
+CREATE INDEX supplier_return_lines_return ON supplier_return_lines(return_id);
+CREATE TABLE core_writeoffs (
+  id TEXT PRIMARY KEY,
+  supplier_id TEXT NOT NULL REFERENCES suppliers(id),
+  part_id TEXT NOT NULL REFERENCES parts(id),
+  qty INTEGER NOT NULL,
+  value_fils INTEGER NOT NULL,
+  reason TEXT NOT NULL,
+  created_by TEXT REFERENCES users(id),
+  created_at TEXT NOT NULL
+);
+CREATE TABLE warranty_claims (
+  id TEXT PRIMARY KEY,
+  series TEXT NOT NULL DEFAULT '',
+  seq INTEGER NOT NULL,
+  number TEXT NOT NULL UNIQUE,
+  supplier_id TEXT NOT NULL REFERENCES suppliers(id),
+  part_id TEXT NOT NULL REFERENCES parts(id),
+  unit_id TEXT REFERENCES stock_units(id),
+  document_id TEXT REFERENCES documents(id),
+  qty INTEGER NOT NULL,
+  reason TEXT NOT NULL,
+  status TEXT NOT NULL DEFAULT 'open' CHECK (status IN ('open','replaced','credited','rejected')),
+  outcome_note TEXT,
+  return_id TEXT REFERENCES supplier_returns(id),
+  created_by TEXT REFERENCES users(id),
+  created_at TEXT NOT NULL,
+  updated_at TEXT NOT NULL,
+  closed_at TEXT
+);
+CREATE INDEX warranty_claims_supplier ON warranty_claims(supplier_id, status);
+`,
+  },
 ];
 
 /** The newest migration this code knows: the garage database's schema version. */

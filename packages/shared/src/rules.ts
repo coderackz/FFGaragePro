@@ -13,7 +13,7 @@ export type DocType = (typeof DOC_TYPES)[number];
 const PREFIX: Record<DocType, string> = { estimate: "EST", jobcard: "JC", invoice: "INV", credit_note: "CN" };
 
 /** Everything that takes a number from a series. */
-export const NUMBER_KINDS = ["estimate", "jobcard", "invoice", "purchase_order", "credit_note", "receipt", "journal", "supplier_payment", "expense"] as const;
+export const NUMBER_KINDS = ["estimate", "jobcard", "invoice", "purchase_order", "credit_note", "receipt", "journal", "supplier_payment", "expense", "supplier_return", "warranty_claim"] as const;
 export type NumberKind = (typeof NUMBER_KINDS)[number];
 
 /** `INV-00012` in the main series, `INV-P1-00003` in an offline PC's own series; `prefix` is the garage's own. */
@@ -104,6 +104,8 @@ export function formatNumberOf(kind: NumberKind, n: number, series = "", prefix?
   if (kind === "journal") return formatPoNumber(n, series, prefix ?? "JV");
   if (kind === "supplier_payment") return formatPoNumber(n, series, prefix ?? "PV");
   if (kind === "expense") return formatPoNumber(n, series, prefix ?? "EX");
+  if (kind === "supplier_return") return formatPoNumber(n, series, prefix ?? "RTS");
+  if (kind === "warranty_claim") return formatPoNumber(n, series, prefix ?? "WC");
   return formatDocNumber(kind, n, series, prefix);
 }
 

@@ -21,6 +21,7 @@ const SYSTEM = {
   receivables: ["1100", "Accounts receivable"],
   inventory: ["1200", "Inventory"],
   wip: ["1210", "Work in progress"],
+  core_deposits: ["1220", "Core deposits"],
   vat_input: ["1300", "Input VAT"],
   payables: ["2000", "Accounts payable"],
   cheques_issued: ["2010", "Cheques issued"],

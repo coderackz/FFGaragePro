@@ -38,6 +38,8 @@ function seriesTable(kind: NumberKind): { table: string; where: string; args: st
   if (kind === "journal") return { table: "journal_entries", where: "", args: [] };
   if (kind === "supplier_payment") return { table: "supplier_payments", where: "", args: [] };
   if (kind === "expense") return { table: "expenses", where: "", args: [] };
+  if (kind === "supplier_return") return { table: "supplier_returns", where: "", args: [] };
+  if (kind === "warranty_claim") return { table: "warranty_claims", where: "", args: [] };
   return { table: "documents", where: "type = ? AND", args: [kind] };
 }
 

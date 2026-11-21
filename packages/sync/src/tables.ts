@@ -31,6 +31,11 @@ export const SYNC_TABLES: SyncTable[] = [
   { name: "document_lines", key: "document_id", set: true },
   // Tyres and batteries one by one: after the documents and PO lines they point to.
   { name: "stock_units", key: "id" },
+  // Returns, cores and warranty claims (debit notes): after suppliers, parts, documents and units.
+  { name: "supplier_returns", key: "id", insertOnly: true },
+  { name: "supplier_return_lines", key: "id", insertOnly: true },
+  { name: "core_writeoffs", key: "id", insertOnly: true },
+  { name: "warranty_claims", key: "id" },
   // Old-style payments (before migration 8) still syncing after an upgrade; each becomes a receipt on arrival.
   { name: "payments", key: "id", insertOnly: true },
   { name: "receipts", key: "id", insertOnly: true },

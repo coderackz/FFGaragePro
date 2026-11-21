@@ -122,6 +122,8 @@ export const settingsSchemas = {
       journalPrefix: prefix("JV"),
       supplierPaymentPrefix: prefix("PV"),
       expensePrefix: prefix("EX"),
+      supplierReturnPrefix: prefix("RTS"),
+      warrantyClaimPrefix: prefix("WC"),
       estimateStart: start,
       jobcardStart: start,
       invoiceStart: start,
@@ -131,9 +133,11 @@ export const settingsSchemas = {
       journalStart: start,
       supplierPaymentStart: start,
       expenseStart: start,
+      supplierReturnStart: start,
+      warrantyClaimStart: start,
     })
     .refine(
-      (n) => new Set([n.estimatePrefix, n.jobcardPrefix, n.invoicePrefix, n.purchaseOrderPrefix, n.creditNotePrefix, n.receiptPrefix, n.journalPrefix, n.supplierPaymentPrefix, n.expensePrefix]).size === 9,
+      (n) => new Set([n.estimatePrefix, n.jobcardPrefix, n.invoicePrefix, n.purchaseOrderPrefix, n.creditNotePrefix, n.receiptPrefix, n.journalPrefix, n.supplierPaymentPrefix, n.expensePrefix, n.supplierReturnPrefix, n.warrantyClaimPrefix]).size === 11,
       { message: "Each document type needs its own prefix", path: ["invoicePrefix"] },
     ),
   tax: z.object({
@@ -241,9 +245,10 @@ export function sectionRows(section: SettingsSection, value: unknown): { key: st
   return fieldsOf(section).map((f) => ({ key: `${section}.${f}`, value: JSON.stringify(parsed[f] ?? null) }));
 }
 
-const NUMBERING_FIELD: Record<NumberKind, "estimate" | "jobcard" | "invoice" | "purchaseOrder" | "creditNote" | "receipt" | "journal" | "supplierPayment" | "expense"> = {
+type NumberingKey = "estimate" | "jobcard" | "invoice" | "purchaseOrder" | "creditNote" | "receipt" | "journal" | "supplierPayment" | "expense" | "supplierReturn" | "warrantyClaim";
+const NUMBERING_FIELD: Record<NumberKind, NumberingKey> = {
   estimate: "estimate", jobcard: "jobcard", invoice: "invoice", purchase_order: "purchaseOrder", credit_note: "creditNote", receipt: "receipt", journal: "journal",
-  supplier_payment: "supplierPayment", expense: "expense",
+  supplier_payment: "supplierPayment", expense: "expense", supplier_return: "supplierReturn", warranty_claim: "warrantyClaim",
 };
 
 /** The prefix the garage uses for this kind of number (EST, JC, INV, PO by default). */
