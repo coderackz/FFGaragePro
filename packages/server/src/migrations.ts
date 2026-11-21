@@ -1270,6 +1270,75 @@ ALTER TABLE messages ADD COLUMN provider_id TEXT;
 ALTER TABLE messages ADD COLUMN delivery TEXT;
 `,
   },
+  {
+    id: 19,
+    // Inventory v2, the catalogue: categories with attributes, other numbers, vehicle fitment, purchase packs,
+    // supersession; a vehicle's engine. The seeded categories have fixed ids (every device makes the same rows).
+    sql: `
+CREATE TABLE part_categories (
+  id TEXT PRIMARY KEY,
+  name TEXT NOT NULL,
+  parent_id TEXT REFERENCES part_categories(id),
+  position INTEGER NOT NULL DEFAULT 0,
+  attributes_json TEXT NOT NULL DEFAULT '[]',
+  created_at TEXT NOT NULL,
+  updated_at TEXT NOT NULL
+);
+INSERT INTO part_categories (id, name, parent_id, position, attributes_json, created_at, updated_at) VALUES
+('00000000-0000-4000-8000-0000000ca001', 'Oils & fluids', NULL, 0, '[{"key": "grade", "label": "Grade", "type": "text"}, {"key": "spec", "label": "Specification", "type": "text"}]', '2026-11-21T00:00:00.000Z', '2026-11-21T00:00:00.000Z'),
+('00000000-0000-4000-8000-0000000ca002', 'Filters', NULL, 1, '[{"key": "filter_type", "label": "Filter type", "type": "choice", "options": ["Oil", "Air", "Cabin", "Fuel", "Transmission"]}]', '2026-11-21T00:00:00.000Z', '2026-11-21T00:00:00.000Z'),
+('00000000-0000-4000-8000-0000000ca003', 'Brakes', NULL, 2, '[{"key": "position", "label": "Position", "type": "choice", "options": ["Front", "Rear"]}, {"key": "brake_type", "label": "Type", "type": "choice", "options": ["Pads", "Discs", "Shoes", "Drums"]}]', '2026-11-21T00:00:00.000Z', '2026-11-21T00:00:00.000Z'),
+('00000000-0000-4000-8000-0000000ca004', 'Tyres', NULL, 3, '[{"key": "width", "label": "Width", "type": "number", "unit": "mm"}, {"key": "profile", "label": "Profile", "type": "number"}, {"key": "rim", "label": "Rim", "type": "number", "unit": "in"}, {"key": "load", "label": "Load index", "type": "text"}, {"key": "speed", "label": "Speed rating", "type": "text"}]', '2026-11-21T00:00:00.000Z', '2026-11-21T00:00:00.000Z'),
+('00000000-0000-4000-8000-0000000ca005', 'Batteries', NULL, 4, '[{"key": "ah", "label": "Capacity", "type": "number", "unit": "Ah"}, {"key": "cca", "label": "Cold cranking", "type": "number", "unit": "A"}, {"key": "group", "label": "Group / size", "type": "text"}, {"key": "terminal", "label": "Terminal", "type": "choice", "options": ["Left +", "Right +"]}]', '2026-11-21T00:00:00.000Z', '2026-11-21T00:00:00.000Z'),
+('00000000-0000-4000-8000-0000000ca006', 'Spark plugs & ignition', NULL, 5, '[]', '2026-11-21T00:00:00.000Z', '2026-11-21T00:00:00.000Z'),
+('00000000-0000-4000-8000-0000000ca007', 'Suspension & steering', NULL, 6, '[{"key": "position", "label": "Position", "type": "choice", "options": ["Front", "Rear", "Front left", "Front right", "Rear left", "Rear right"]}]', '2026-11-21T00:00:00.000Z', '2026-11-21T00:00:00.000Z'),
+('00000000-0000-4000-8000-0000000ca008', 'Engine', NULL, 7, '[]', '2026-11-21T00:00:00.000Z', '2026-11-21T00:00:00.000Z'),
+('00000000-0000-4000-8000-0000000ca009', 'Electrical & lighting', NULL, 8, '[]', '2026-11-21T00:00:00.000Z', '2026-11-21T00:00:00.000Z'),
+('00000000-0000-4000-8000-0000000ca010', 'Cooling & A/C', NULL, 9, '[]', '2026-11-21T00:00:00.000Z', '2026-11-21T00:00:00.000Z'),
+('00000000-0000-4000-8000-0000000ca011', 'Body & glass', NULL, 10, '[]', '2026-11-21T00:00:00.000Z', '2026-11-21T00:00:00.000Z'),
+('00000000-0000-4000-8000-0000000ca012', 'Accessories', NULL, 11, '[]', '2026-11-21T00:00:00.000Z', '2026-11-21T00:00:00.000Z'),
+('00000000-0000-4000-8000-0000000ca013', 'Other', NULL, 12, '[]', '2026-11-21T00:00:00.000Z', '2026-11-21T00:00:00.000Z');
+ALTER TABLE parts ADD COLUMN category_id TEXT REFERENCES part_categories(id);
+ALTER TABLE parts ADD COLUMN attributes_json TEXT NOT NULL DEFAULT '{}';
+ALTER TABLE parts ADD COLUMN spec_text TEXT NOT NULL DEFAULT '';
+ALTER TABLE parts ADD COLUMN superseded_by TEXT REFERENCES parts(id);
+CREATE TABLE part_numbers (
+  id TEXT PRIMARY KEY,
+  part_id TEXT NOT NULL REFERENCES parts(id),
+  number TEXT NOT NULL,
+  normalized TEXT NOT NULL,
+  kind TEXT NOT NULL CHECK (kind IN ('oem', 'aftermarket', 'supplier', 'old')),
+  brand TEXT,
+  created_at TEXT NOT NULL
+);
+CREATE INDEX part_numbers_part ON part_numbers(part_id);
+CREATE INDEX part_numbers_normalized ON part_numbers(normalized);
+CREATE TABLE part_fitments (
+  id TEXT PRIMARY KEY,
+  part_id TEXT NOT NULL REFERENCES parts(id),
+  make TEXT NOT NULL,
+  model TEXT,
+  year_from INTEGER,
+  year_to INTEGER,
+  engine TEXT,
+  note TEXT,
+  created_at TEXT NOT NULL
+);
+CREATE INDEX part_fitments_part ON part_fitments(part_id);
+CREATE INDEX part_fitments_make ON part_fitments(make COLLATE NOCASE);
+CREATE TABLE part_packs (
+  id TEXT PRIMARY KEY,
+  part_id TEXT NOT NULL REFERENCES parts(id),
+  name TEXT NOT NULL,
+  size REAL NOT NULL CHECK (size > 0),
+  created_at TEXT NOT NULL
+);
+CREATE INDEX part_packs_part ON part_packs(part_id);
+ALTER TABLE vehicles ADD COLUMN engine TEXT;
+ALTER TABLE po_lines ADD COLUMN pack_name TEXT;
+ALTER TABLE po_lines ADD COLUMN pack_size REAL;
+`,
+  },
 ];
 
 /** The newest migration this code knows: the garage database's schema version. */

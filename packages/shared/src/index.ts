@@ -13,3 +13,4 @@ export * from "./vat";
 export * from "./payroll";
 export * from "./assets";
 export * from "./promo";
+export * from "./catalogue";

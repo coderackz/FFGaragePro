@@ -1,4 +1,5 @@
 import { z } from "zod";
+import { attributesSchema, fitmentSchema, packSchema, partNumberSchema } from "./catalogue";
 import { DOC_TYPES, ROLES } from "./rules";
 
 const text = (max = 200) => z.string().trim().max(max);
@@ -196,6 +197,12 @@ export const partSchema = z.object({
   location: optionalText(60),
   fits: optionalText(500),
   active: z.boolean().default(true),
+  // The catalogue (inventory v2): category and its specs, other numbers, the vehicles it fits, purchase packs.
+  categoryId: z.string().uuid().nullable().optional().transform((v) => v ?? null),
+  attributes: attributesSchema,
+  numbers: z.array(partNumberSchema).max(50).default([]),
+  fitments: z.array(fitmentSchema).max(200).default([]),
+  packs: z.array(packSchema).max(10).default([]),
 });
 export type PartInput = z.infer<typeof partSchema>;
 
