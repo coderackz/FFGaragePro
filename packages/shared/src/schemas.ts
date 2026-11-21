@@ -242,8 +242,11 @@ export const poLineSchema = z
     /** Bought in packs ("Drum 208 L" holding 208): kept so the PO prints "2 × Drum 208 L". */
     packName: optionalText(60),
     packSize: z.number().positive().max(100000).nullable().optional().transform((v) => v ?? null),
+    /** The price per pack as typed (the supplier's price). The line is then packs × this, and the unit cost follows from it. */
+    packCostFils: money.nullable().optional().transform((v) => v ?? null),
   })
   .refine((l) => !l.packName === !l.packSize, { message: "A pack needs its name and size", path: ["packSize"] })
+  .refine((l) => l.packCostFils === null || !!l.packSize, { message: "A pack price needs a pack", path: ["packCostFils"] })
   .refine((l) => !l.packSize || Math.abs(l.qty / l.packSize - Math.round(l.qty / l.packSize)) < 1e-6, {
     message: "The quantity must be a whole number of packs", path: ["qty"],
   });

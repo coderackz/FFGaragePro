@@ -1,5 +1,6 @@
 import { fitmentMatches, normalizeNumber, PART_NUMBER_KIND_LABELS, specText, type AttributeDef, type PartInput, type PartNumberKind } from "@ffgp/shared";
-import { newId, now, type Db } from "./db";
+import { createHash } from "node:crypto";
+import { now, type Db } from "./db";
 import { badRequest } from "./errors";
 
 // The spare-parts catalogue around a part: categories and specs, other numbers, fitment, packs, supersession.
@@ -20,8 +21,14 @@ export const fitmentsOf = (db: Db, partId: string) =>
 export const packsOf = (db: Db, partId: string) =>
   db.all<PackRow>("SELECT id, name, size FROM part_packs WHERE part_id = ? ORDER BY rowid", [partId]).map((p) => ({ id: p.id, name: p.name, size: p.size }));
 
-/** Checks a part's specs against its category: only the category's attributes, choices from its list, numbers as numbers. */
-export function checkAttributes(db: Db, categoryId: string | null, attrs: Record<string, string | number>): { defs: AttributeDef[]; attrs: Record<string, string | number> } {
+/**
+ * Checks a part's specs against its category: only the category's attributes, choices from its list, numbers as
+ * numbers. `stored`: the part's specs as saved. After the category is edited, a spec it no longer has is dropped and a
+ * choice no longer on its list is kept as it was, so the part can still be saved; anything new must fit the category.
+ */
+export function checkAttributes(
+  db: Db, categoryId: string | null, attrs: Record<string, string | number>, stored: Record<string, string | number> = {},
+): { defs: AttributeDef[]; attrs: Record<string, string | number> } {
   const cat = getCategory(db, categoryId);
   if (categoryId && !cat) throw badRequest("That category doesn't exist");
   const defs = cat ? (JSON.parse(cat.attributes_json) as AttributeDef[]) : [];
@@ -29,6 +36,7 @@ export function checkAttributes(db: Db, categoryId: string | null, attrs: Record
   for (const [k, v] of Object.entries(attrs)) {
     if (v === "" || v === null || v === undefined) continue;
     const d = defs.find((x) => x.key === k);
+    if (!d && k in stored) continue;
     if (!d) throw badRequest(cat ? `${cat.name} has no "${k}"` : "Pick a category before filling in specs");
     if (d.type === "number") {
       const n = typeof v === "number" ? v : Number(String(v).replace(",", "."));
@@ -36,7 +44,7 @@ export function checkAttributes(db: Db, categoryId: string | null, attrs: Record
       clean[k] = n;
     } else {
       const s = String(v).trim();
-      if (d.type === "choice" && d.options?.length && !d.options.includes(s)) throw badRequest(`${d.label}: choose one of ${d.options.join(", ")}`);
+      if (d.type === "choice" && d.options?.length && !d.options.includes(s) && String(stored[k] ?? "") !== s) throw badRequest(`${d.label}: choose one of ${d.options.join(", ")}`);
       clean[k] = s;
     }
   }
@@ -44,45 +52,75 @@ export function checkAttributes(db: Db, categoryId: string | null, attrs: Record
 }
 
 /**
- * Saves a part's catalogue: category, specs (and their searchable text), and, when given, its other numbers,
- * fitment and packs (each replaced as a whole set). `present`: which of those the caller sent (an older screen or a
- * CSV without those columns leaves them as they are).
+ * The id of a part's number, fitment or pack row, made from what the row is (its natural key). The same number
+ * added on two computers gets one id, so sync merges them into one row instead of keeping both; saving a part
+ * unchanged writes nothing.
  */
-export function saveCatalogue(db: Db, partId: string, input: PartInput, present: (k: "category" | "numbers" | "fitments" | "packs") => boolean): void {
-  const t = now();
-  if (present("category")) {
-    const { defs, attrs } = checkAttributes(db, input.categoryId, input.attributes as Record<string, string | number>);
-    db.run("UPDATE parts SET category_id = ?, attributes_json = ?, spec_text = ? WHERE id = ?", [input.categoryId, JSON.stringify(attrs), specText(attrs, defs), partId]);
-  }
-  if (present("numbers")) {
-    db.run("DELETE FROM part_numbers WHERE part_id = ?", [partId]);
-    for (const n of input.numbers) {
-      db.run("INSERT INTO part_numbers (id, part_id, number, normalized, kind, brand, created_at) VALUES (?, ?, ?, ?, ?, ?, ?)", [
-        newId(), partId, n.number, normalizeNumber(n.number), n.kind, n.brand, t,
-      ]);
+export function childId(table: "part_numbers" | "part_fitments" | "part_packs", partId: string, key: string): string {
+  const h = createHash("sha256").update(`${table}\n${partId}\n${key}`).digest("hex");
+  return `${h.slice(0, 8)}-${h.slice(8, 12)}-5${h.slice(13, 16)}-${((parseInt(h[16]!, 16) & 3) | 8).toString(16)}${h.slice(17, 20)}-${h.slice(20, 32)}`;
+}
+type Val = string | number | null;
+/** Case and spacing ignored, as fitmentMatches does. */
+const squashKey = (s: string | null | undefined) => (s ?? "").toLowerCase().replace(/\s+/g, " ").trim();
+type Fit = { make: string; model?: string | null; yearFrom?: number | null; yearTo?: number | null; engine?: string | null; note?: string | null };
+const numberKey = (n: { number: string; kind: string }) => `${n.kind}:${normalizeNumber(n.number)}`;
+const fitmentKey = (f: Fit) => [squashKey(f.make), squashKey(f.model), f.yearFrom ?? "", f.yearTo ?? "", normalizeNumber(f.engine ?? "")].join("|");
+const packKey = (p: { name: string }) => p.name.trim().toLowerCase();
+
+/**
+ * Makes a part's rows in `table` exactly `rows` (keyed by `childId`): unchanged rows are left alone, changed ones
+ * updated, new ones inserted and the rest deleted. Each statement is one sync change, so only real changes travel.
+ */
+function syncChildren(db: Db, table: "part_numbers" | "part_fitments" | "part_packs", partId: string, rows: { key: string; values: Record<string, Val> }[], t: string): void {
+  const wanted = new Map<string, Record<string, Val>>();
+  for (const r of rows) wanted.set(childId(table, partId, r.key), r.values);
+  const cols = Object.keys(rows[0]?.values ?? {});
+  const existing = new Map(db.all<Record<string, Val>>(`SELECT * FROM ${table} WHERE part_id = ?`, [partId]).map((r) => [String(r.id), r]));
+  for (const id of existing.keys()) if (!wanted.has(id)) db.run(`DELETE FROM ${table} WHERE id = ?`, [id]);
+  for (const [id, values] of wanted) {
+    const cur = existing.get(id);
+    if (!cur) {
+      const names = ["id", "part_id", ...cols, "created_at"];
+      db.run(`INSERT INTO ${table} (${names.join(", ")}) VALUES (${names.map(() => "?").join(", ")})`, [id, partId, ...cols.map((c) => values[c] ?? null), t]);
+    } else {
+      const changed = cols.filter((c) => (cur[c] ?? null) !== (values[c] ?? null));
+      if (changed.length) db.run(`UPDATE ${table} SET ${changed.map((c) => `${c} = ?`).join(", ")} WHERE id = ?`, [...changed.map((c) => values[c] ?? null), id]);
     }
-  }
-  if (present("fitments")) {
-    db.run("DELETE FROM part_fitments WHERE part_id = ?", [partId]);
-    for (const f of input.fitments) addFitment(db, partId, f, t);
-  }
-  if (present("packs")) {
-    db.run("DELETE FROM part_packs WHERE part_id = ?", [partId]);
-    for (const p of input.packs) db.run("INSERT INTO part_packs (id, part_id, name, size, created_at) VALUES (?, ?, ?, ?, ?)", [newId(), partId, p.name, p.size, t]);
   }
 }
 
-type Fit = { make: string; model?: string | null; yearFrom?: number | null; yearTo?: number | null; engine?: string | null; note?: string | null };
+const numberRow = (n: { number: string; kind: string; brand?: string | null }) => ({ key: numberKey(n), values: { number: n.number, normalized: normalizeNumber(n.number), kind: n.kind, brand: n.brand ?? null } });
+const fitmentRow = (f: Fit) => ({ key: fitmentKey(f), values: { make: f.make, model: f.model ?? null, year_from: f.yearFrom ?? null, year_to: f.yearTo ?? null, engine: f.engine ?? null, note: f.note ?? null } });
+const packRow = (p: { name: string; size: number }) => ({ key: packKey(p), values: { name: p.name, size: p.size } });
+
+/**
+ * Saves a part's catalogue: category, specs (and their searchable text), and, when given, its other numbers,
+ * fitment and packs (each set made exactly what was sent). `present`: which of those the caller sent (an older
+ * screen or a CSV without those columns leaves them as they are). Specs sent without a category keep the part's.
+ */
+export function saveCatalogue(db: Db, partId: string, input: PartInput, present: (k: "category" | "categoryId" | "numbers" | "fitments" | "packs") => boolean): void {
+  const t = now();
+  if (present("category")) {
+    const cur = db.get<{ category_id: string | null; attributes_json: string }>("SELECT category_id, attributes_json FROM parts WHERE id = ?", [partId]);
+    const categoryId = present("categoryId") ? input.categoryId : cur?.category_id ?? null;
+    const stored = categoryId === (cur?.category_id ?? null) ? (JSON.parse(cur?.attributes_json ?? "{}") as Record<string, string | number>) : {};
+    const { defs, attrs } = checkAttributes(db, categoryId, input.attributes as Record<string, string | number>, stored);
+    db.run("UPDATE parts SET category_id = ?, attributes_json = ?, spec_text = ? WHERE id = ?", [categoryId, JSON.stringify(attrs), specText(attrs, defs), partId]);
+  }
+  if (present("numbers")) syncChildren(db, "part_numbers", partId, input.numbers.map(numberRow), t);
+  if (present("fitments")) syncChildren(db, "part_fitments", partId, input.fitments.map(fitmentRow), t);
+  if (present("packs")) syncChildren(db, "part_packs", partId, input.packs.map(packRow), t);
+}
+
 /** Adds a fitment row unless the same one is there. Returns whether it was added. */
 export function addFitment(db: Db, partId: string, f: Fit, t = now()): boolean {
-  const same = db.get(
-    `SELECT 1 FROM part_fitments WHERE part_id = ? AND make = ? COLLATE NOCASE AND COALESCE(model, '') = ? COLLATE NOCASE
-     AND COALESCE(year_from, 0) = ? AND COALESCE(year_to, 0) = ? AND COALESCE(engine, '') = ? COLLATE NOCASE`,
-    [partId, f.make, f.model ?? "", f.yearFrom ?? 0, f.yearTo ?? 0, f.engine ?? ""],
-  );
-  if (same) return false;
+  const row = fitmentRow(f);
+  const id = childId("part_fitments", partId, row.key);
+  if (db.get("SELECT 1 FROM part_fitments WHERE id = ?", [id])) return false;
+  const v = row.values;
   db.run("INSERT INTO part_fitments (id, part_id, make, model, year_from, year_to, engine, note, created_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)", [
-    newId(), partId, f.make, f.model ?? null, f.yearFrom ?? null, f.yearTo ?? null, f.engine ?? null, f.note ?? null, t,
+    id, partId, v.make, v.model, v.year_from, v.year_to, v.engine, v.note, t,
   ]);
   return true;
 }
@@ -123,9 +161,3 @@ export function matchedBy(db: Db, partId: string, q: string, own: string): strin
 }
 
 export type VehicleFit = { make: string | null; model: string | null; year: number | null; engine: string | null };
-/** 0: fits this vehicle; 1: no fitment known (may fit); 2: fits other vehicles. */
-export function fitRank(db: Db, partId: string, v: VehicleFit): 0 | 1 | 2 {
-  const rows = db.all<FitmentRow>("SELECT * FROM part_fitments WHERE part_id = ?", [partId]);
-  if (!rows.length) return 1;
-  return rows.some((f) => fitmentMatches({ make: f.make, model: f.model, yearFrom: f.year_from, yearTo: f.year_to, engine: f.engine }, v)) ? 0 : 2;
-}

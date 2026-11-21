@@ -104,7 +104,7 @@ export interface PoLine {
   id?: string; partId: string | null; partNo?: string | null; stocked?: boolean | null; description: string; qty: number; receivedQty?: number;
   jobDocumentId: string | null; jobDocumentNumber?: string | null; unitCostFils?: number; netFils?: number;
   /** Bought in packs: qty and unitCostFils are still in the part's unit. */
-  packName?: string | null; packSize?: number | null;
+  packName?: string | null; packSize?: number | null; packCostFils?: number | null;
 }
 export interface GoodsReceipt {
   id: string; supplierInvoiceNo: string | null; supplierInvoiceDate: string | null; netFils: number; vatFils: number; grossFils: number;

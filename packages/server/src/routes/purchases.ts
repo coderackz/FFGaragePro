@@ -1,6 +1,6 @@
 import type { FastifyInstance } from "fastify";
 import { applyAdvances } from "../payables/payments";
-import { can, formatPoNumber, prefixOf, poSchema, poUpdateSchema, receiveSchema, requestPartSchema, roundFils } from "@ffgp/shared";
+import { can, formatPoNumber, poLineNetFils, prefixOf, poSchema, poUpdateSchema, receiveSchema, requestPartSchema, roundFils } from "@ffgp/shared";
 import { z } from "zod";
 import { requireAction, sessionUser, type SessionUser } from "../auth";
 import { newId, now, type Db } from "../db";
@@ -17,12 +17,18 @@ interface PoRow {
 }
 interface PoLineRow {
   id: string; po_id: string; position: number; part_id: string | null; description: string; qty: number; received_qty: number;
-  unit_cost_fils: number; job_document_id: string | null; pack_name?: string | null; pack_size?: number | null;
+  unit_cost_fils: number; job_document_id: string | null; pack_name?: string | null; pack_size?: number | null; pack_cost_fils?: number | null;
 }
 type PoLineInput = z.infer<typeof poSchema>["lines"][number] & { id?: string };
 type ReceiveInput = z.infer<typeof receiveSchema>;
 
 const lineNet = (qty: number, costFils: number) => roundFils(qty * costFils);
+/** A PO line's amount: packs × the pack price when it's priced per pack (see poLineNetFils). */
+const poLineNet = (l: Pick<PoLineRow, "qty" | "unit_cost_fils" | "pack_size" | "pack_cost_fils">) =>
+  poLineNetFils({ qty: l.qty, unitCostFils: l.unit_cost_fils, packSize: l.pack_size, packCostFils: l.pack_cost_fils });
+/** A line priced per pack: its unit cost follows from the pack price (rounded to the fil). */
+const withPackCost = (line: PoLineInput): PoLineInput =>
+  line.packCostFils !== null && line.packSize ? { ...line, unitCostFils: Math.round(line.packCostFils / line.packSize) } : { ...line, packCostFils: null };
 
 /** Documents that may still change. Issued invoices and converted job cards are never touched. */
 const EDITABLE_DOCS = `SELECT id FROM documents WHERE NOT ((type = 'jobcard' AND status = 'converted') OR (type = 'invoice' AND status <> 'draft'))`;
@@ -47,7 +53,7 @@ export function purchaseRoutes(app: FastifyInstance, db: Db, docs: { full: Docum
 
   /** Recomputes the PO total and bumps its version; every change to a PO ends here. */
   function updateNet(poId: string) {
-    const net = poLines(poId).reduce((sum, l) => sum + lineNet(l.qty, l.unit_cost_fils), 0);
+    const net = poLines(poId).reduce((sum, l) => sum + poLineNet(l), 0);
     db.run("UPDATE purchase_orders SET net_fils = ?, version = version + 1, updated_at = ? WHERE id = ?", [net, now(), poId]);
   }
 
@@ -69,15 +75,16 @@ export function purchaseRoutes(app: FastifyInstance, db: Db, docs: { full: Docum
     return id;
   }
 
-  function addLine(poId: string, line: PoLineInput): string {
-    checkLineRefs(line);
+  function addLine(poId: string, input: PoLineInput): string {
+    checkLineRefs(input);
+    const line = withPackCost(input);
     const position = (db.get<{ n: number | null }>("SELECT MAX(position) AS n FROM po_lines WHERE po_id = ?", [poId])?.n ?? -1) + 1;
     const id = newId();
     const t = now();
     db.run(
-      `INSERT INTO po_lines (id, po_id, position, part_id, description, qty, unit_cost_fils, job_document_id, pack_name, pack_size, created_at, updated_at)
-       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
-      [id, poId, position, line.partId ?? null, line.description, line.qty, line.unitCostFils, line.jobDocumentId ?? null, line.packName ?? null, line.packSize ?? null, t, t],
+      `INSERT INTO po_lines (id, po_id, position, part_id, description, qty, unit_cost_fils, job_document_id, pack_name, pack_size, pack_cost_fils, created_at, updated_at)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+      [id, poId, position, line.partId ?? null, line.description, line.qty, line.unitCostFils, line.jobDocumentId ?? null, line.packName ?? null, line.packSize ?? null, line.packCostFils ?? null, t, t],
     );
     return id;
   }
@@ -86,15 +93,16 @@ export function purchaseRoutes(app: FastifyInstance, db: Db, docs: { full: Docum
   function replaceLines(poId: string, lines: PoLineInput[]) {
     const existing = new Map(poLines(poId).map((l) => [l.id, l]));
     const keep = new Set<string>();
-    lines.forEach((line, i) => {
-      checkLineRefs(line);
+    lines.forEach((input, i) => {
+      checkLineRefs(input);
+      const line = withPackCost(input);
       if (line.id) {
         if (!existing.has(line.id)) throw badRequest("That line isn't on this purchase order");
         keep.add(line.id);
         db.run(
-          `UPDATE po_lines SET position = ?, part_id = ?, description = ?, qty = ?, unit_cost_fils = ?, job_document_id = ?, pack_name = ?, pack_size = ?, updated_at = ?
-           WHERE id = ?`,
-          [i, line.partId ?? null, line.description, line.qty, line.unitCostFils, line.jobDocumentId ?? null, line.packName ?? null, line.packSize ?? null, now(), line.id],
+          `UPDATE po_lines SET position = ?, part_id = ?, description = ?, qty = ?, unit_cost_fils = ?, job_document_id = ?, pack_name = ?, pack_size = ?, pack_cost_fils = ?,
+           updated_at = ? WHERE id = ?`,
+          [i, line.partId ?? null, line.description, line.qty, line.unitCostFils, line.jobDocumentId ?? null, line.packName ?? null, line.packSize ?? null, line.packCostFils ?? null, now(), line.id],
         );
       } else {
         const id = addLine(poId, line);
@@ -123,7 +131,11 @@ export function purchaseRoutes(app: FastifyInstance, db: Db, docs: { full: Docum
       if (total > round3(line.qty - line.received_qty)) throw badRequest(`Receiving more than ordered for ${line.description}`);
       incoming.set(r.poLineId, total);
     }
-    const net = input.lines.reduce((sum, r) => sum + lineNet(r.qty, r.unitCostFils), 0);
+    // Whole packs at the PO's price are packs × the pack price, like the PO itself.
+    const net = input.lines.reduce((sum, r) => {
+      const l = lines.get(r.poLineId)!;
+      return sum + poLineNet({ qty: r.qty, unit_cost_fils: r.unitCostFils, pack_size: l.pack_size, pack_cost_fils: l.pack_cost_fils });
+    }, 0);
     const receiptId = newId();
     const t = now();
     db.run(
@@ -137,7 +149,9 @@ export function purchaseRoutes(app: FastifyInstance, db: Db, docs: { full: Docum
         newId(), receiptId, line.id, r.qty, r.unitCostFils,
       ]);
       line.received_qty = round3(line.received_qty + r.qty);
-      db.run("UPDATE po_lines SET received_qty = ?, unit_cost_fils = ?, updated_at = ? WHERE id = ?", [line.received_qty, r.unitCostFils, t, line.id]);
+      // A different price on the delivery replaces the pack price too (the line is then priced per unit).
+      const packCost = r.unitCostFils === line.unit_cost_fils ? line.pack_cost_fils ?? null : null;
+      db.run("UPDATE po_lines SET received_qty = ?, unit_cost_fils = ?, pack_cost_fils = ?, updated_at = ? WHERE id = ?", [line.received_qty, r.unitCostFils, packCost, t, line.id]);
       const stocked = line.part_id ? db.get<{ stocked: number }>("SELECT stocked FROM parts WHERE id = ?", [line.part_id])?.stocked : 0;
       if (line.part_id && stocked) {
         postMovement(db, { partId: line.part_id, qty: r.qty, reason: "receive", unitCostFils: r.unitCostFils, poLineId: line.id, userId: user.id });
@@ -178,7 +192,7 @@ export function purchaseRoutes(app: FastifyInstance, db: Db, docs: { full: Docum
         id: l.id, partId: l.part_id, partNo: l.part_no, stocked: l.stocked === null ? null : !!l.stocked, description: l.description,
         qty: l.qty, receivedQty: l.received_qty, jobDocumentId: l.job_document_id, jobDocumentNumber: l.job_number,
         packName: l.pack_name ?? null, packSize: l.pack_size ?? null,
-        ...(showCost ? { unitCostFils: l.unit_cost_fils, netFils: lineNet(l.qty, l.unit_cost_fils) } : {}),
+        ...(showCost ? { unitCostFils: l.unit_cost_fils, packCostFils: l.pack_cost_fils ?? null, netFils: poLineNet(l) } : {}),
       })),
       ...(showCost
         ? {
@@ -306,7 +320,7 @@ export function purchaseRoutes(app: FastifyInstance, db: Db, docs: { full: Docum
       const poLineId = addLine(poId, {
         // Only Owner/Accountant buying it now set a cost; a plain request is priced on the PO.
         partId: line.part_id, description: line.description, qty: input.qty, unitCostFils: input.alreadyBought ? input.unitCostFils! : 0, jobDocumentId: doc.id,
-        packName: null, packSize: null,
+        packName: null, packSize: null, packCostFils: null,
       });
       db.run("UPDATE document_lines SET po_line_id = ? WHERE id = ?", [poLineId, line.id]);
       updateNet(poId);

@@ -1,13 +1,13 @@
 import { useEffect, useMemo, useState } from "react";
 import { toast } from "sonner";
-import { roundFils } from "@ffgp/shared";
+import { poLineNetFils, roundFils } from "@ffgp/shared";
 import { post } from "../lib/api";
 import { useAuth } from "../lib/auth";
 import { formatAED } from "../lib/format";
 import type { PurchaseOrder } from "../lib/types";
 import { Button, Field, Input, Modal, MoneyInput, NumberInput } from "./ui";
 
-interface Row { poLineId: string; description: string; remaining: number; qty: number; unitCostFils: number }
+interface Row { poLineId: string; description: string; remaining: number; qty: number; unitCostFils: number; packSize: number | null; packCostFils: number | null }
 
 /** Records a delivery against a purchase order: what arrived, what it cost, and the supplier's invoice. */
 export function ReceiveDialog({ po, open, onClose, onDone }: { po: PurchaseOrder; open: boolean; onClose: () => void; onDone: (po: PurchaseOrder) => void }) {
@@ -23,12 +23,13 @@ export function ReceiveDialog({ po, open, onClose, onDone }: { po: PurchaseOrder
     if (!open) return;
     setRows(po.lines.filter((l) => l.id && l.qty - (l.receivedQty ?? 0) > 0).map((l) => {
       const remaining = Math.round((l.qty - (l.receivedQty ?? 0)) * 1000) / 1000;
-      return { poLineId: l.id!, description: l.description, remaining, qty: remaining, unitCostFils: l.unitCostFils ?? 0 };
+      return { poLineId: l.id!, description: l.description, remaining, qty: remaining, unitCostFils: l.unitCostFils ?? 0, packSize: l.packSize ?? null, packCostFils: l.packCostFils ?? null };
     }));
     setInvoiceNo(""); setInvoiceDate(new Date().toISOString().slice(0, 10)); setVatTouched(false);
   }, [open, po]);
 
-  const net = useMemo(() => rows.reduce((s, r) => s + roundFils(r.qty * r.unitCostFils), 0), [rows]);
+  // Whole packs at the PO's price: packs × the pack price, as the server works it out.
+  const net = useMemo(() => rows.reduce((s, r) => s + poLineNetFils(r), 0), [rows]);
   useEffect(() => {
     if (!vatTouched) setVatFils(roundFils((net * (garage?.vatRateBp ?? 500)) / 10000));
   }, [net, vatTouched, garage]);

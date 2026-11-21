@@ -1,3 +1,4 @@
+import { roundFils } from "./money";
 import { z } from "zod";
 
 // ── Spare-parts catalogue: alternate numbers, fitment, categories with attributes, purchase packs ─────────────────
@@ -92,6 +93,19 @@ export function specText(attrs: Record<string, string | number | undefined>, def
     if (n !== s.toUpperCase()) out.push(n);
   }
   return out.join(" ");
+}
+
+/**
+ * A purchase order line's (or a delivery of it) amount before VAT. A line priced per pack is packs × the pack price,
+ * so a box of 12 at AED 10.00 is exactly AED 10.00 a box, although its unit cost is rounded to 83 fils. That holds
+ * while the quantity is whole packs at the line's own unit cost; anything else is priced per unit.
+ */
+export function poLineNetFils(l: { qty: number; unitCostFils: number; packSize?: number | null; packCostFils?: number | null }): number {
+  if (l.packSize && l.packCostFils != null && l.unitCostFils === Math.round(l.packCostFils / l.packSize)) {
+    const packs = l.qty / l.packSize;
+    if (Math.abs(packs - Math.round(packs)) < 1e-6) return Math.round(packs) * l.packCostFils;
+  }
+  return roundFils(l.qty * l.unitCostFils);
 }
 
 /** Packs bought → the part's own unit: quantity, and cost per unit to the fil. */

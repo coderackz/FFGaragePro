@@ -1339,6 +1339,13 @@ ALTER TABLE po_lines ADD COLUMN pack_name TEXT;
 ALTER TABLE po_lines ADD COLUMN pack_size REAL;
 `,
   },
+  {
+    id: 20,
+    // A purchase order line priced per pack keeps the price as typed (3 boxes at AED 10.00 = AED 30.00).
+    sql: `
+ALTER TABLE po_lines ADD COLUMN pack_cost_fils INTEGER;
+`,
+  },
 ];
 
 /** The newest migration this code knows: the garage database's schema version. */

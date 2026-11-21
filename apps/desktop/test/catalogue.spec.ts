@@ -74,16 +74,18 @@ test("the parts catalogue: numbers, fitment, category, packs, replaced by", asyn
   await page.getByRole("option", { name: /TY-OF1/ }).click();
   await page.getByLabel("Buy in").selectOption({ label: "Box of 10" });
   await page.getByLabel("Packs").fill("2");
-  await page.getByLabel("Cost per pack").fill("100");
+  // AED 99.99 a box: the order is 2 × 99.99 = 199.98 (per unit it would round to 10.00 × 20 = 200.00).
+  await page.getByLabel("Cost per pack").fill("99.99");
   await page.getByRole("button", { name: "Save" }).click();
-  await expect(page.getByTestId("po-net")).toHaveText("AED 200.00");
+  await expect(page.getByTestId("po-net")).toHaveText("AED 199.98");
   await expect(page.getByLabel("Order quantity")).toHaveValue("20");
   // The saved order keeps the pack: reopen it from the server.
   await expect(page).toHaveURL(/purchase-orders\/(?!new)/);
   await page.reload();
   await expect(page.getByLabel("Buy in")).toHaveValue("Box of 10");
   await expect(page.getByLabel("Packs")).toHaveValue("2");
-  await expect(page.getByLabel("Cost per pack")).toHaveValue("100.00");
+  await expect(page.getByLabel("Cost per pack")).toHaveValue("99.99");
+  await expect(page.getByTestId("po-net")).toHaveText("AED 199.98");
   await shot("03-po");
   expect(errors).toEqual([]);
 });

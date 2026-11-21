@@ -2,7 +2,7 @@ import { ArrowLeft, Ban, FileDown, PackageCheck, Plus, Printer, Save, Send, Tras
 import { useEffect, useState } from "react";
 import { Link, useNavigate, useParams } from "react-router";
 import { toast } from "sonner";
-import { DEFAULT_SETTINGS, FLEETFIX_SUPPLIER_ID, roundFils } from "@ffgp/shared";
+import { DEFAULT_SETTINGS, FLEETFIX_SUPPLIER_ID, poLineNetFils } from "@ffgp/shared";
 import { PartLink, PartPicker } from "../components/PartPicker";
 import { ReceiveDialog } from "../components/ReceiveDialog";
 import { Button, Card, Empty, Field, MoneyInput, NumberInput, PageHeader, Select, Spinner, StatusBadge, Table, Textarea } from "../components/ui";
@@ -43,7 +43,8 @@ export function PurchaseOrderPage() {
 
   const change = (i: number, p: Partial<PoLine>) => { setLines((ls) => ls.map((l, j) => (j === i ? { ...l, ...p } : l))); setDirty(true); };
   const clean = () => lines.filter((l) => l.description.trim() !== "");
-  const net = clean().reduce((s, l) => s + roundFils(l.qty * (l.unitCostFils ?? 0)), 0);
+  const lineNet = (l: PoLine) => poLineNetFils({ qty: l.qty, unitCostFils: l.unitCostFils ?? 0, packSize: l.packSize, packCostFils: l.packCostFils });
+  const net = clean().reduce((s, l) => s + lineNet(l), 0);
 
   const run = async (name: string, fn: () => Promise<void>) => {
     setBusy(name);
@@ -58,6 +59,7 @@ export function PurchaseOrderPage() {
       lines: clean().map((l) => ({
         id: l.id, partId: l.partId, description: l.description.trim(), qty: l.qty, unitCostFils: l.unitCostFils ?? 0, jobDocumentId: l.jobDocumentId,
         packName: l.partId ? l.packName ?? null : null, packSize: l.partId ? l.packSize ?? null : null,
+        packCostFils: l.partId && l.packSize ? l.packCostFils ?? null : null,
       })),
     };
     if (isNew) {
@@ -141,10 +143,10 @@ export function PurchaseOrderPage() {
                       <td className="px-4 py-1.5">
                         {editable ? (
                           <PartPicker line={asDocLine}
-                            onChange={(p) => change(i, { description: p.description ?? l.description, ...(p.partId !== undefined ? { partId: p.partId, partNo: p.partNo, stocked: p.partStocked } : {}) })}
+                            onChange={(p) => change(i, { description: p.description ?? l.description, ...(p.partId !== undefined ? { partId: p.partId, partNo: p.partNo, stocked: p.partStocked, ...(p.partId !== l.partId ? { packName: null, packSize: null, packCostFils: null } : {}) } : {}) })}
                             onPick={(part) => !l.unitCostFils && part.avgCostFils && change(i, { unitCostFils: part.avgCostFils })} />
                         ) : <div className="py-1">{l.description}</div>}
-                        {l.partId && <div className="mt-1"><PartLink line={asDocLine} editable={editable} onUnlink={() => change(i, { partId: null, partNo: null, stocked: null, packName: null, packSize: null })} /></div>}
+                        {l.partId && <div className="mt-1"><PartLink line={asDocLine} editable={editable} onUnlink={() => change(i, { partId: null, partNo: null, stocked: null, packName: null, packSize: null, packCostFils: null })} /></div>}
                         {l.partId && editable && <PackChooser line={l} showCost={showCost} onChange={(p) => change(i, p)} />}
                         {l.packName && l.packSize && !editable && <div className="mt-1 text-xs text-zinc-500">{Math.round(l.qty / l.packSize)} × {l.packName}</div>}
                       </td>
@@ -152,8 +154,8 @@ export function PurchaseOrderPage() {
                       <td className="px-2 py-1.5 text-right tabular">
                         {editable ? <NumberInput value={l.qty} onChange={(qty) => change(i, { qty })} className="h-8" aria-label="Order quantity" /> : <div className="py-1">{l.receivedQty ?? 0} / {l.qty}</div>}
                       </td>
-                      {showCost && <td className="px-2 py-1.5 text-right tabular">{editable ? <MoneyInput fils={l.unitCostFils ?? 0} onChange={(unitCostFils) => change(i, { unitCostFils })} className="h-8" aria-label="Unit cost" /> : <div className="py-1">{formatAED(l.unitCostFils ?? 0)}</div>}</td>}
-                      {showCost && <td className="px-4 py-2.5 text-right font-medium whitespace-nowrap tabular">{formatAED(roundFils(l.qty * (l.unitCostFils ?? 0)))}</td>}
+                      {showCost && <td className="px-2 py-1.5 text-right tabular">{editable ? <MoneyInput fils={l.unitCostFils ?? 0} onChange={(unitCostFils) => change(i, { unitCostFils, packCostFils: null })} className="h-8" aria-label="Unit cost" /> : <div className="py-1">{formatAED(l.unitCostFils ?? 0)}</div>}</td>}
+                      {showCost && <td className="px-4 py-2.5 text-right font-medium whitespace-nowrap tabular">{formatAED(lineNet(l))}</td>}
                       {editable && (
                         <td className="pt-1.5 pr-2">
                           <button type="button" onClick={() => { setLines((ls) => ls.filter((_, j) => j !== i)); setDirty(true); }} className="rounded p-1.5 text-zinc-400 hover:bg-red-50 hover:text-red-600" aria-label="Remove line"><Trash2 className="size-4" /></button>
@@ -201,9 +203,9 @@ function PackChooser({ line, showCost, onChange }: { line: PoLine; showCost: boo
   const count = size ? Math.round(line.qty / size) : 0;
   const choose = (name: string) => {
     const p = packs.find((x) => x.name === name);
-    if (!p) return onChange({ packName: null, packSize: null });
+    if (!p) return onChange({ packName: null, packSize: null, packCostFils: null });
     const n = Math.max(1, Math.round(line.qty / p.size) || 1);
-    onChange({ packName: p.name, packSize: p.size, qty: n * p.size });
+    onChange({ packName: p.name, packSize: p.size, qty: n * p.size, packCostFils: Math.round((line.unitCostFils ?? 0) * p.size) });
   };
   return (
     <div className="mt-1.5 flex flex-wrap items-center gap-2 text-xs text-zinc-600">
@@ -222,7 +224,7 @@ function PackChooser({ line, showCost, onChange }: { line: PoLine; showCost: boo
           </label>
           {showCost && (
             <label className="inline-flex items-center gap-1.5 whitespace-nowrap">Cost per pack
-              <span className="w-24 shrink-0"><MoneyInput fils={Math.round((line.unitCostFils ?? 0) * size)} onChange={(c) => onChange({ unitCostFils: Math.round(c / size) })} className="!h-7 text-xs" aria-label="Cost per pack" /></span>
+              <span className="w-24 shrink-0"><MoneyInput fils={line.packCostFils ?? Math.round((line.unitCostFils ?? 0) * size)} onChange={(c) => onChange({ packCostFils: c, unitCostFils: Math.round(c / size) })} className="!h-7 text-xs" aria-label="Cost per pack" /></span>
             </label>
           )}
           <span className="whitespace-nowrap">= {line.qty} {part.data?.part.unit}</span>

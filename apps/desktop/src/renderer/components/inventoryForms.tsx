@@ -37,13 +37,13 @@ export function PartFormModal({ open, part, onClose, onSaved }: { open: boolean;
     e.preventDefault();
     setBusy(true);
     try {
-      // Numbers given as typed; blank rows dropped. Numeric specs sent as numbers.
+      // Numbers given as typed; blank rows dropped. Specs go as typed: the server reads numbers (and "2,5").
       const body = {
         ...form,
         numbers: form.numbers.filter((n) => n.number.trim()).map(({ number, kind, brand }) => ({ number, kind, brand })),
         fitments: form.fitments.filter((f) => f.make.trim()).map(({ id: _, ...f }) => f),
         packs: form.packs.filter((p) => p.name.trim()).map(({ name, size }) => ({ name, size })),
-        attributes: Object.fromEntries(Object.entries(form.attributes).map(([k, v]) => [k, category?.attributes.find((a) => a.key === k)?.type === "number" && v !== "" ? Number(v) : v])),
+        attributes: form.attributes,
       };
       const res = part ? await patch<{ part: Part }>(`/api/parts/${part.id}`, body) : await post<{ part: Part }>("/api/parts", body);
       toast.success(part ? "Part saved" : "Part added");

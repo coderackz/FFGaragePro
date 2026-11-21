@@ -248,7 +248,7 @@ export function renderPurchaseOrderHtml(po: PurchaseOrder, garage: Garage, setti
       // Bought in packs: the quantity and cost read per pack ("2 × Drum 208 L" at the drum's price).
       const packs = l.packName && l.packSize ? Math.round(l.qty / l.packSize) : null;
       const qty = packs !== null ? `${packs} × ${esc(l.packName!)}` : `${l.qty}`;
-      const unit = packs !== null ? Math.round((l.unitCostFils ?? 0) * l.packSize!) : l.unitCostFils ?? 0;
+      const unit = packs !== null ? l.packCostFils ?? Math.round((l.unitCostFils ?? 0) * l.packSize!) : l.unitCostFils ?? 0;
       return `<tr><td class="n">${i + 1}</td><td class="mono">${esc(l.partNo ?? "")}</td><td>${esc(l.description)}${l.jobDocumentNumber ? `<div class="k">For ${esc(l.jobDocumentNumber)}</div>` : ""}</td><td class="r">${qty}</td>${
         showCost ? `<td class="r">${money(unit)}</td><td class="r b">${money(l.netFils ?? 0)}</td>` : ""
       }</tr>`;

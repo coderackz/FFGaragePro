@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { categorySchema, fitmentMatches, normalizeNumber, packToBase, partSchema, specText } from "../src";
+import { categorySchema, fitmentMatches, normalizeNumber, packToBase, partSchema, poLineNetFils, specText } from "../src";
 
 describe("catalogue", () => {
   it("normalize", () => {
@@ -35,6 +35,13 @@ describe("catalogue", () => {
   it("packs", () => {
     expect(packToBase(2, 208, 166400)).toEqual({ qty: 416, unitCostFils: 800 });
     expect(packToBase(3, 12, 1000)).toEqual({ qty: 36, unitCostFils: 83 });
+    // Priced per pack: exactly 3 × AED 10.00.
+    expect(poLineNetFils({ qty: 36, unitCostFils: 83, packSize: 12, packCostFils: 1000 })).toBe(3000);
+    // Part of a box, a changed unit cost, or no pack price: per unit.
+    expect(poLineNetFils({ qty: 30, unitCostFils: 83, packSize: 12, packCostFils: 1000 })).toBe(2490);
+    expect(poLineNetFils({ qty: 36, unitCostFils: 90, packSize: 12, packCostFils: 1000 })).toBe(3240);
+    expect(poLineNetFils({ qty: 36, unitCostFils: 83, packSize: 12, packCostFils: null })).toBe(2988);
+    expect(poLineNetFils({ qty: 4.5, unitCostFils: 800 })).toBe(3600);
   });
 
   it("schemas", () => {

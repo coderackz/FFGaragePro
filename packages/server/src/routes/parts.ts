@@ -1,6 +1,6 @@
 import type { FastifyInstance } from "fastify";
-import { adjustmentSchema, can, categorySchema, normalizeNumber, parseAED, partSchema, supplierSchema, type PartInput } from "@ffgp/shared";
-import { addFitment, categoryOut, chainFrom, fitmentsOf, fitRank, getCategory, matchedBy, numbersOf, packsOf, saveCatalogue, supersede, type CategoryRow, type VehicleFit } from "../catalogue";
+import { adjustmentSchema, can, categorySchema, fitmentMatches, normalizeNumber, parseAED, partSchema, supplierSchema, type PartInput } from "@ffgp/shared";
+import { addFitment, categoryOut, chainFrom, fitmentsOf, getCategory, matchedBy, numbersOf, packsOf, saveCatalogue, supersede, type CategoryRow, type VehicleFit } from "../catalogue";
 import { z } from "zod";
 import { requireAction, sessionUser } from "../auth";
 import { newId, now, type Db } from "../db";
@@ -49,6 +49,8 @@ export function partDetail(db: Db, p: PartRow, showCost: boolean) {
   };
 }
 
+type Sent = "category" | "categoryId" | "numbers" | "fitments" | "packs";
+
 export function partRoutes(app: FastifyInstance, db: Db): void {
   const getPart = (id: string) => db.get<PartRow>("SELECT * FROM parts WHERE id = ?", [id]);
   const getSupplier = (id: string) => db.get<SupplierRow>("SELECT * FROM suppliers WHERE id = ?", [id]);
@@ -63,7 +65,7 @@ export function partRoutes(app: FastifyInstance, db: Db): void {
    * Creates or updates a part's details (not its stock), and its catalogue. `present`: which catalogue parts were sent
    * (an older screen or a CSV without those columns leaves them as they are).
    */
-  function savePart(input: PartInput, existing: PartRow | null, present: (k: "category" | "numbers" | "fitments" | "packs") => boolean = () => true): string {
+  function savePart(input: PartInput, existing: PartRow | null, present: (k: Sent) => boolean = () => true): string {
     if (input.active) assertUniquePartNo(input.partNo, existing?.id ?? null);
     if (existing && !!existing.stocked !== input.stocked) {
       if (existing.on_hand !== 0) throw conflict("Bring the stock to zero before changing this");
@@ -99,8 +101,8 @@ export function partRoutes(app: FastifyInstance, db: Db): void {
     saveCatalogue(db, id, input, () => true);
     return id;
   }
-  /** Which catalogue parts a request body carries. */
-  const sent = (body: unknown) => (k: "category" | "numbers" | "fitments" | "packs") => {
+  /** Which catalogue parts a request body carries ("category": the category or its specs). */
+  const sent = (body: unknown) => (k: Sent) => {
     const b = (body ?? {}) as Record<string, unknown>;
     return k === "category" ? "categoryId" in b || "attributes" in b : k in b;
   };
@@ -118,7 +120,23 @@ export function partRoutes(app: FastifyInstance, db: Db): void {
     const vehicle = req.query.vehicleId
       ? db.get<VehicleFit>("SELECT make, model, year, engine FROM vehicles WHERE id = ?", [req.query.vehicleId]) ?? null
       : null;
+    // Nothing typed: the parts that fit the vehicle; a vehicle without a make fits nothing.
+    if (!q && vehicle && !vehicle.make) return { parts: [] };
     const fitOnly = !q && !!vehicle?.make;
+    // The parts that fit (and those with fitment that doesn't) are worked out before the list is cut at 300, so a
+    // fitting part far down the alphabet still comes first.
+    const fitting: string[] = [];
+    const notFitting: string[] = [];
+    if (vehicle?.make) {
+      const byPart = new Map<string, boolean>();
+      for (const f of db.all<{ part_id: string; make: string; model: string | null; year_from: number | null; year_to: number | null; engine: string | null }>(
+        "SELECT part_id, make, model, year_from, year_to, engine FROM part_fitments",
+      )) {
+        const ok = fitmentMatches({ make: f.make, model: f.model, yearFrom: f.year_from, yearTo: f.year_to, engine: f.engine }, vehicle);
+        byPart.set(f.part_id, (byPart.get(f.part_id) ?? false) || ok);
+      }
+      for (const [id, ok] of byPart) (ok ? fitting : notFitting).push(id);
+    }
     const squashed = "REPLACE(REPLACE(REPLACE(REPLACE(UPPER(part_no), ' ', ''), '-', ''), '.', ''), '/', '')";
     const rows = db.all<PartRow>(
       `SELECT * FROM parts
@@ -129,18 +147,20 @@ export function partRoutes(app: FastifyInstance, db: Db): void {
          AND (:low = 0 OR (stocked = 1 AND on_hand <= reorder_level))
          AND (:active IS NULL OR active = :active)
          AND (:cat IS NULL OR category_id = :cat)
-         AND (:fitOnly = 0 OR id IN (SELECT part_id FROM part_fitments WHERE make = :make COLLATE NOCASE))
-       ORDER BY name COLLATE NOCASE, part_no COLLATE NOCASE LIMIT 300`,
+         AND (:fitOnly = 0 OR id IN (SELECT value FROM json_each(:fitting)))
+       ORDER BY CASE WHEN id IN (SELECT value FROM json_each(:fitting)) THEN 0 WHEN id IN (SELECT value FROM json_each(:notFitting)) THEN 2 ELSE 1 END,
+         name COLLATE NOCASE, part_no COLLATE NOCASE LIMIT 300`,
       {
         q, like: like(q ?? ""), nq, nlike: like(nq), low: req.query.lowStock === "1" ? 1 : 0,
         active: req.query.active === "1" ? 1 : req.query.active === "0" ? 0 : null,
-        cat: req.query.categoryId || null, fitOnly: fitOnly ? 1 : 0, make: vehicle?.make ?? "",
+        cat: req.query.categoryId || null, fitOnly: fitOnly ? 1 : 0, fitting: JSON.stringify(fitting), notFitting: JSON.stringify(notFitting),
       },
     );
     const showCost = can(user.role, "costs.view");
     type Out = ReturnType<typeof partOut> & { matchedBy: string | null; fitsVehicle: boolean; replacesPartNo: string | null; rank: number };
+    const fitSet = new Set(fitting), notFitSet = new Set(notFitting);
     const out = (p: PartRow, replaces: string | null = null): Out => {
-      const rank = vehicle?.make ? fitRank(db, p.id, vehicle) : 1;
+      const rank = fitSet.has(p.id) ? 0 : notFitSet.has(p.id) ? 2 : 1;
       return { ...partOut(p, showCost), matchedBy: q ? matchedBy(db, p.id, q, [p.part_no, p.name, p.brand ?? "", p.fits ?? "", p.spec_text].join(" ")) : null, fitsVehicle: rank === 0, replacesPartNo: replaces, rank };
     };
     let list: Out[] = rows.map((p) => out(p));
@@ -149,13 +169,12 @@ export function partRoutes(app: FastifyInstance, db: Db): void {
       const expanded: Out[] = [];
       for (const p of list) {
         const row = rows.find((r) => r.id === p.id)!;
-        const newest = row.superseded_by ? chainFrom(db, row.id).at(-1) : null;
+        // The newest part in the chain that's still in use; with none, the old part stays on offer.
+        const newer = row.superseded_by ? chainFrom(db, row.id).slice(1).reverse() : [];
+        const n = newer.map((x) => db.get<PartRow>("SELECT * FROM parts WHERE id = ? AND active = 1", [x.id])).find(Boolean) ?? null;
         const inStock = row.stocked && row.on_hand > 0;
-        if ((!newest || newest.id === row.id || inStock) && !seen.has(p.id)) { expanded.push(p); seen.add(p.id); }
-        if (newest && newest.id !== row.id && !seen.has(newest.id)) {
-          const n = db.get<PartRow>("SELECT * FROM parts WHERE id = ? AND active = 1", [newest.id]);
-          if (n) { expanded.push(out(n, row.part_no)); seen.add(n.id); }
-        }
+        if ((!n || inStock) && !seen.has(p.id)) { expanded.push(p); seen.add(p.id); }
+        if (n && !seen.has(n.id)) { expanded.push(out(n, row.part_no)); seen.add(n.id); }
       }
       list = expanded;
     }
@@ -262,6 +281,18 @@ export function partRoutes(app: FastifyInstance, db: Db): void {
   });
 
   // ---- Categories (Settings → Inventory) ----
+  /** A category's parent must exist and mustn't be the category itself or one inside it. */
+  function checkParent(id: string | null, parentId: string | null) {
+    const seen = new Set<string>();
+    for (let p = parentId; p; ) {
+      if (p === id) throw badRequest("A category can't be inside itself or one of its own");
+      if (seen.has(p)) break;
+      seen.add(p);
+      const row = getCategory(db, p);
+      if (!row) throw badRequest("That parent category doesn't exist");
+      p = row.parent_id;
+    }
+  }
   app.get("/api/part-categories", async (req) => {
     sessionUser(db, req);
     return { categories: db.all<CategoryRow>("SELECT * FROM part_categories ORDER BY position, name COLLATE NOCASE").map(categoryOut) };
@@ -269,6 +300,7 @@ export function partRoutes(app: FastifyInstance, db: Db): void {
   app.post("/api/part-categories", async (req) => {
     requireAction(sessionUser(db, req), "settings.manage");
     const c = categorySchema.parse(req.body);
+    checkParent(null, c.parentId);
     const id = newId();
     const t = now();
     const pos = db.get<{ p: number }>("SELECT COALESCE(MAX(position), -1) + 1 AS p FROM part_categories")!.p;
@@ -282,7 +314,7 @@ export function partRoutes(app: FastifyInstance, db: Db): void {
     const before = getCategory(db, req.params.id);
     if (!before) throw notFound("Category not found");
     const c = categorySchema.parse({ ...categoryOut(before), ...(req.body as object) });
-    if (c.parentId === before.id) throw badRequest("A category can't be inside itself");
+    checkParent(before.id, c.parentId);
     db.run("UPDATE part_categories SET name = ?, parent_id = ?, attributes_json = ?, updated_at = ? WHERE id = ?", [c.name, c.parentId, JSON.stringify(c.attributes), now(), before.id]);
     return { category: categoryOut(getCategory(db, before.id)!) };
   });
@@ -383,7 +415,7 @@ export function partRoutes(app: FastifyInstance, db: Db): void {
             }
             const cost = money("cost");
             const qty = num("qty");
-            const id = savePart(parsed.data, existing, (k) => (k === "category" ? has("category") : k === "numbers" ? has("numbers") : k === "fitments" ? has("fitment") : false));
+            const id = savePart(parsed.data, existing, (k) => (k === "category" || k === "categoryId" ? has("category") : k === "numbers" ? has("numbers") : k === "fitments" ? has("fitment") : false));
             if (existing) updated++;
             else {
               created++;
