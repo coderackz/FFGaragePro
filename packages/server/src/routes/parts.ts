@@ -7,12 +7,14 @@ import { newId, now, type Db } from "../db";
 import { parseCsv } from "../csv";
 import { badRequest, conflict, HttpError, notFound } from "../errors";
 import { postMovement } from "../stock";
+import { addUnits, checkIncomingCodes, unitOut, unitsOf, writeOffUnits, type UnitRow } from "../units";
 
 export interface PartRow {
   id: string; part_no: string; name: string; brand: string | null; unit: string; stocked: number; sell_price_fils: number;
   avg_cost_fils: number; on_hand: number; reorder_level: number; location: string | null; fits: string | null; active: number;
   created_at: string; updated_at: string; name_ar: string | null;
   category_id: string | null; attributes_json: string; spec_text: string; superseded_by: string | null;
+  tracking: "none" | "dot" | "serial"; warranty_months: number; is_kit: number;
 }
 interface SupplierRow {
   id: string; name: string; trn: string | null; phone: string | null; email: string | null; address: string | null;
@@ -25,6 +27,7 @@ export function partOut(p: PartRow, showCost: boolean) {
     onHand: p.on_hand, reorderLevel: p.reorder_level, location: p.location, fits: p.fits, active: !!p.active,
     lowStock: !!p.stocked && p.on_hand <= p.reorder_level,
     categoryId: p.category_id, attributes: JSON.parse(p.attributes_json || "{}") as Record<string, string | number>, supersededById: p.superseded_by,
+    tracking: p.tracking ?? "none", warrantyMonths: p.warranty_months ?? 0, isKit: !!p.is_kit,
     ...(showCost ? { avgCostFils: p.avg_cost_fils, stockValueFils: Math.round(Math.max(0, p.on_hand) * p.avg_cost_fils) } : {}),
   };
 }
@@ -49,7 +52,7 @@ export function partDetail(db: Db, p: PartRow, showCost: boolean) {
   };
 }
 
-type Sent = "category" | "categoryId" | "numbers" | "fitments" | "packs";
+type Sent = "category" | "categoryId" | "numbers" | "fitments" | "packs" | "tracking" | "warrantyMonths" | "kit";
 
 export function partRoutes(app: FastifyInstance, db: Db): void {
   const getPart = (id: string) => db.get<PartRow>("SELECT * FROM parts WHERE id = ?", [id]);
@@ -90,6 +93,7 @@ export function partRoutes(app: FastifyInstance, db: Db): void {
         [...values, existing.id],
       );
       saveCatalogue(db, existing.id, input, present);
+      saveTracking(existing, input, present);
       return existing.id;
     }
     const id = newId();
@@ -99,7 +103,16 @@ export function partRoutes(app: FastifyInstance, db: Db): void {
       [...values, id, t],
     );
     saveCatalogue(db, id, input, () => true);
+    db.run("UPDATE parts SET tracking = ?, warranty_months = ? WHERE id = ?", [input.tracking, input.warrantyMonths, id]);
     return id;
+  }
+  /**
+   * Tracking one by one and the warranty, when sent (an older screen or the CSV leaves them). Switching tracking
+   * on for a part with stock is allowed: units from before simply aren't listed.
+   */
+  function saveTracking(existing: PartRow, input: PartInput, present: (k: Sent) => boolean) {
+    if (present("tracking")) db.run("UPDATE parts SET tracking = ? WHERE id = ?", [input.tracking, existing.id]);
+    if (present("warrantyMonths")) db.run("UPDATE parts SET warranty_months = ? WHERE id = ?", [input.warrantyMonths, existing.id]);
   }
   /** Which catalogue parts a request body carries ("category": the category or its specs). */
   const sent = (body: unknown) => (k: Sent) => {
@@ -245,12 +258,44 @@ export function partRoutes(app: FastifyInstance, db: Db): void {
       if (input.reason === "opening" && (input.qty < 0 || input.unitCostFils === undefined)) {
         throw badRequest("Opening stock needs a quantity in and a cost");
       }
+      // Tyres and batteries: the ones coming in are listed (DOT or serial), the ones going out chosen.
+      const codes = input.qty > 0 ? checkIncomingCodes(db, p.id, input.qty, input.units, p.part_no) : [];
+      if (input.qty < 0) writeOffUnits(db, p.id, -input.qty, input.unitIds, p.on_hand + input.qty);
+      else if (input.unitIds.length) throw badRequest("Units are chosen only when stock goes down");
       postMovement(db, {
         partId: p.id, qty: input.qty, reason: input.reason === "opening" ? "opening" : "adjust",
         unitCostFils: input.unitCostFils, note: input.note ?? (input.reason === "opening" ? null : input.reason), userId: user.id,
       });
+      if (codes.length) addUnits(db, p.id, codes, input.unitCostFils ?? getPart(p.id)!.avg_cost_fils, null);
     });
     return { part: partOut(getPart(req.params.id)!, true) };
+  });
+
+  /** A tracked part's units with a status (in stock: oldest DOT first). */
+  app.get<{ Params: { id: string }; Querystring: { status?: string } }>("/api/parts/:id/units", async (req) => {
+    const user = sessionUser(db, req);
+    if (!getPart(req.params.id)) throw notFound("Part not found");
+    const status = z.enum(["in_stock", "fitted", "returned", "written_off"]).catch("in_stock").parse(req.query.status);
+    const showCost = can(user.role, "costs.view");
+    return { units: unitsOf(db, req.params.id, status).map((u) => unitOut(db, u, showCost)) };
+  });
+
+  /** Find a tyre or battery by its serial or DOT: the part, where it is or was fitted, the customer and vehicle. */
+  app.get<{ Querystring: { q?: string } }>("/api/stock-units", async (req) => {
+    const user = sessionUser(db, req);
+    const q = req.query.q?.trim() ?? "";
+    if (q.length < 2) return { units: [] };
+    const rows = db.all<UnitRow & { part_no: string; part_name: string; customer_name: string | null; vehicle_plate: string | null }>(
+      `SELECT u.*, p.part_no, p.name AS part_name, c.name AS customer_name, v.plate AS vehicle_plate
+       FROM stock_units u JOIN parts p ON p.id = u.part_id
+       LEFT JOIN documents d ON d.id = u.document_id LEFT JOIN customers c ON c.id = d.customer_id LEFT JOIN vehicles v ON v.id = d.vehicle_id
+       WHERE u.code LIKE ? ESCAPE '\\' ORDER BY u.received_at DESC LIMIT 50`,
+      [like(q)],
+    );
+    const showCost = can(user.role, "costs.view");
+    return {
+      units: rows.map((u) => ({ ...unitOut(db, u, showCost), partNo: u.part_no, partName: u.part_name, customerName: u.customer_name, vehiclePlate: u.vehicle_plate })),
+    };
   });
 
   app.post<{ Params: { id: string } }>("/api/parts/:id/supersede", async (req) => {

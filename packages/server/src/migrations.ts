@@ -1346,6 +1346,42 @@ ALTER TABLE po_lines ADD COLUMN pack_size REAL;
 ALTER TABLE po_lines ADD COLUMN pack_cost_fils INTEGER;
 `,
   },
+  {
+    id: 21,
+    // Inventory v2, Part 2: tyres tracked by DOT and batteries by serial (one stock_units row per unit, kept in step
+    // with the shelf count, never moving it), and kits made of other parts.
+    sql: `
+ALTER TABLE parts ADD COLUMN tracking TEXT NOT NULL DEFAULT 'none' CHECK (tracking IN ('none','dot','serial'));
+ALTER TABLE parts ADD COLUMN warranty_months INTEGER NOT NULL DEFAULT 0;
+ALTER TABLE parts ADD COLUMN is_kit INTEGER NOT NULL DEFAULT 0;
+CREATE TABLE stock_units (
+  id TEXT PRIMARY KEY,
+  part_id TEXT NOT NULL REFERENCES parts(id),
+  code TEXT NOT NULL,
+  unit_cost_fils INTEGER NOT NULL DEFAULT 0,
+  po_line_id TEXT REFERENCES po_lines(id),
+  received_at TEXT NOT NULL,
+  status TEXT NOT NULL DEFAULT 'in_stock' CHECK (status IN ('in_stock','fitted','returned','written_off')),
+  document_id TEXT REFERENCES documents(id),
+  fitted_at TEXT,
+  warranty_ends TEXT,
+  created_at TEXT NOT NULL,
+  updated_at TEXT NOT NULL
+);
+CREATE INDEX stock_units_part ON stock_units(part_id, status);
+CREATE INDEX stock_units_code ON stock_units(code COLLATE NOCASE);
+CREATE INDEX stock_units_doc ON stock_units(document_id);
+CREATE TABLE kit_components (
+  id TEXT PRIMARY KEY,
+  kit_part_id TEXT NOT NULL REFERENCES parts(id),
+  component_part_id TEXT NOT NULL REFERENCES parts(id),
+  qty REAL NOT NULL CHECK (qty > 0),
+  created_at TEXT NOT NULL
+);
+CREATE INDEX kit_components_kit ON kit_components(kit_part_id);
+ALTER TABLE document_lines ADD COLUMN unit_ids_json TEXT NOT NULL DEFAULT '[]';
+`,
+  },
 ];
 
 /** The newest migration this code knows: the garage database's schema version. */

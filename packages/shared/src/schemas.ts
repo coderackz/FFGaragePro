@@ -1,4 +1,5 @@
 import { z } from "zod";
+import { TRACKING } from "./tracked";
 import { attributesSchema, fitmentSchema, packSchema, partNumberSchema } from "./catalogue";
 import { DOC_TYPES, ROLES } from "./rules";
 
@@ -102,6 +103,8 @@ export const lineSchema = z.object({
   partId: z.string().uuid().nullable().optional(),
   suppliedBy: z.enum(SUPPLIED_BY).default("garage"),
   poLineId: z.string().uuid().nullable().optional(),
+  /** Tyres and batteries tracked one by one: the units this line fits. */
+  unitIds: z.array(z.string().uuid()).max(1000).default([]),
 }).refine((l) => l.suppliedBy === "garage" || l.kind === "part", { message: "Only parts can be supplied by Fleet Fix", path: ["suppliedBy"] });
 export type LineInput = z.infer<typeof lineSchema>;
 
@@ -178,7 +181,7 @@ export const allocationSchema = z.object({
 /** A tax credit note against an issued invoice: chosen lines (or everything still uncredited) and why. */
 export const creditNoteSchema = z.object({
   reason: z.string().trim().min(3, "Give a reason").max(500),
-  lines: z.array(z.object({ lineId: z.string(), qty: z.number().positive().max(100000) })).max(500).optional(),
+  lines: z.array(z.object({ lineId: z.string(), qty: z.number().positive().max(100000), unitIds: z.array(z.string().uuid()).max(1000).default([]) })).max(500).optional(),
   returnToStock: z.boolean().default(true),
   approval: approvalSchema.optional(),
 });
@@ -205,6 +208,16 @@ export const partSchema = z.object({
   numbers: z.array(partNumberSchema).max(50).default([]),
   fitments: z.array(fitmentSchema).max(200).default([]),
   packs: z.array(packSchema).max(10).default([]),
+  // Tracked stock and kits (inventory v2, Part 2).
+  tracking: z.enum(TRACKING).default("none"),
+  warrantyMonths: z.number().int().min(0).max(120).default(0),
+  isKit: z.boolean().default(false),
+  components: z.array(z.object({ partId: z.string().uuid(), qty: z.number().positive().max(100000) })).max(50).default([]),
+}).superRefine((p, ctx) => {
+  if (p.isKit && p.stocked) ctx.addIssue({ code: "custom", path: ["stocked"], message: "A kit isn't stocked itself: its parts are" });
+  if (p.isKit && p.tracking !== "none") ctx.addIssue({ code: "custom", path: ["tracking"], message: "A kit can't be tracked one by one" });
+  if (p.isKit && !p.components.length) ctx.addIssue({ code: "custom", path: ["components"], message: "Add the parts the kit is made of" });
+  if (p.tracking !== "none" && !p.stocked) ctx.addIssue({ code: "custom", path: ["tracking"], message: "Only stocked parts can be tracked one by one" });
 });
 export type PartInput = z.infer<typeof partSchema>;
 
@@ -229,6 +242,9 @@ export const adjustmentSchema = z.object({
   reason: z.enum(ADJUSTMENT_REASONS),
   note: optionalText(500),
   unitCostFils: money.optional(),
+  /** A tracked part: the DOT codes or serials coming in (count up), or the unit ids going out (count down). */
+  units: z.array(text(60).min(1)).max(1000).default([]),
+  unitIds: z.array(z.string().uuid()).max(1000).default([]),
 });
 
 export const poLineSchema = z
@@ -267,7 +283,11 @@ export const receiveSchema = z.object({
   supplierInvoiceNo: optionalText(60),
   supplierInvoiceDate: optionalText(10),
   vatFils: money.default(0),
-  lines: z.array(z.object({ poLineId: z.string().uuid(), qty: z.number().positive().max(100000), unitCostFils: money })).min(1, "Receive at least one line"),
+  lines: z.array(z.object({
+    poLineId: z.string().uuid(), qty: z.number().positive().max(100000), unitCostFils: money,
+    /** A tracked part: each unit's DOT code or serial, one per unit received. */
+    units: z.array(text(60).min(1)).max(1000).default([]),
+  })).min(1, "Receive at least one line"),
 });
 
 export const requestPartSchema = z.object({
@@ -280,4 +300,6 @@ export const requestPartSchema = z.object({
   alreadyBought: z.boolean().default(false),
   unitCostFils: money.optional(),
   supplierInvoiceNo: optionalText(60),
+  /** Bought now, a tracked part: each unit's DOT code or serial. */
+  units: z.array(text(60).min(1)).max(1000).default([]),
 });

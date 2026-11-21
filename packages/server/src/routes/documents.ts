@@ -11,6 +11,7 @@ import { badRequest, conflict, HttpError, notFound, tooManyRequests } from "../e
 import { recomputeInvoiceMoney, releaseOverpayment } from "../invoice-money";
 import { customerBalance } from "../ledger";
 import { checkStockAvailable, costTakenFor, documentCost, postMovement, reconcileDocumentStock } from "../stock";
+import { chainOf, checkLineUnits, lineUnits, returnUnits } from "../units";
 import { reserveNumber, takeNumber, type NumberSource, type Reserved } from "../numbering";
 import { getSettings } from "../settings";
 import { garage } from "./setup";
@@ -31,8 +32,9 @@ interface LineRow {
   discount_pct: number; net_fils: number; vat_fils: number; gross_fils: number; part_id: string | null; supplied_by: string; part_name_ar?: string | null;
   promo_fils?: number;
   po_line_id: string | null; part_no?: string | null; part_stocked?: number | null; part_on_hand?: number | null; part_unit?: string | null; po_qty?: number | null; po_received?: number | null; po_number?: string | null;
-  po_id?: string | null; po_status?: string | null;
+  po_id?: string | null; po_status?: string | null; unit_ids_json?: string;
 }
+const unitIdsOf = (l: { unit_ids_json?: string }) => JSON.parse(l.unit_ids_json || "[]") as string[];
 
 /** Statuses a user may set by hand; the rest come from convert / issue / payments. */
 const MANUAL_STATUSES: Record<DocType, readonly string[]> = {
@@ -171,10 +173,13 @@ export function documentRoutes(
   /** Replaces a document's lines. A job card's stock follows its lines straight away. */
   function writeLines(docId: string, input: LineInput[], userId: string): void {
     for (const l of input) if (l.partId && !db.get("SELECT 1 FROM parts WHERE id = ?", [l.partId])) throw badRequest("Part not found");
-    const lines = resolvePoLinks(docId, input);
+    const doc = getDoc(docId);
+    // Estimates never fit anything; on other documents the tyres and batteries named must be free for this work.
+    const withUnits = doc?.type === "estimate" ? input.map((l) => ({ ...l, unitIds: [] })) : input;
+    checkLineUnits(db, chainOf(db, docId), withUnits);
+    const lines = resolvePoLinks(docId, withUnits);
     db.run("DELETE FROM document_lines WHERE document_id = ?", [docId]);
     const rate = vatRate();
-    const doc = getDoc(docId);
     // Fixed when the document was created, so changing the Tax setting never changes a document's totals.
     const includeVat = !!doc?.prices_include_vat;
     // Parts Fleet Fix supplies are never charged to the customer.
@@ -189,11 +194,11 @@ export function documentRoutes(
       net += t.netFils; vat += t.vatFils; gross += t.grossFils;
       db.run(
         `INSERT INTO document_lines (id, document_id, position, kind, description, qty, unit_price_fils, discount_pct, net_fils, vat_fils, gross_fils,
-           part_id, supplied_by, po_line_id, promo_fils)
-         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+           part_id, supplied_by, po_line_id, promo_fils, unit_ids_json)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
         [
           newId(), docId, i, line.kind, line.description, line.qty, line.unitPriceFils, line.discountPct, t.netFils, t.vatFils, t.grossFils,
-          line.partId ?? null, line.suppliedBy, line.poLineId ?? null, line.promoFils,
+          line.partId ?? null, line.suppliedBy, line.poLineId ?? null, line.promoFils, JSON.stringify(line.unitIds ?? []),
         ],
       );
     });
@@ -291,6 +296,7 @@ export function documentRoutes(
         partStocked: l.part_id ? !!l.part_stocked : null, partOnHand: l.part_id ? l.part_on_hand ?? null : null, partUnit: l.part_unit ?? null, suppliedBy: l.supplied_by, poLineId: l.po_line_id,
         purchaseOrderId: l.po_id ?? null, purchaseOrderNumber: l.po_number ?? null,
         orderStatus: !l.po_line_id || l.po_status === "cancelled" ? null : (l.po_received ?? 0) >= (l.po_qty ?? 0) ? "received" : "on_order",
+        unitIds: unitIdsOf(l), units: lineUnits(db, l.unit_ids_json),
         ...(cost ? { costFils: cost.lineCosts.get(l.id) ?? null } : {}),
       })),
       totals: { netFils: d.net_fils, vatFils: d.vat_fils, grossFils: d.gross_fils },
@@ -446,7 +452,7 @@ export function documentRoutes(
       }
       const lines = db.all<LineRow>("SELECT * FROM document_lines WHERE document_id = ? ORDER BY position", [d.id]).map((l) => ({
         kind: l.kind as LineInput["kind"], description: l.description, qty: l.qty, unitPriceFils: l.unit_price_fils, discountPct: l.discount_pct,
-        partId: l.part_id, suppliedBy: l.supplied_by as LineInput["suppliedBy"], poLineId: l.po_line_id,
+        partId: l.part_id, suppliedBy: l.supplied_by as LineInput["suppliedBy"], poLineId: l.po_line_id, unitIds: unitIdsOf(l),
       }));
       const newDocId = insertDoc(user, { type: target, customerId: d.customer_id, vehicleId: d.vehicle_id, odometer: d.odometer, notes: d.notes, sourceId: d.id, pricesIncludeVat: !!d.prices_include_vat }, lines, target === convertsTo ? reserved : null);
       // The promo code goes with the work (it's checked again when the invoice is issued).
@@ -506,14 +512,14 @@ export function documentRoutes(
 
   type SourceLine = {
     id: string; position: number; kind: string; description: string; qty: number; unit_price_fils: number; discount_pct: number; part_id: string | null; supplied_by: string;
-    part_stocked: number | null; net_fils: number; vat_fils: number; promo_fils: number;
+    part_stocked: number | null; net_fils: number; vat_fils: number; promo_fils: number; unit_ids_json?: string;
   };
 
   /**
    * The lines a credit note would take: chosen invoice lines and quantities (or everything still uncredited), each
    * no more than what's left after earlier credit notes. Throws a plain 400 otherwise.
    */
-  function creditLines(inv: DocRow, chosen: { lineId: string; qty: number }[] | undefined): { line: SourceLine; qty: number }[] {
+  function creditLines(inv: DocRow, chosen: { lineId: string; qty: number; unitIds?: string[] }[] | undefined): { line: SourceLine; qty: number; unitIds: string[] }[] {
     const lines = db.all<SourceLine>(
       "SELECT dl.*, p.stocked AS part_stocked FROM document_lines dl LEFT JOIN parts p ON p.id = dl.part_id WHERE dl.document_id = ? ORDER BY dl.position",
       [inv.id],
@@ -527,7 +533,7 @@ export function documentRoutes(
       return Math.round((l.qty - credited) * 1000) / 1000;
     };
     if (!chosen) {
-      const all = lines.map((line) => ({ line, qty: left(line) })).filter((x) => x.qty > 0);
+      const all = lines.map((line) => ({ line, qty: left(line), unitIds: [] as string[] })).filter((x) => x.qty > 0);
       if (!all.length) throw badRequest(`Everything on ${inv.number} has already been credited`);
       return all;
     }
@@ -536,7 +542,7 @@ export function documentRoutes(
       if (!line) throw badRequest("That line isn't on the invoice");
       const remaining = left(line);
       if (c.qty > remaining) throw badRequest(`Only ${remaining} left to credit on line ${line.position + 1}`);
-      return { line, qty: c.qty };
+      return { line, qty: c.qty, unitIds: c.unitIds ?? [] };
     });
   }
 
@@ -570,7 +576,7 @@ export function documentRoutes(
       );
       const rate = vatRate();
       let net = 0, vat = 0, gross = 0;
-      lines.forEach(({ line, qty }, i) => {
+      lines.forEach(({ line, qty, unitIds }, i) => {
         // A line with a promo share credits its own (discounted) amounts in proportion, never the list price; the
         // credit that takes the line's last quantity takes exactly what's left of it (no fil over or short).
         const before = db.get<{ q: number; n: number; v: number }>(
@@ -585,12 +591,16 @@ export function documentRoutes(
           ? { netFils: pn, vatFils: pv, grossFils: pn + pv }
           : lineTotals({ qty, unitPriceFils: line.unit_price_fils, discountPct: line.discount_pct }, rate, !!inv.prices_include_vat);
         net += tt.netFils; vat += tt.vatFils; gross += tt.grossFils;
+        // Tyres and batteries coming back: the ones named (or the line's last ones) go back on the shelf.
+        const back = input.returnToStock && line.kind === "part" && line.part_id && line.part_stocked && line.supplied_by === "garage"
+          ? returnUnits(db, inv.id, unitIdsOf(line), qty, unitIds, line.description) : [];
+        if (unitIds.length && !back.length) throw badRequest("Only parts going back on the shelf take units");
         db.run(
           `INSERT INTO document_lines (id, document_id, position, kind, description, qty, unit_price_fils, discount_pct, net_fils, vat_fils, gross_fils,
-             part_id, supplied_by, source_line_id)
-           VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+             part_id, supplied_by, source_line_id, unit_ids_json)
+           VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
           [newId(), cnId, i, line.kind, line.description, qty, line.unit_price_fils, line.discount_pct, tt.netFils, tt.vatFils, tt.grossFils,
-            line.part_id, line.supplied_by, line.id],
+            line.part_id, line.supplied_by, line.id, JSON.stringify(back)],
         );
         if (input.returnToStock && line.kind === "part" && line.part_id && line.part_stocked && line.supplied_by === "garage") {
           const cost = costTakenFor(db, inv.id, line.part_id) ?? db.get<{ c: number }>("SELECT avg_cost_fils AS c FROM parts WHERE id = ?", [line.part_id])!.c;
@@ -669,7 +679,7 @@ export function documentRoutes(
   const currentLines = (docId: string): LineInput[] =>
     db.all<LineRow>("SELECT * FROM document_lines WHERE document_id = ? ORDER BY position", [docId]).map((l) => ({
       kind: l.kind as LineInput["kind"], description: l.description, qty: l.qty, unitPriceFils: l.unit_price_fils, discountPct: l.discount_pct,
-      partId: l.part_id, suppliedBy: l.supplied_by as LineInput["suppliedBy"], poLineId: l.po_line_id,
+      partId: l.part_id, suppliedBy: l.supplied_by as LineInput["suppliedBy"], poLineId: l.po_line_id, unitIds: unitIdsOf(l),
     }));
 
   app.post<{ Params: { id: string } }>("/api/documents/:id/promo", async (req) => {

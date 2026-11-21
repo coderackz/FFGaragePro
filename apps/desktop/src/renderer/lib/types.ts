@@ -34,6 +34,9 @@ export interface DocLine {
   purchaseOrderId?: string | null; purchaseOrderNumber?: string | null; costFils?: number | null;
   /** Set in the editor when a part was just picked: its shelf count before this line takes any. */
   pickedOnHand?: number;
+  /** Tyres and batteries tracked one by one: the units this line fits. */
+  unitIds?: string[];
+  units?: { id: string; code: string; kind: "dot" | "serial"; warrantyEnds: string | null }[];
 }
 export interface Payment { id: string; amountFils: number; method: string; reference: string | null; paidAt: string; createdBy: string | null; receiptNumber?: string; receiptId?: string }
 export interface DocRef { id: string; number: string; type: DocType; issuedAt?: string | null }

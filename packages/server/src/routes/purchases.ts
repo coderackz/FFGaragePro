@@ -5,6 +5,7 @@ import { z } from "zod";
 import { requireAction, sessionUser, type SessionUser } from "../auth";
 import { newId, now, type Db } from "../db";
 import { badRequest, conflict, notFound } from "../errors";
+import { addUnits, checkIncomingCodes } from "../units";
 import { postMovement, round3 } from "../stock";
 import type { DocumentOut } from "./documents";
 import { getSettings } from "../settings";
@@ -131,6 +132,11 @@ export function purchaseRoutes(app: FastifyInstance, db: Db, docs: { full: Docum
       if (total > round3(line.qty - line.received_qty)) throw badRequest(`Receiving more than ordered for ${line.description}`);
       incoming.set(r.poLineId, total);
     }
+    // Tyres and batteries: each one's DOT code or serial, checked before anything is written.
+    const codes = input.lines.map((r) => {
+      const line = lines.get(r.poLineId)!;
+      return line.part_id ? checkIncomingCodes(db, line.part_id, r.qty, r.units, line.description) : r.units.length ? (() => { throw badRequest(`${line.description}: this line isn't a part`); })() : [];
+    });
     // Whole packs at the PO's price are packs × the pack price, like the PO itself.
     const net = input.lines.reduce((sum, r) => {
       const l = lines.get(r.poLineId)!;
@@ -143,7 +149,7 @@ export function purchaseRoutes(app: FastifyInstance, db: Db, docs: { full: Docum
        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`,
       [receiptId, po.id, input.supplierInvoiceNo ?? null, input.supplierInvoiceDate ?? null, net, input.vatFils, net + input.vatFils, user.id, t],
     );
-    for (const r of input.lines) {
+    for (const [i, r] of input.lines.entries()) {
       const line = lines.get(r.poLineId)!;
       db.run("INSERT INTO goods_receipt_lines (id, receipt_id, po_line_id, qty, unit_cost_fils) VALUES (?, ?, ?, ?, ?)", [
         newId(), receiptId, line.id, r.qty, r.unitCostFils,
@@ -155,6 +161,7 @@ export function purchaseRoutes(app: FastifyInstance, db: Db, docs: { full: Docum
       const stocked = line.part_id ? db.get<{ stocked: number }>("SELECT stocked FROM parts WHERE id = ?", [line.part_id])?.stocked : 0;
       if (line.part_id && stocked) {
         postMovement(db, { partId: line.part_id, qty: r.qty, reason: "receive", unitCostFils: r.unitCostFils, poLineId: line.id, userId: user.id });
+        addUnits(db, line.part_id, codes[i]!, r.unitCostFils, line.id);
       }
     }
     const done = [...lines.values()].every((l) => l.received_qty >= l.qty);
@@ -329,7 +336,7 @@ export function purchaseRoutes(app: FastifyInstance, db: Db, docs: { full: Docum
         const vatFils = roundFils((net * (garage(db)?.vat_rate_bp ?? 500)) / 10000);
         receive(getPo(poId)!, {
           supplierInvoiceNo: input.supplierInvoiceNo, supplierInvoiceDate: now().slice(0, 10), vatFils,
-          lines: [{ poLineId, qty: input.qty, unitCostFils: input.unitCostFils! }],
+          lines: [{ poLineId, qty: input.qty, unitCostFils: input.unitCostFils!, units: input.units }],
         }, user);
       }
     });

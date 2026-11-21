@@ -59,6 +59,18 @@ describe("printed documents follow Settings", () => {
     expect(hidden).not.toContain("1.5 h");
   });
 
+  it("tyres print their DOT, batteries their serial and warranty end", () => {
+    const doc = invoice();
+    const lines = [
+      { ...doc.lines[0]!, units: [{ id: "u1", code: "2524", kind: "dot" as const, warrantyEnds: null }, { id: "u2", code: "2624", kind: "dot" as const, warrantyEnds: null }] },
+      { ...doc.lines[0]!, units: [{ id: "u3", code: "SN-70-0001", kind: "serial" as const, warrantyEnds: "2028-11-21" }] },
+    ];
+    const html = renderDocumentHtml({ ...doc, lines }, SAMPLE_GARAGE, settings());
+    expect(html).toContain("DOT 2524, DOT 2624");
+    expect(html).toContain("Serial SN-70-0001 · warranty to 21 Nov 2028");
+    expect(renderDocumentHtml({ ...SAMPLE_DOCUMENTS.jobcard, lines }, SAMPLE_GARAGE, settings())).toContain("DOT 2524");
+  });
+
   it("job card authorisation box", () => {
     expect(renderDocumentHtml(SAMPLE_DOCUMENTS.jobcard, SAMPLE_GARAGE, settings())).toContain("I authorise the work above");
     expect(renderDocumentHtml(SAMPLE_DOCUMENTS.jobcard, SAMPLE_GARAGE, settings({ documents: { jobCardSignature: false } })))

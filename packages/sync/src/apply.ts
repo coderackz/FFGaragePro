@@ -4,7 +4,7 @@ import { recomputeDocument, recomputePart, recomputePurchaseOrder } from "./reco
 import { numState, setState } from "./state";
 import { tableInfo, type SyncTable } from "./tables";
 
-export type IssueKind = "unique_rename" | "frozen_invoice" | "apply_failed" | "frozen_payroll" | "frozen_asset";
+export type IssueKind = "unique_rename" | "frozen_invoice" | "apply_failed" | "frozen_payroll" | "frozen_asset" | "unit_taken";
 
 export interface SyncIssue {
   id: string;
@@ -260,6 +260,11 @@ function touch(c: Ctx, table: string, row: Row | null, rowId: string): void {
   if (table === "stock_movements" && row?.document_id) s.docs.add(String(row.document_id));
   if (table === "documents") s.docs.add(rowId);
   if (table === "document_lines") s.docs.add(rowId);
+  // A tyre or battery changed: every document that names it is checked again (two may have fitted it offline).
+  if (table === "stock_units") {
+    if (row?.document_id) s.docs.add(String(row.document_id));
+    for (const d of c.db.all<{ document_id: string }>("SELECT DISTINCT document_id FROM document_lines WHERE unit_ids_json LIKE ?", [`%${rowId}%`])) s.docs.add(d.document_id);
+  }
   if ((table === "receipt_allocations" || table === "payments") && row?.document_id) s.docs.add(String(row.document_id));
   if (table === "purchase_orders") s.pos.add(rowId);
   if ((table === "po_lines" || table === "goods_receipts") && row?.po_id) s.pos.add(String(row.po_id));
@@ -449,7 +454,11 @@ function reconcileStock(c: Ctx): void {
     const moves = (doc.type === "jobcard" && doc.status !== "converted") || (doc.type === "invoice" && doc.status !== "draft");
     if (!moves) continue;
     const before = c.db.get<{ n: number }>("SELECT COUNT(*) AS n FROM stock_movements")!.n;
-    reconcileDocumentStock(c.db, docId, doc.created_by as string);
+    // A tyre or battery fitted on two computers offline stays with the earlier document; the other one is told.
+    for (const x of reconcileDocumentStock(c.db, docId, doc.created_by as string)) {
+      const num = (id: string) => c.db.get<{ number: string | null }>("SELECT number FROM documents WHERE id = ?", [id])?.number ?? "another document";
+      addIssue(c, "unit_taken", "documents", x.loserDocId, `${x.partNo} ${x.code} was fitted on ${num(x.winnerDocId)} first, so ${num(x.loserDocId)} needs a different one.`, { unitId: x.unitId });
+    }
     if (c.db.get<{ n: number }>("SELECT COUNT(*) AS n FROM stock_movements")!.n === before) continue;
     for (const { part_id } of c.db.all<{ part_id: string }>("SELECT DISTINCT part_id FROM stock_movements WHERE document_id = ?", [docId])) c.touched.parts.add(part_id);
   }

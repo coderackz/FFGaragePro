@@ -1,6 +1,7 @@
 import { averageCost } from "@ffgp/shared";
 import { newId, now, type Db } from "./db";
 import { HttpError } from "./errors";
+import { reconcileDocumentUnits, type UnitConflict } from "./units";
 
 export type MovementReason = "receive" | "job" | "invoice" | "adjust" | "opening";
 
@@ -69,12 +70,13 @@ function takenByPart(db: Db, ids: string[]): Map<string, { qty: number; costFils
 
 /**
  * Makes the stock taken for a document's chain equal to the stocked, garage-supplied part lines on it,
- * by posting only the difference. Saving the same lines twice posts nothing. Call inside db.tx.
+ * by posting only the difference. Saving the same lines twice posts nothing. Then the tracked units (tyres, batteries)
+ * named on the lines are fitted to it; returns the units another document already held. Call inside db.tx.
  */
-export function reconcileDocumentStock(db: Db, docId: string, userId: string, opts: { block?: boolean } = {}): void {
+export function reconcileDocumentStock(db: Db, docId: string, userId: string, opts: { block?: boolean } = {}): UnitConflict[] {
   const doc = db.get<ChainDoc>("SELECT id, type, source_id FROM documents WHERE id = ?", [docId]);
   // Estimates take nothing; a credit note's returns are its own movements, posted once when it is issued.
-  if (!doc || doc.type === "estimate" || doc.type === "credit_note") return;
+  if (!doc || doc.type === "estimate" || doc.type === "credit_note") return [];
   const wanted = new Map(
     db.all<{ part_id: string; qty: number }>(
       `SELECT dl.part_id, SUM(dl.qty) AS qty FROM document_lines dl JOIN parts p ON p.id = dl.part_id
@@ -97,6 +99,7 @@ export function reconcileDocumentStock(db: Db, docId: string, userId: string, op
       postMovement(db, { partId, qty: -diff, reason: doc.type === "jobcard" ? "job" : "invoice", documentId: docId, userId });
     }
   }
+  return reconcileDocumentUnits(db, docId);
 }
 
 /**

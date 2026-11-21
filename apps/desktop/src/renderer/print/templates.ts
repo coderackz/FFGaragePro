@@ -150,15 +150,18 @@ export function renderDocumentHtml(doc: DocumentFull, garage: Garage, settings: 
   const bi = lang === "en_ar";
 
   const partNo = (l: DocumentFull["lines"][number]) => (ds.showPartNumbers && l.partNo ? `Part no. ${esc(l.partNo)}` : "");
+  // Tyres and batteries: each one's DOT, or serial and the warranty's end.
+  const units = (l: DocumentFull["lines"][number]) =>
+    (l.units ?? []).map((u) => (u.kind === "dot" ? `DOT ${esc(u.code)}` : `Serial ${esc(u.code)}${u.warrantyEnds ? ` · warranty to ${date(u.warrantyEnds)}` : ""}`)).join(", ");
   const qty = (l: DocumentFull["lines"][number]) => (ds.showLabourHours && l.kind === "labour" ? `${l.qty} h` : `${l.qty}`);
   const rows = doc.lines
     .map((l, i) => {
       if (isJob) {
-        const notes = [partNo(l), l.suppliedBy === "fleetfix" ? "Supplied by Fleet Fix" : ""].filter(Boolean).join(" · ");
+        const notes = [partNo(l), units(l), l.suppliedBy === "fleetfix" ? "Supplied by Fleet Fix" : ""].filter(Boolean).join(" · ");
         return `<tr><td class="n">${i + 1}</td><td>${esc(l.description)}${bi ? arLine(l.partNameAr) : ""}${notes ? `<div class="k">${notes}</div>` : ""}</td><td>${KIND[l.kind] ?? ""}</td><td class="r">${qty(l)}</td><td class="c"><span class="box"></span></td></tr>`;
       }
       const t = shownLineTotals(doc, l, garage.vatRateBp);
-      const notes = [KIND[l.kind] ?? "", partNo(l), l.suppliedBy === "fleetfix" ? "Supplied by Fleet Fix" : ""].filter(Boolean).join(" · ");
+      const notes = [KIND[l.kind] ?? "", partNo(l), units(l), l.suppliedBy === "fleetfix" ? "Supplied by Fleet Fix" : ""].filter(Boolean).join(" · ");
       return `<tr><td class="n">${i + 1}</td><td>${esc(l.description)}${bi ? arLine(l.partNameAr) : ""}<div class="k">${notes}</div></td><td class="r">${qty(l)}</td><td class="r">${money(l.unitPriceFils)}</td><td class="r">${l.discountPct ? `${l.discountPct}%` : l.promoFils ? "" : "—"}${l.promoFils ? `<div class="k">Promo −${money(l.promoFils)}</div>` : ""}</td><td class="r">${money(t.netFils)}</td><td class="r">${money(t.vatFils)}</td><td class="r b">${money(t.grossFils)}</td></tr>`;
     })
     .join("");

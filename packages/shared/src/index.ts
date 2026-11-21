@@ -14,3 +14,4 @@ export * from "./payroll";
 export * from "./assets";
 export * from "./promo";
 export * from "./catalogue";
+export * from "./tracked";
