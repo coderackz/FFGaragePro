@@ -14,7 +14,7 @@ interface CustomerRow {
 }
 interface VehicleRow {
   id: string; customer_id: string; plate: string; make: string | null; model: string | null; year: number | null;
-  vin: string | null; colour: string | null; odometer: number | null; created_at: string; customer_name?: string;
+  vin: string | null; colour: string | null; odometer: number | null; created_at: string; customer_name?: string; engine?: string | null;
 }
 
 export const customerOut = (c: CustomerRow) => ({
@@ -42,7 +42,7 @@ function checkCreditChange(user: SessionUser, before: Partial<Record<keyof Custo
 }
 const creditDefaults = customerSchema.parse({ name: "x" });
 export const vehicleOut = (v: VehicleRow) => ({
-  id: v.id, customerId: v.customer_id, plate: v.plate, make: v.make, model: v.model, year: v.year, vin: v.vin,
+  id: v.id, customerId: v.customer_id, plate: v.plate, make: v.make, model: v.model, year: v.year, vin: v.vin, engine: v.engine ?? null,
   colour: v.colour, odometer: v.odometer, createdAt: v.created_at, customerName: v.customer_name,
 });
 
@@ -149,14 +149,16 @@ export function customerRoutes(app: FastifyInstance, db: Db): void {
     const clash = db.get<{ id: string }>("SELECT id FROM vehicles WHERE plate = ?", [input.plate]);
     if (clash && clash.id !== id) throw conflict(`Plate ${input.plate} is already registered`);
     const t = now();
-    const values = [input.customerId, input.plate, input.make, input.model, input.year ?? null, input.vin, input.colour, input.odometer ?? null];
+    // An older screen that doesn't send the engine leaves it as it was.
+    const engine = body && typeof body === "object" && "engine" in body ? input.engine : id ? getVehicle(id)?.engine ?? null : null;
+    const values = [input.customerId, input.plate, input.make, input.model, input.year ?? null, input.vin, input.colour, input.odometer ?? null, engine];
     if (id) {
-      db.run("UPDATE vehicles SET customer_id = ?, plate = ?, make = ?, model = ?, year = ?, vin = ?, colour = ?, odometer = ?, updated_at = ? WHERE id = ?", [...values, t, id]);
+      db.run("UPDATE vehicles SET customer_id = ?, plate = ?, make = ?, model = ?, year = ?, vin = ?, colour = ?, odometer = ?, engine = ?, updated_at = ? WHERE id = ?", [...values, t, id]);
       return id;
     }
     const newVehicleId = newId();
     db.run(
-      "INSERT INTO vehicles (customer_id, plate, make, model, year, vin, colour, odometer, created_at, updated_at, id) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+      "INSERT INTO vehicles (customer_id, plate, make, model, year, vin, colour, odometer, engine, created_at, updated_at, id) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
       [...values, t, t, newVehicleId],
     );
     return newVehicleId;

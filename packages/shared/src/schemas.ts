@@ -82,6 +82,8 @@ export const vehicleSchema = z.object({
   model: optionalText(60),
   year: z.number().int().min(1900).max(2100).optional().nullable(),
   vin: optionalText(40),
+  /** e.g. 1GR-FE or 2.7L: matched against parts' fitment. */
+  engine: optionalText(40),
   colour: optionalText(40),
   odometer: z.number().int().min(0).optional().nullable(),
 });
