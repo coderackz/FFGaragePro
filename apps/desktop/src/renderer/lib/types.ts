@@ -96,6 +96,8 @@ export interface Part {
   // Tracked stock and kits (inventory v2, Part 2).
   tracking?: "none" | "dot" | "serial"; warrantyMonths?: number; isKit?: boolean; kitAvailable?: number | null;
   components?: { id?: string; partId: string; partNo: string; name: string; unit: string; qty: number; onHand: number }[];
+  // Planning (Part 3): order up to, who from, how long it takes.
+  maxLevel?: number; preferredSupplierId?: string | null; leadTimeDays?: number;
 }
 export interface PartCategory {
   id: string; name: string; parentId: string | null; position: number;

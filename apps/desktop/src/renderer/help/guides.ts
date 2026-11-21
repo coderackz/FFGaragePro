@@ -61,7 +61,15 @@ Use one PC as the main computer, or link the garage to Fleetfix Cloud: every PC 
 
 ## Kits
 - A kit is a service package, such as "Minor service": one part made of other stocked parts (1 oil filter, 4.5 L of oil). Tick "This is a kit" on a new part and add its parts.
-- Sold at the kit's own price. Its parts come off the shelf, and its cost is what they cost. The part page shows how many kits the shelf can make.`,
+- Sold at the kit's own price. Its parts come off the shelf, and its cost is what they cost. The part page shows how many kits the shelf can make.
+
+## Reordering
+- On a part: "Reorder when at or below" (the minimum), "Order up to" (the maximum), the preferred supplier and how many days they take to deliver.
+- Inventory → Reorder → Suggested orders lists every part at or below its reorder level, counting what's already on order, with the quantity that tops it up. "Make draft purchase orders" makes one draft per supplier at their last price; check and send them as usual.
+- Min / max levels suggests levels from the last 90 days: enough for the lead time plus two weeks, up to a further 30 days. Use one, use all, or type your own, then Save levels (Owner).
+
+## Stock reports
+- Reports → Stock reports (Owner and Accountant): ABC (A parts are 80 % of what's used), fast and slow movers, dead stock (nothing used in 6 or 12 months), stock value by category, and aging by when each part was last received.`,
   },
   {
     slug: "books", title: "The books", area: "Accounts",

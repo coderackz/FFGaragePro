@@ -13,6 +13,7 @@ const emptyPart = {
   partNo: "", name: "", nameAr: "", brand: "", unit: "each", stocked: true, sellPriceFils: 0, reorderLevel: 0, location: "", fits: "", active: true,
   categoryId: null as string | null, attributes: {} as Record<string, string | number>, numbers: [] as Numbers, fitments: [] as Fitments, packs: [] as Packs,
   tracking: "none" as Tracking, warrantyMonths: 0, isKit: false, components: [] as KitRow[],
+  maxLevel: 0, preferredSupplierId: null as string | null, leadTimeDays: 7,
 };
 
 export function PartFormModal({ open, part, onClose, onSaved }: { open: boolean; part?: Part | null; onClose: () => void; onSaved: (p: Part) => void }) {
@@ -27,6 +28,7 @@ export function PartFormModal({ open, part, onClose, onSaved }: { open: boolean;
         categoryId: part.categoryId ?? null, attributes: part.attributes ?? {}, numbers: part.numbers ?? [], fitments: part.fitments ?? [], packs: part.packs ?? [],
         tracking: part.tracking ?? "none", warrantyMonths: part.warrantyMonths ?? 0, isKit: !!part.isKit,
         components: (part.components ?? []).map((c) => ({ partId: c.partId, partNo: c.partNo, qty: c.qty })),
+        maxLevel: part.maxLevel ?? 0, preferredSupplierId: part.preferredSupplierId ?? null, leadTimeDays: part.leadTimeDays ?? 7,
       }
       : { ...emptyPart, reorderLevel: settings?.inventory.defaultReorderLevel ?? 0 });
   }, [open, part]); // eslint-disable-line react-hooks/exhaustive-deps
@@ -35,6 +37,7 @@ export function PartFormModal({ open, part, onClose, onSaved }: { open: boolean;
   const suggested = markup != null && part?.avgCostFils ? roundFils(part.avgCostFils * (1 + markup / 100)) : null;
   const set = <K extends keyof typeof form>(k: K, v: (typeof form)[K]) => setForm((f) => ({ ...f, [k]: v }));
   const categories = useApi<{ categories: PartCategory[] }>(open ? "/api/part-categories" : null);
+  const suppliers = useApi<{ suppliers: Supplier[] }>(open ? "/api/suppliers" : null);
   const category = categories.data?.categories.find((c) => c.id === form.categoryId);
 
   const submit = async (e: FormEvent) => {
@@ -96,7 +99,25 @@ export function PartFormModal({ open, part, onClose, onSaved }: { open: boolean;
             </Select>
           </Field>
         )}
-        {form.stocked && <Field label="Reorder when at or below"><NumberInput value={form.reorderLevel} onChange={(v) => set("reorderLevel", v)} /></Field>}
+        {form.stocked && !form.isKit && <Field label="Reorder when at or below"><NumberInput value={form.reorderLevel} onChange={(v) => set("reorderLevel", v)} /></Field>}
+        {form.stocked && !form.isKit && (
+          <Field label="Order up to" hint="Suggested orders top the shelf up to this (0: to the reorder level)">
+            <NumberInput value={form.maxLevel} onChange={(v) => set("maxLevel", v)} aria-label="Order up to" />
+          </Field>
+        )}
+        {form.stocked && !form.isKit && (
+          <Field label="Preferred supplier">
+            <Select value={form.preferredSupplierId ?? ""} onChange={(e) => set("preferredSupplierId", e.target.value || null)} aria-label="Preferred supplier">
+              <option value="">The one last bought from</option>
+              {(suppliers.data?.suppliers ?? []).map((s) => <option key={s.id} value={s.id}>{s.name}</option>)}
+            </Select>
+          </Field>
+        )}
+        {form.stocked && !form.isKit && (
+          <Field label="Lead time (days)" hint="How long the supplier takes to deliver">
+            <NumberInput value={form.leadTimeDays} onChange={(v) => set("leadTimeDays", Math.max(0, Math.round(v)))} aria-label="Lead time" />
+          </Field>
+        )}
         <Field label="Shelf / bin"><Input value={form.location} onChange={(e) => set("location", e.target.value)} /></Field>
         <Field label="Category">
           <Select value={form.categoryId ?? ""} onChange={(e) => setForm((f) => ({ ...f, categoryId: e.target.value || null, attributes: {} }))} aria-label="Category">

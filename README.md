@@ -29,10 +29,14 @@ and margin (Owner and Accountant only). Parts list import from CSV.
   warranty end; found by serial). Units never move stock themselves; two computers fitting the same unit offline:
   the earlier document keeps it and the other gets a sync issue. **Kits:** a part made of stocked parts, sold at its
   own price; its parts leave the shelf and its cost is theirs.
+- **Planning:** reorder level (min), order up to (max), preferred supplier and lead time per part; min/max suggested from
+  90 days' usage; **Reorder** makes draft POs per supplier from everything at or below its minimum (counting what's on
+  order). **Stock reports:** ABC, movers, dead stock, valuation by category, aging by last receipt.
 - Every stock change is a row in `stock_movements` (append-only); `packages/server/src/stock.ts` is the only writer.
 
     npm run e2e:catalogue                           # part with category, numbers, fitment, pack → picker "Fits" → replaced by → PO in packs
     npm run e2e:tracked                             # tyre by DOT received → kit → job card picks oldest DOTs + kit → battery found by serial
+    npm run e2e:planning                            # suggested order → draft PO → min/max accepted → ABC, dead stock, valuation
 
 **Fleetfix Cloud — Stage 1 (browser app, development):** `apps/cloud` hosts every garage, each on its own
 SQLite file, running the same garage server; the browser app is the same screens. Fleet Fix staff create a

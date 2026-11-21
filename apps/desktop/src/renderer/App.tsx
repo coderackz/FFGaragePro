@@ -1,4 +1,6 @@
 import type { ReactNode } from "react";
+import { ReorderPage } from "./pages/inventory/ReorderPage";
+import { StockReportsPage } from "./pages/inventory/StockReportsPage";
 import { Navigate, Route, Routes } from "react-router";
 import { Button, Spinner } from "./components/ui";
 import { Layout } from "./components/Layout";
@@ -145,6 +147,8 @@ export function App() {
         <Route path="/parts/:id" element={<PartPage />} />
         <Route path="/suppliers" element={<SuppliersPage />} />
         <Route path="/purchase-orders" element={<PurchaseOrdersPage />} />
+        {canSee("purchases.manage") && <Route path="/reorder" element={<ReorderPage />} />}
+        {canSee("costs.view") && <Route path="/reports/stock" element={<StockReportsPage />} />}
         <Route path="/purchase-orders/new" element={<PurchaseOrderPage />} />
         <Route path="/purchase-orders/:id" element={<PurchaseOrderPage />} />
         {canSee("settings.manage") && <Route path="/users" element={<Navigate to="/settings/users" replace />} />}
