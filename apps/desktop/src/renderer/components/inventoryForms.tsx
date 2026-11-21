@@ -13,7 +13,7 @@ const emptyPart = {
   partNo: "", name: "", nameAr: "", brand: "", unit: "each", stocked: true, sellPriceFils: 0, reorderLevel: 0, location: "", fits: "", active: true,
   categoryId: null as string | null, attributes: {} as Record<string, string | number>, numbers: [] as Numbers, fitments: [] as Fitments, packs: [] as Packs,
   tracking: "none" as Tracking, warrantyMonths: 0, isKit: false, components: [] as KitRow[],
-  maxLevel: 0, preferredSupplierId: null as string | null, leadTimeDays: 7,
+  maxLevel: 0, preferredSupplierId: null as string | null, leadTimeDays: 7, coreFils: 0,
 };
 
 export function PartFormModal({ open, part, onClose, onSaved }: { open: boolean; part?: Part | null; onClose: () => void; onSaved: (p: Part) => void }) {
@@ -28,7 +28,7 @@ export function PartFormModal({ open, part, onClose, onSaved }: { open: boolean;
         categoryId: part.categoryId ?? null, attributes: part.attributes ?? {}, numbers: part.numbers ?? [], fitments: part.fitments ?? [], packs: part.packs ?? [],
         tracking: part.tracking ?? "none", warrantyMonths: part.warrantyMonths ?? 0, isKit: !!part.isKit,
         components: (part.components ?? []).map((c) => ({ partId: c.partId, partNo: c.partNo, qty: c.qty })),
-        maxLevel: part.maxLevel ?? 0, preferredSupplierId: part.preferredSupplierId ?? null, leadTimeDays: part.leadTimeDays ?? 7,
+        maxLevel: part.maxLevel ?? 0, preferredSupplierId: part.preferredSupplierId ?? null, leadTimeDays: part.leadTimeDays ?? 7, coreFils: part.coreFils ?? 0,
       }
       : { ...emptyPart, reorderLevel: settings?.inventory.defaultReorderLevel ?? 0 });
   }, [open, part]); // eslint-disable-line react-hooks/exhaustive-deps
@@ -111,6 +111,11 @@ export function PartFormModal({ open, part, onClose, onSaved }: { open: boolean;
               <option value="">The one last bought from</option>
               {(suppliers.data?.suppliers ?? []).map((s) => <option key={s.id} value={s.id}>{s.name}</option>)}
             </Select>
+          </Field>
+        )}
+        {form.stocked && !form.isKit && (
+          <Field label="Core deposit (AED)" hint="Charged with each one bought (alternators, starters…), owed back when the old unit goes back">
+            <MoneyInput fils={form.coreFils} onChange={(v) => set("coreFils", v)} aria-label="Core deposit" />
           </Field>
         )}
         {form.stocked && !form.isKit && (

@@ -12,6 +12,8 @@ interface Row {
   poLineId: string; description: string; remaining: number; qty: number; unitCostFils: number; packSize: number | null; packCostFils: number | null;
   /** Tyres and batteries: each one's DOT or serial, as typed. */
   tracking: "none" | "dot" | "serial"; codes: string;
+  /** Core deposit per unit, charged with the delivery. */
+  coreFils: number;
 }
 
 /** Records a delivery against a purchase order: what arrived, what it cost, and the supplier's invoice. */
@@ -28,13 +30,13 @@ export function ReceiveDialog({ po, open, onClose, onDone }: { po: PurchaseOrder
     if (!open) return;
     setRows(po.lines.filter((l) => l.id && l.qty - (l.receivedQty ?? 0) > 0).map((l) => {
       const remaining = Math.round((l.qty - (l.receivedQty ?? 0)) * 1000) / 1000;
-      return { poLineId: l.id!, description: l.description, remaining, qty: remaining, unitCostFils: l.unitCostFils ?? 0, packSize: l.packSize ?? null, packCostFils: l.packCostFils ?? null, tracking: l.partTracking ?? "none", codes: "" };
+      return { poLineId: l.id!, description: l.description, remaining, qty: remaining, unitCostFils: l.unitCostFils ?? 0, packSize: l.packSize ?? null, packCostFils: l.packCostFils ?? null, tracking: l.partTracking ?? "none", codes: "", coreFils: l.coreFils ?? 0 };
     }));
     setInvoiceNo(""); setInvoiceDate(new Date().toISOString().slice(0, 10)); setVatTouched(false);
   }, [open, po]);
 
   // Whole packs at the PO's price: packs × the pack price, as the server works it out.
-  const net = useMemo(() => rows.reduce((s, r) => s + poLineNetFils(r), 0), [rows]);
+  const net = useMemo(() => rows.reduce((s, r) => s + poLineNetFils(r) + roundFils(r.qty * r.coreFils), 0), [rows]);
   useEffect(() => {
     if (!vatTouched) setVatFils(roundFils((net * (garage?.vatRateBp ?? 500)) / 10000));
   }, [net, vatTouched, garage]);
@@ -46,7 +48,7 @@ export function ReceiveDialog({ po, open, onClose, onDone }: { po: PurchaseOrder
     try {
       const res = await post<{ purchaseOrder: PurchaseOrder }>(`/api/purchase-orders/${po.id}/receive`, {
         supplierInvoiceNo: invoiceNo || null, supplierInvoiceDate: invoiceDate || null, vatFils,
-        lines: rows.filter((r) => r.qty > 0).map(({ poLineId, qty, unitCostFils, tracking, codes }) => ({ poLineId, qty, unitCostFils, units: tracking === "none" ? [] : splitCodes(codes, tracking) })),
+        lines: rows.filter((r) => r.qty > 0).map(({ poLineId, qty, unitCostFils, tracking, codes, coreFils }) => ({ poLineId, qty, unitCostFils, units: tracking === "none" ? [] : splitCodes(codes, tracking), coreFils })),
       });
       toast.success(res.purchaseOrder.status === "received" ? `${po.number} fully received` : "Delivery recorded");
       onDone(res.purchaseOrder);
@@ -68,6 +70,11 @@ export function ReceiveDialog({ po, open, onClose, onDone }: { po: PurchaseOrder
             <tr key={r.poLineId} className="align-top">
               <td className="py-1.5">
                 {r.description}
+                {r.coreFils > 0 && (
+                  <div className="mt-1 flex items-center gap-1.5 text-xs text-zinc-600">Core deposit each
+                    <span className="w-24"><MoneyInput fils={r.coreFils} onChange={(coreFils) => setRow(i, { coreFils })} className="!h-7 text-xs" aria-label={`Core deposit for ${r.description}`} /></span>
+                  </div>
+                )}
                 {r.tracking !== "none" && r.qty > 0 && <UnitCodesInput tracking={r.tracking} qty={r.qty} value={r.codes} onChange={(codes) => setRow(i, { codes })} label={`Codes for ${r.description}`} />}
               </td>
               <td className="text-right tabular text-zinc-500">{r.remaining}</td>

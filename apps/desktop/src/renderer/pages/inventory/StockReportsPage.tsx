@@ -58,9 +58,9 @@ function Movers() {
     <>
       <div className="mb-3 flex items-center gap-2 text-sm text-zinc-600">
         Used in the last
-        <Select value={days} onChange={(e) => setDays(e.target.value)} className="w-32" aria-label="Period">
+        <span className="block w-32 shrink-0"><Select value={days} onChange={(e) => setDays(e.target.value)}  aria-label="Period">
           {["30", "90", "180", "365"].map((d) => <option key={d} value={d}>{d} days</option>)}
-        </Select>
+        </Select></span>
         — fastest first; the slowest (and unused) at the bottom.
       </div>
       {!data ? <Spinner /> : (
@@ -84,10 +84,10 @@ function Dead() {
     <>
       <div className="mb-3 flex items-center gap-2 text-sm text-zinc-600">
         Parts with stock not used on any job for
-        <Select value={months} onChange={(e) => setMonths(e.target.value)} className="w-32" aria-label="Not used for">
+        <span className="block w-32 shrink-0"><Select value={months} onChange={(e) => setMonths(e.target.value)}  aria-label="Not used for">
           <option value="6">6 months</option>
           <option value="12">12 months</option>
-        </Select>
+        </Select></span>
       </div>
       {!data ? <Spinner /> : (
         <Card padded={false}>

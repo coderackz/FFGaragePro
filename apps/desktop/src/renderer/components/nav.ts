@@ -1,6 +1,6 @@
 import type { Action } from "@ffgp/shared";
 import {
-  Banknote, BookOpen, ClipboardList, Car, ChartBar, FileMinus, FileText, Hammer, IdCard, Landmark, LayoutDashboard, LifeBuoy, Package, Plug, Receipt, Scale, Settings, ShoppingCart, TicketPercent, Truck, Users, Wallet, Wrench, type LucideIcon,
+  Banknote, BookOpen, ClipboardList, Car, ChartBar, FileMinus, FileText, Hammer, IdCard, Landmark, LayoutDashboard, LifeBuoy, Package, Plug, Receipt, Scale, Settings, ShoppingCart, TicketPercent, Truck, Undo2, Users, Wallet, Wrench, type LucideIcon,
 } from "lucide-react";
 
 export interface NavItem { to: string; label: string; icon: LucideIcon; end?: boolean }
@@ -54,6 +54,7 @@ export function navGroups(can: (a: Action) => boolean): NavGroup[] {
         { to: "/parts", label: "Parts", icon: Package },
         { to: "/purchase-orders", label: "Purchases", icon: ShoppingCart },
         ...when(can("purchases.manage"), { to: "/reorder", label: "Reorder", icon: ClipboardList }),
+        ...when(can("payables.manage"), { to: "/returns", label: "Returns & claims", icon: Undo2 }),
         { to: "/suppliers", label: "Suppliers", icon: Truck },
       ],
     },

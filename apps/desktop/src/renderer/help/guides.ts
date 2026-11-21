@@ -68,6 +68,12 @@ Use one PC as the main computer, or link the garage to Fleetfix Cloud: every PC 
 - Inventory → Reorder → Suggested orders lists every part at or below its reorder level, counting what's already on order, with the quantity that tops it up. "Make draft purchase orders" makes one draft per supplier at their last price; check and send them as usual.
 - Min / max levels suggests levels from the last 90 days: enough for the lead time plus two weeks, up to a further 30 days. Use one, use all, or type your own, then Save levels (Owner).
 
+## Returns, cores and warranty claims
+- Inventory → Returns & claims (Owner and Accountant).
+- Return parts: choose the supplier and the parts going back (tyres and batteries one by one), what they credit each, and why. The parts come off the shelf and a debit note (RTS-00001) lowers what you owe them; it's in their statement and the books.
+- Cores: a part's core deposit (alternators, starters) is set on the part and charged with each delivery. Cores owed lists them until the old units go back ("Return cores" makes a debit note) or you write them off (the customer kept the old one).
+- Warranty claims: open one for a part, or for a battery or tyre by its serial (it must have been fitted). Close it when the supplier answers: Replaced (the new one comes onto the shelf at no cost; enter its serial), Credited (a debit note) or Rejected.
+
 ## Stock reports
 - Reports → Stock reports (Owner and Accountant): ABC (A parts are 80 % of what's used), fast and slow movers, dead stock (nothing used in 6 or 12 months), stock value by category, and aging by when each part was last received.`,
   },

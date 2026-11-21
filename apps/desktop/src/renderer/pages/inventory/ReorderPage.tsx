@@ -89,10 +89,10 @@ function SuggestedOrders() {
                   ...(g.supplierId ? [] : [{
                     header: "Supplier",
                     cell: (l: SuggestedLine) => (
-                      <Select value={supplierFor[l.partId] ?? ""} onChange={(e) => setSupplierFor((s) => ({ ...s, [l.partId]: e.target.value }))} aria-label={`Supplier for ${l.partNo}`} className="h-8 w-44">
+                      <span className="block w-44 shrink-0"><Select value={supplierFor[l.partId] ?? ""} onChange={(e) => setSupplierFor((s) => ({ ...s, [l.partId]: e.target.value }))} aria-label={`Supplier for ${l.partNo}`} className="h-8">
                         <option value="">Choose…</option>
                         {(suppliers.data?.suppliers ?? []).map((s) => <option key={s.id} value={s.id}>{s.name}</option>)}
-                      </Select>
+                      </Select></span>
                     ),
                   }]),
                   { header: "Order", align: "right", cell: (l) => <span className="inline-block w-24"><NumberInput value={qty[l.partId] ?? l.qty} onChange={(v) => setQty((q) => ({ ...q, [l.partId]: v }))} aria-label={`Quantity of ${l.partNo}`} className="h-8" /></span> },

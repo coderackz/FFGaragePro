@@ -1,5 +1,6 @@
 import type { ReactNode } from "react";
 import { ReorderPage } from "./pages/inventory/ReorderPage";
+import { ReturnsPage } from "./pages/inventory/ReturnsPage";
 import { StockReportsPage } from "./pages/inventory/StockReportsPage";
 import { Navigate, Route, Routes } from "react-router";
 import { Button, Spinner } from "./components/ui";
@@ -148,6 +149,7 @@ export function App() {
         <Route path="/suppliers" element={<SuppliersPage />} />
         <Route path="/purchase-orders" element={<PurchaseOrdersPage />} />
         {canSee("purchases.manage") && <Route path="/reorder" element={<ReorderPage />} />}
+        {canSee("payables.manage") && <Route path="/returns" element={<ReturnsPage />} />}
         {canSee("costs.view") && <Route path="/reports/stock" element={<StockReportsPage />} />}
         <Route path="/purchase-orders/new" element={<PurchaseOrderPage />} />
         <Route path="/purchase-orders/:id" element={<PurchaseOrderPage />} />

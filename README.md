@@ -32,11 +32,16 @@ and margin (Owner and Accountant only). Parts list import from CSV.
 - **Planning:** reorder level (min), order up to (max), preferred supplier and lead time per part; min/max suggested from
   90 days' usage; **Reorder** makes draft POs per supplier from everything at or below its minimum (counting what's on
   order). **Stock reports:** ABC, movers, dead stock, valuation by category, aging by last receipt.
+- **Returns, cores, warranty:** a debit note (RTS) for parts returned off the shelf at cost or cores going back; core
+  deposits on deliveries sit in 1220 Core deposits until returned or written off; warranty claims (WC) end replaced
+  (into stock at no cost), credited (a debit note to cost of parts) or rejected. Debit notes settle the supplier's
+  oldest open items, post to the books and lower VAT box 9.
 - Every stock change is a row in `stock_movements` (append-only); `packages/server/src/stock.ts` is the only writer.
 
     npm run e2e:catalogue                           # part with category, numbers, fitment, pack → picker "Fits" → replaced by → PO in packs
     npm run e2e:tracked                             # tyre by DOT received → kit → job card picks oldest DOTs + kit → battery found by serial
     npm run e2e:planning                            # suggested order → draft PO → min/max accepted → ABC, dead stock, valuation
+    npm run e2e:returns                             # delivery with cores → parts returned → cores returned/written off → battery claim replaced
 
 **Fleetfix Cloud — Stage 1 (browser app, development):** `apps/cloud` hosts every garage, each on its own
 SQLite file, running the same garage server; the browser app is the same screens. Fleet Fix staff create a

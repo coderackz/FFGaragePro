@@ -184,8 +184,8 @@ export function purchaseRoutes(app: FastifyInstance, db: Db, docs: { full: Docum
       "SELECT * FROM suppliers WHERE id = ?",
       [po.supplier_id],
     )!;
-    const lines = db.all<PoLineRow & { part_no: string | null; stocked: number | null; job_number: string | null; tracking: string | null }>(
-      `SELECT pl.*, p.part_no, p.stocked, p.tracking, d.number AS job_number FROM po_lines pl
+    const lines = db.all<PoLineRow & { part_no: string | null; stocked: number | null; job_number: string | null; tracking: string | null; core_fils: number | null }>(
+      `SELECT pl.*, p.part_no, p.stocked, p.tracking, p.core_fils, d.number AS job_number FROM po_lines pl
        LEFT JOIN parts p ON p.id = pl.part_id LEFT JOIN documents d ON d.id = pl.job_document_id
        WHERE pl.po_id = ? ORDER BY pl.position`,
       [id],
@@ -206,7 +206,7 @@ export function purchaseRoutes(app: FastifyInstance, db: Db, docs: { full: Docum
         id: l.id, partId: l.part_id, partNo: l.part_no, stocked: l.stocked === null ? null : !!l.stocked, description: l.description,
         qty: l.qty, receivedQty: l.received_qty, jobDocumentId: l.job_document_id, jobDocumentNumber: l.job_number,
         packName: l.pack_name ?? null, packSize: l.pack_size ?? null, partTracking: l.part_id && l.stocked ? l.tracking ?? "none" : "none",
-        ...(showCost ? { unitCostFils: l.unit_cost_fils, packCostFils: l.pack_cost_fils ?? null, netFils: poLineNet(l) } : {}),
+        ...(showCost ? { unitCostFils: l.unit_cost_fils, packCostFils: l.pack_cost_fils ?? null, netFils: poLineNet(l), coreFils: l.core_fils ?? 0 } : {}),
       })),
       ...(showCost
         ? {

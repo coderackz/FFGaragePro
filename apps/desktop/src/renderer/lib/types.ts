@@ -98,6 +98,8 @@ export interface Part {
   components?: { id?: string; partId: string; partNo: string; name: string; unit: string; qty: number; onHand: number }[];
   // Planning (Part 3): order up to, who from, how long it takes.
   maxLevel?: number; preferredSupplierId?: string | null; leadTimeDays?: number;
+  /** Part 4: the supplier's core deposit per unit. */
+  coreFils?: number;
 }
 export interface PartCategory {
   id: string; name: string; parentId: string | null; position: number;
@@ -121,6 +123,8 @@ export interface PoLine {
   jobDocumentId: string | null; jobDocumentNumber?: string | null; unitCostFils?: number; netFils?: number;
   /** Bought in packs: qty and unitCostFils are still in the part's unit. */
   packName?: string | null; packSize?: number | null; packCostFils?: number | null; partTracking?: "none" | "dot" | "serial";
+  /** The part's core deposit per unit (charged with the delivery, owed back). */
+  coreFils?: number;
 }
 export interface GoodsReceipt {
   id: string; supplierInvoiceNo: string | null; supplierInvoiceDate: string | null; netFils: number; vatFils: number; grossFils: number;
