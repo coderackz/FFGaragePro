@@ -59,6 +59,29 @@ function chainIds(db: Db, doc: ChainDoc): string[] {
 
 const inList = (ids: string[]) => ids.map(() => "?").join(", ");
 
+/** A kit's parts and quantities (empty for a part that isn't a kit). */
+export const kitParts = (db: Db, partId: string) =>
+  db.all<{ partId: string; qty: number }>("SELECT component_part_id AS partId, qty FROM kit_components WHERE kit_part_id = ?", [partId]);
+
+/**
+ * The stocked parts a set of part lines takes, by part: a kit line counts as its parts × the line's quantity.
+ * Lines Fleet Fix supplies take nothing.
+ */
+function partsWanted(db: Db, lines: { partId: string | null; qty: number; suppliedBy: string }[]): Map<string, number> {
+  const wanted = new Map<string, number>();
+  const add = (id: string, q: number) => wanted.set(id, round3((wanted.get(id) ?? 0) + q));
+  for (const l of lines) {
+    if (!l.partId || l.suppliedBy !== "garage") continue;
+    const p = db.get<{ stocked: number; is_kit: number }>("SELECT stocked, is_kit FROM parts WHERE id = ?", [l.partId]);
+    if (p?.is_kit) {
+      for (const c of kitParts(db, l.partId)) {
+        if (db.get<{ stocked: number }>("SELECT stocked FROM parts WHERE id = ?", [c.partId])?.stocked) add(c.partId, c.qty * l.qty);
+      }
+    } else if (p?.stocked) add(l.partId, l.qty);
+  }
+  return wanted;
+}
+
 function takenByPart(db: Db, ids: string[]): Map<string, { qty: number; costFils: number }> {
   const rows = db.all<{ part_id: string; qty: number; cost: number }>(
     `SELECT part_id, -SUM(qty) AS qty, -SUM(qty * unit_cost_fils) AS cost FROM stock_movements
@@ -77,12 +100,9 @@ export function reconcileDocumentStock(db: Db, docId: string, userId: string, op
   const doc = db.get<ChainDoc>("SELECT id, type, source_id FROM documents WHERE id = ?", [docId]);
   // Estimates take nothing; a credit note's returns are its own movements, posted once when it is issued.
   if (!doc || doc.type === "estimate" || doc.type === "credit_note") return [];
-  const wanted = new Map(
-    db.all<{ part_id: string; qty: number }>(
-      `SELECT dl.part_id, SUM(dl.qty) AS qty FROM document_lines dl JOIN parts p ON p.id = dl.part_id
-       WHERE dl.document_id = ? AND dl.supplied_by = 'garage' AND p.stocked = 1 GROUP BY dl.part_id`,
-      [docId],
-    ).map((r) => [r.part_id, round3(r.qty)]),
+  const wanted = partsWanted(
+    db,
+    db.all<{ partId: string | null; qty: number; suppliedBy: string }>("SELECT part_id AS partId, qty, supplied_by AS suppliedBy FROM document_lines WHERE document_id = ?", [docId]),
   );
   const taken = takenByPart(db, chainIds(db, doc));
   const partIds = new Set([...wanted.keys(), ...taken.keys()]);
@@ -111,11 +131,7 @@ export function checkStockAvailable(
   lines: { kind: string; partId?: string | null; qty: number; suppliedBy?: string }[],
   chainDocIds: string[],
 ): void {
-  const wanted = new Map<string, number>();
-  for (const l of lines) {
-    if (l.kind !== "part" || !l.partId || (l.suppliedBy ?? "garage") !== "garage") continue;
-    wanted.set(l.partId, round3((wanted.get(l.partId) ?? 0) + l.qty));
-  }
+  const wanted = partsWanted(db, lines.filter((l) => l.kind === "part").map((l) => ({ partId: l.partId ?? null, qty: l.qty, suppliedBy: l.suppliedBy ?? "garage" })));
   const taken = chainDocIds.length ? takenByPart(db, chainDocIds) : new Map<string, { qty: number }>();
   for (const [partId, qty] of wanted) {
     const p = db.get<{ on_hand: number; unit: string; part_no: string; stocked: number }>("SELECT on_hand, unit, part_no, stocked FROM parts WHERE id = ?", [partId]);
@@ -155,9 +171,9 @@ export function documentCost(db: Db, docId: string): DocumentCost {
   if (!doc) return { lineCosts, partsCostFils: 0, costPending: false, uncostedLines: 0 };
   const lines = db.all<{
     id: string; kind: string; qty: number; supplied_by: string; part_id: string | null; stocked: number | null; avg_cost_fils: number | null;
-    po_line_id: string | null; po_received: number | null; po_cost: number | null;
+    po_line_id: string | null; po_received: number | null; po_cost: number | null; is_kit: number | null;
   }>(
-    `SELECT dl.id, dl.kind, dl.qty, dl.supplied_by, dl.part_id, p.stocked, p.avg_cost_fils, dl.po_line_id,
+    `SELECT dl.id, dl.kind, dl.qty, dl.supplied_by, dl.part_id, p.stocked, p.avg_cost_fils, p.is_kit, dl.po_line_id,
             pl.received_qty AS po_received, pl.unit_cost_fils AS po_cost
      FROM document_lines dl LEFT JOIN parts p ON p.id = dl.part_id LEFT JOIN po_lines pl ON pl.id = dl.po_line_id
      WHERE dl.document_id = ? ORDER BY dl.position`,
@@ -167,17 +183,26 @@ export function documentCost(db: Db, docId: string): DocumentCost {
   let total = 0;
   let pending = false;
   let uncosted = 0;
+  // What one unit of a stocked part cost this work: as it left the shelf, or (not taken yet) its average.
+  const perUnit = (partId: string, avg: number) => {
+    const t = taken.get(partId);
+    return t && t.qty > 0 ? t.costFils / t.qty : avg;
+  };
   for (const l of lines) {
     let cost: number | null = 0;
     if (l.supplied_by !== "garage") cost = 0;
+    else if (l.part_id && l.is_kit) {
+      // A kit costs what its parts cost; unknown while any of them was taken at no cost.
+      const parts = kitParts(db, l.part_id).map((c) => ({ ...c, unit: perUnit(c.partId, db.get<{ a: number }>("SELECT avg_cost_fils AS a FROM parts WHERE id = ?", [c.partId])?.a ?? 0) }));
+      cost = parts.some((c) => c.unit <= 0) ? null : Math.round(parts.reduce((s, c) => s + c.unit * c.qty, 0) * l.qty);
+    }
     else if (l.po_line_id && l.po_received && l.po_received > 0) {
       // Bought for this job: what was actually paid, even if the part is also kept on the shelf.
       cost = Math.round((l.po_cost ?? 0) * l.qty);
     } else if (l.part_id && l.stocked) {
-      const t = taken.get(l.part_id);
-      const perUnit = t && t.qty > 0 ? t.costFils / t.qty : (l.avg_cost_fils ?? 0);
+      const unit = perUnit(l.part_id, l.avg_cost_fils ?? 0);
       // Taken at no cost: fitted before any delivery was entered, so the real cost isn't known yet.
-      cost = perUnit > 0 ? Math.round(perUnit * l.qty) : null;
+      cost = unit > 0 ? Math.round(unit * l.qty) : null;
     } else if (l.po_line_id || l.part_id) {
       cost = null; // ordered but not received, or a per-job part not requested yet
     } else if (l.kind === "part") {

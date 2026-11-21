@@ -1,6 +1,6 @@
 import type { FastifyInstance } from "fastify";
-import { adjustmentSchema, can, categorySchema, fitmentMatches, normalizeNumber, parseAED, partSchema, supplierSchema, type PartInput } from "@ffgp/shared";
-import { addFitment, categoryOut, chainFrom, fitmentsOf, getCategory, matchedBy, numbersOf, packsOf, saveCatalogue, supersede, type CategoryRow, type VehicleFit } from "../catalogue";
+import { adjustmentSchema, can, categorySchema, fitmentMatches, kitAvailable, normalizeNumber, parseAED, partSchema, supplierSchema, type PartInput } from "@ffgp/shared";
+import { addFitment, categoryOut, chainFrom, fitmentsOf, getCategory, kitComponentsOf, saveKit, matchedBy, numbersOf, packsOf, saveCatalogue, supersede, type CategoryRow, type VehicleFit } from "../catalogue";
 import { z } from "zod";
 import { requireAction, sessionUser } from "../auth";
 import { newId, now, type Db } from "../db";
@@ -49,7 +49,15 @@ export function partDetail(db: Db, p: PartRow, showCost: boolean) {
     supersededBy: replacedBy ? { id: replacedBy.id, partNo: replacedBy.part_no, name: replacedBy.name } : null,
     replaces: replaces.map((r) => ({ id: r.id, partNo: r.part_no, name: r.name })),
     chain: chainFrom(db, p.id).map(({ id, partNo, name }) => ({ id, partNo, name })),
+    ...kitInfo(db, p),
   };
+}
+
+/** A kit's parts, and how many whole kits the shelf can make. */
+function kitInfo(db: Db, p: PartRow) {
+  if (!p.is_kit) return { components: [], kitAvailable: null };
+  const components = kitComponentsOf(db, p.id);
+  return { components, kitAvailable: kitAvailable(components, new Map(components.map((c) => [c.partId, c.onHand]))) };
 }
 
 type Sent = "category" | "categoryId" | "numbers" | "fitments" | "packs" | "tracking" | "warrantyMonths" | "kit";
@@ -72,6 +80,8 @@ export function partRoutes(app: FastifyInstance, db: Db): void {
     if (input.active) assertUniquePartNo(input.partNo, existing?.id ?? null);
     if (existing && !!existing.stocked !== input.stocked) {
       if (existing.on_hand !== 0) throw conflict("Bring the stock to zero before changing this");
+      const kit = db.get<{ part_no: string }>("SELECT p.part_no FROM kit_components k JOIN parts p ON p.id = k.kit_part_id WHERE k.component_part_id = ? LIMIT 1", [existing.id]);
+      if (kit && !input.stocked) throw conflict(`This part is in the kit ${kit.part_no}: take it out of the kit first`);
       // Open jobs still hold (or would take) this part's stock; switching now would strand it.
       const open = db.all<{ number: string }>(
         `SELECT DISTINCT d.number FROM document_lines dl JOIN documents d ON d.id = dl.document_id
@@ -104,6 +114,7 @@ export function partRoutes(app: FastifyInstance, db: Db): void {
     );
     saveCatalogue(db, id, input, () => true);
     db.run("UPDATE parts SET tracking = ?, warranty_months = ? WHERE id = ?", [input.tracking, input.warrantyMonths, id]);
+    saveKit(db, id, input.isKit, input.components);
     return id;
   }
   /**
@@ -113,11 +124,12 @@ export function partRoutes(app: FastifyInstance, db: Db): void {
   function saveTracking(existing: PartRow, input: PartInput, present: (k: Sent) => boolean) {
     if (present("tracking")) db.run("UPDATE parts SET tracking = ? WHERE id = ?", [input.tracking, existing.id]);
     if (present("warrantyMonths")) db.run("UPDATE parts SET warranty_months = ? WHERE id = ?", [input.warrantyMonths, existing.id]);
+    if (present("kit")) saveKit(db, existing.id, input.isKit, input.components);
   }
   /** Which catalogue parts a request body carries ("category": the category or its specs). */
   const sent = (body: unknown) => (k: Sent) => {
     const b = (body ?? {}) as Record<string, unknown>;
-    return k === "category" ? "categoryId" in b || "attributes" in b : k in b;
+    return k === "category" ? "categoryId" in b || "attributes" in b : k === "kit" ? "isKit" in b || "components" in b : k in b;
   };
 
   /**
@@ -170,11 +182,11 @@ export function partRoutes(app: FastifyInstance, db: Db): void {
       },
     );
     const showCost = can(user.role, "costs.view");
-    type Out = ReturnType<typeof partOut> & { matchedBy: string | null; fitsVehicle: boolean; replacesPartNo: string | null; rank: number };
+    type Out = ReturnType<typeof partOut> & { kitAvailable: number | null; matchedBy: string | null; fitsVehicle: boolean; replacesPartNo: string | null; rank: number };
     const fitSet = new Set(fitting), notFitSet = new Set(notFitting);
     const out = (p: PartRow, replaces: string | null = null): Out => {
       const rank = fitSet.has(p.id) ? 0 : notFitSet.has(p.id) ? 2 : 1;
-      return { ...partOut(p, showCost), matchedBy: q ? matchedBy(db, p.id, q, [p.part_no, p.name, p.brand ?? "", p.fits ?? "", p.spec_text].join(" ")) : null, fitsVehicle: rank === 0, replacesPartNo: replaces, rank };
+      return { ...partOut(p, showCost), kitAvailable: kitInfo(db, p).kitAvailable, matchedBy: q ? matchedBy(db, p.id, q, [p.part_no, p.name, p.brand ?? "", p.fits ?? "", p.spec_text].join(" ")) : null, fitsVehicle: rank === 0, replacesPartNo: replaces, rank };
     };
     let list: Out[] = rows.map((p) => out(p));
     if (req.query.picker === "1") {

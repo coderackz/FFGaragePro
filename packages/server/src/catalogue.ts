@@ -56,11 +56,12 @@ export function checkAttributes(
  * added on two computers gets one id, so sync merges them into one row instead of keeping both; saving a part
  * unchanged writes nothing.
  */
-export function childId(table: "part_numbers" | "part_fitments" | "part_packs", partId: string, key: string): string {
+export function childId(table: ChildTable, partId: string, key: string): string {
   const h = createHash("sha256").update(`${table}\n${partId}\n${key}`).digest("hex");
   return `${h.slice(0, 8)}-${h.slice(8, 12)}-5${h.slice(13, 16)}-${((parseInt(h[16]!, 16) & 3) | 8).toString(16)}${h.slice(17, 20)}-${h.slice(20, 32)}`;
 }
 type Val = string | number | null;
+type ChildTable = "part_numbers" | "part_fitments" | "part_packs" | "kit_components";
 /** Case and spacing ignored, as fitmentMatches does. */
 const squashKey = (s: string | null | undefined) => (s ?? "").toLowerCase().replace(/\s+/g, " ").trim();
 type Fit = { make: string; model?: string | null; yearFrom?: number | null; yearTo?: number | null; engine?: string | null; note?: string | null };
@@ -72,16 +73,17 @@ const packKey = (p: { name: string }) => p.name.trim().toLowerCase();
  * Makes a part's rows in `table` exactly `rows` (keyed by `childId`): unchanged rows are left alone, changed ones
  * updated, new ones inserted and the rest deleted. Each statement is one sync change, so only real changes travel.
  */
-function syncChildren(db: Db, table: "part_numbers" | "part_fitments" | "part_packs", partId: string, rows: { key: string; values: Record<string, Val> }[], t: string): void {
+function syncChildren(db: Db, table: ChildTable, partId: string, rows: { key: string; values: Record<string, Val> }[], t: string): void {
+  const parent = table === "kit_components" ? "kit_part_id" : "part_id";
   const wanted = new Map<string, Record<string, Val>>();
   for (const r of rows) wanted.set(childId(table, partId, r.key), r.values);
   const cols = Object.keys(rows[0]?.values ?? {});
-  const existing = new Map(db.all<Record<string, Val>>(`SELECT * FROM ${table} WHERE part_id = ?`, [partId]).map((r) => [String(r.id), r]));
+  const existing = new Map(db.all<Record<string, Val>>(`SELECT * FROM ${table} WHERE ${parent} = ?`, [partId]).map((r) => [String(r.id), r]));
   for (const id of existing.keys()) if (!wanted.has(id)) db.run(`DELETE FROM ${table} WHERE id = ?`, [id]);
   for (const [id, values] of wanted) {
     const cur = existing.get(id);
     if (!cur) {
-      const names = ["id", "part_id", ...cols, "created_at"];
+      const names = ["id", parent, ...cols, "created_at"];
       db.run(`INSERT INTO ${table} (${names.join(", ")}) VALUES (${names.map(() => "?").join(", ")})`, [id, partId, ...cols.map((c) => values[c] ?? null), t]);
     } else {
       const changed = cols.filter((c) => (cur[c] ?? null) !== (values[c] ?? null));
@@ -111,6 +113,36 @@ export function saveCatalogue(db: Db, partId: string, input: PartInput, present:
   if (present("numbers")) syncChildren(db, "part_numbers", partId, input.numbers.map(numberRow), t);
   if (present("fitments")) syncChildren(db, "part_fitments", partId, input.fitments.map(fitmentRow), t);
   if (present("packs")) syncChildren(db, "part_packs", partId, input.packs.map(packRow), t);
+}
+
+/** A kit's parts with their shelf counts. */
+export function kitComponentsOf(db: Db, kitId: string) {
+  return db.all<{ id: string; component_part_id: string; qty: number; part_no: string; name: string; unit: string; on_hand: number }>(
+    `SELECT k.id, k.component_part_id, k.qty, p.part_no, p.name, p.unit, p.on_hand FROM kit_components k JOIN parts p ON p.id = k.component_part_id
+     WHERE k.kit_part_id = ? ORDER BY k.rowid`, [kitId],
+  ).map((c) => ({ id: c.id, partId: c.component_part_id, partNo: c.part_no, name: c.name, unit: c.unit, qty: c.qty, onHand: c.on_hand }));
+}
+
+/**
+ * Makes a part a kit made of `components` (or not a kit). Its parts must be stocked parts that aren't kits; a part
+ * that's already in a kit can't become one.
+ */
+export function saveKit(db: Db, partId: string, isKit: boolean, components: { partId: string; qty: number }[]): void {
+  if (isKit) {
+    if (db.get("SELECT 1 FROM kit_components WHERE component_part_id = ?", [partId])) throw badRequest("This part is in a kit, so it can't be a kit itself");
+    const seen = new Set<string>();
+    for (const c of components) {
+      if (c.partId === partId) throw badRequest("A kit can't contain itself");
+      if (seen.has(c.partId)) throw badRequest("A part is in the kit twice");
+      seen.add(c.partId);
+      const p = db.get<{ part_no: string; stocked: number; is_kit: number }>("SELECT part_no, stocked, is_kit FROM parts WHERE id = ?", [c.partId]);
+      if (!p) throw badRequest("A part in the kit doesn't exist");
+      if (p.is_kit) throw badRequest(`${p.part_no} is a kit: no kit inside a kit`);
+      if (!p.stocked) throw badRequest(`${p.part_no}: a kit is made of stocked parts`);
+    }
+  }
+  db.run("UPDATE parts SET is_kit = ? WHERE id = ?", [isKit ? 1 : 0, partId]);
+  syncChildren(db, "kit_components", partId, isKit ? components.map((c) => ({ key: c.partId, values: { component_part_id: c.partId, qty: c.qty } })) : [], now());
 }
 
 /** Adds a fitment row unless the same one is there. Returns whether it was added. */
