@@ -437,7 +437,7 @@ export function DocumentPage() {
             ))}
           >
             <LinesTable
-              type={type} lines={draft.lines} promoFils={promo && type !== "credit_note" ? promoLines.map((l) => l.promoFils ?? 0) : undefined} editable={editable} vatRate={vatRate} includeVat={includeVat} onChange={updateLine}
+              type={type} vehicleId={draft.vehicleId} lines={draft.lines} promoFils={promo && type !== "credit_note" ? promoLines.map((l) => l.promoFils ?? 0) : undefined} editable={editable} vatRate={vatRate} includeVat={includeVat} onChange={updateLine}
               onRemove={(i) => update({ lines: draft.lines.filter((_, j) => j !== i) })}
               onRequest={type === "jobcard" && !isNew && editable && can("documents.edit") ? onRequest : undefined}
               showCost={can("costs.view")}
@@ -588,7 +588,9 @@ function Row({ label, value, strong }: { label: string; value: string; strong?: 
   );
 }
 
-function LinesTable({ type, lines, promoFils, editable, vatRate, includeVat, onChange, onRemove, onRequest, showCost }: {
+function LinesTable({ type, lines, promoFils, vehicleId, editable, vatRate, includeVat, onChange, onRemove, onRequest, showCost }: {
+  /** The job's vehicle: the part search puts what fits it first. */
+  vehicleId?: string | null;
   /** Each line's share of the promo as the lines stand now (worked out here while editing, before saving). */
   promoFils?: number[];
   type: DocType; lines: DocLine[]; editable: boolean; vatRate: number; includeVat: boolean; onChange: (i: number, l: Partial<DocLine>) => void; onRemove: (i: number) => void;
@@ -626,13 +628,13 @@ function LinesTable({ type, lines, promoFils, editable, vatRate, includeVat, onC
               </td>
               <td className="px-2 py-1.5 break-words">
                 {editable && line.kind === "part" ? (
-                  <PartPicker line={line} onChange={(p) => onChange(i, p)} priceOf={(p) => catalogueLinePrice(p.sellPriceFils, vatRate, includeVat)} />
+                  <PartPicker line={line} vehicleId={vehicleId} onChange={(p) => onChange(i, p)} priceOf={(p) => catalogueLinePrice(p.sellPriceFils, vatRate, includeVat)} />
                 ) : editable ? (
                   <Input value={line.description} onChange={(e) => onChange(i, { description: e.target.value })} placeholder={line.kind === "labour" ? "e.g. Replace front brake pads" : "Description"} className="h-8" />
                 ) : (
                   line.description
                 )}
-                {line.kind === "part" && <PartControls line={line} editable={editable} showCost={showCost} onChange={(p) => onChange(i, p)} onRequest={onRequest && (() => onRequest(i))} />}
+                {line.kind === "part" && <PartControls vehicleId={vehicleId} line={line} editable={editable} showCost={showCost} onChange={(p) => onChange(i, p)} onRequest={onRequest && (() => onRequest(i))} />}
               </td>
               <td className="px-2 py-1.5 text-right tabular">
                 {editable ? <NumberInput value={line.qty} onChange={(qty) => onChange(i, { qty })} className="h-8" aria-label="Quantity" /> : line.qty}
@@ -662,8 +664,8 @@ function LinesTable({ type, lines, promoFils, editable, vatRate, includeVat, onC
 }
 
 /** The row of part details under a part line: Fleet Fix supply, order status, shelf warning, request button. */
-function PartControls({ line, editable, showCost, onChange, onRequest }: {
-  line: DocLine; editable: boolean; showCost: boolean; onChange: (p: Partial<DocLine>) => void; onRequest?: () => void;
+function PartControls({ line, editable, showCost, onChange, onRequest, vehicleId }: {
+  line: DocLine; editable: boolean; showCost: boolean; onChange: (p: Partial<DocLine>) => void; onRequest?: () => void; vehicleId?: string | null;
 }) {
   const fleetfix = line.suppliedBy === "fleetfix";
   const short = line.partStocked && !fleetfix && line.pickedOnHand !== undefined && line.qty > line.pickedOnHand;
@@ -672,7 +674,7 @@ function PartControls({ line, editable, showCost, onChange, onRequest }: {
   if (!hasAny) return null;
   return (
     <div className="mt-1 flex flex-wrap items-center gap-x-3 gap-y-1 text-xs">
-      <PartLink line={line} editable={editable} onUnlink={() => onChange({ partId: null, partNo: null, partStocked: null, partOnHand: null, pickedOnHand: undefined })} />
+      <PartLink line={line} editable={editable} vehicleId={vehicleId} onUnlink={() => onChange({ partId: null, partNo: null, partStocked: null, partOnHand: null, pickedOnHand: undefined })} />
       {editable ? (
         <label className="inline-flex items-center gap-1 text-zinc-600">
           <input type="checkbox" checked={fleetfix} disabled={!!line.poLineId} onChange={(e) => onChange(e.target.checked ? { suppliedBy: "fleetfix", unitPriceFils: 0, discountPct: 0 } : { suppliedBy: "garage" })} />

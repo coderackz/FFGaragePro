@@ -21,7 +21,7 @@ export interface Customer {
 }
 export interface Vehicle {
   id: string; customerId: string; plate: string; make: string | null; model: string | null; year: number | null; vin: string | null;
-  colour: string | null; odometer: number | null; createdAt: string; customerName?: string;
+  engine?: string | null; colour: string | null; odometer: number | null; createdAt: string; customerName?: string;
 }
 
 export interface DocLine {
@@ -71,6 +71,21 @@ export interface Part {
   id: string; partNo: string; name: string; nameAr?: string | null; brand: string | null; unit: string; stocked: boolean; sellPriceFils: number;
   onHand: number; reorderLevel: number; location: string | null; fits: string | null; active: boolean; lowStock: boolean;
   avgCostFils?: number; stockValueFils?: number;
+  // The catalogue (inventory v2).
+  categoryId?: string | null; categoryName?: string | null; attributes?: Record<string, string | number>;
+  numbers?: { id?: string; number: string; kind: "oem" | "aftermarket" | "supplier" | "old"; brand: string | null }[];
+  fitments?: { id?: string; make: string; model: string | null; yearFrom: number | null; yearTo: number | null; engine: string | null; note: string | null }[];
+  packs?: { id?: string; name: string; size: number }[];
+  supersededById?: string | null;
+  supersededBy?: { id: string; partNo: string; name: string } | null;
+  replaces?: { id: string; partNo: string; name: string }[];
+  chain?: { id: string; partNo: string; name: string }[];
+  /** Search results: which other number matched, whether it fits the job's vehicle, the replaced part it stands in for. */
+  matchedBy?: string | null; fitsVehicle?: boolean; replacesPartNo?: string | null;
+}
+export interface PartCategory {
+  id: string; name: string; parentId: string | null; position: number;
+  attributes: { key: string; label: string; type: "text" | "number" | "choice"; unit?: string | null; options?: string[] }[];
 }
 export interface StockMovement {
   id: string; qty: number; reason: "receive" | "job" | "invoice" | "adjust" | "opening"; note: string | null; createdAt: string;

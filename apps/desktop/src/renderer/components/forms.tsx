@@ -153,7 +153,7 @@ export function CustomerFormModal({ open, customer, initialName, onClose, onSave
   );
 }
 
-const emptyVehicle = { plate: "", make: "", model: "", year: "", vin: "", colour: "", odometer: "" };
+const emptyVehicle = { plate: "", make: "", model: "", year: "", vin: "", engine: "", colour: "", odometer: "" };
 
 export function VehicleFormModal({ open, vehicle, customerId, onClose, onSaved }: { open: boolean; vehicle?: Vehicle | null; customerId?: string; onClose: () => void; onSaved: (v: Vehicle) => void }) {
   const [form, setForm] = useState(emptyVehicle);
@@ -161,7 +161,7 @@ export function VehicleFormModal({ open, vehicle, customerId, onClose, onSaved }
   const [busy, setBusy] = useState(false);
   useEffect(() => {
     if (!open) return;
-    setForm(vehicle ? { plate: vehicle.plate, make: vehicle.make ?? "", model: vehicle.model ?? "", year: vehicle.year?.toString() ?? "", vin: vehicle.vin ?? "", colour: vehicle.colour ?? "", odometer: vehicle.odometer?.toString() ?? "" } : emptyVehicle);
+    setForm(vehicle ? { plate: vehicle.plate, make: vehicle.make ?? "", model: vehicle.model ?? "", year: vehicle.year?.toString() ?? "", vin: vehicle.vin ?? "", engine: vehicle.engine ?? "", colour: vehicle.colour ?? "", odometer: vehicle.odometer?.toString() ?? "" } : emptyVehicle);
     setOwner(null);
   }, [open, vehicle]);
 
@@ -170,7 +170,7 @@ export function VehicleFormModal({ open, vehicle, customerId, onClose, onSaved }
     e.preventDefault();
     if (!ownerId) return toast.error("Choose the customer this vehicle belongs to");
     const toInt = (s: string) => (s.trim() === "" ? null : Number.parseInt(s.replace(/[,\s]/g, ""), 10));
-    const body = { customerId: ownerId, plate: form.plate, make: form.make, model: form.model, year: toInt(form.year), vin: form.vin, colour: form.colour, odometer: toInt(form.odometer) };
+    const body = { customerId: ownerId, plate: form.plate, make: form.make, model: form.model, year: toInt(form.year), vin: form.vin, engine: form.engine, colour: form.colour, odometer: toInt(form.odometer) };
     setBusy(true);
     try {
       const res = vehicle ? await patch<{ vehicle: Vehicle }>(`/api/vehicles/${vehicle.id}`, body) : await post<{ vehicle: Vehicle }>("/api/vehicles", body);
@@ -220,6 +220,9 @@ export function VehicleFormModal({ open, vehicle, customerId, onClose, onSaved }
         </Field>
         <Field label="Colour">
           <Input {...f("colour")} />
+        </Field>
+        <Field label="Engine" hint="e.g. 1GR-FE or 2.7L: parts that fit it are offered first">
+          <Input {...f("engine")} aria-label="Engine" />
         </Field>
         <Field label="VIN / chassis number" className="col-span-2">
           <Input {...f("vin")} className="uppercase" />

@@ -20,7 +20,13 @@ and margin (Owner and Accountant only). Parts list import from CSV.
 - **Request part** on a job-card line adds it to that supplier's draft purchase order; "Already bought" records a
   cash purchase in one step. Receiving puts shelf parts on the shelf and charges per-job parts to their job.
 - **Supplied by Fleet Fix** marks a part Fleet Fix provides on its own jobs: charged at zero, never touches stock.
+- **Catalogue:** categories with their own details (Settings → Inventory), other numbers (OEM and cross-references,
+  all searchable), vehicles each part fits (the job card's picker shows fitting parts first; "Fits this vehicle" adds
+  one from a line), packs ("Box of 10" — a purchase order buys and prints in packs, stock stays in units), and
+  "Replaced by" for superseded numbers. The CSV import takes category, other numbers and fitment.
 - Every stock change is a row in `stock_movements` (append-only); `packages/server/src/stock.ts` is the only writer.
+
+    npm run e2e:catalogue                           # part with category, numbers, fitment, pack → picker "Fits" → replaced by → PO in packs
 
 **Fleetfix Cloud — Stage 1 (browser app, development):** `apps/cloud` hosts every garage, each on its own
 SQLite file, running the same garage server; the browser app is the same screens. Fleet Fix staff create a

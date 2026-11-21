@@ -4,10 +4,10 @@ import { useState } from "react";
 import { useNavigate, useSearchParams } from "react-router";
 import { PartFormModal } from "../components/inventoryForms";
 import { PartImportDialog } from "../components/PartImportDialog";
-import { Badge, Button, Card, Empty, PageHeader, SearchInput, Spinner, Table } from "../components/ui";
+import { Badge, Button, Card, Empty, PageHeader, SearchInput, Select, Spinner, Table } from "../components/ui";
 import { useAuth } from "../lib/auth";
 import { formatAED } from "../lib/format";
-import type { Part } from "../lib/types";
+import type { Part, PartCategory } from "../lib/types";
 import { useApi, useDebounced } from "../lib/useApi";
 
 export function stockTone(p: Pick<Part, "stocked" | "onHand" | "lowStock">) {
@@ -22,7 +22,10 @@ export function PartsPage() {
   const lowStock = params.get("lowStock") === "1";
   const [q, setQ] = useState("");
   const query = useDebounced(q);
-  const { data, loading, reload } = useApi<{ parts: Part[] }>(`/api/parts?q=${encodeURIComponent(query)}${lowStock ? "&lowStock=1" : ""}`);
+  const [categoryId, setCategoryId] = useState("");
+  const categories = useApi<{ categories: PartCategory[] }>("/api/part-categories");
+  const catName = (id: string | null | undefined) => categories.data?.categories.find((c) => c.id === id)?.name ?? "—";
+  const { data, loading, reload } = useApi<{ parts: Part[] }>(`/api/parts?q=${encodeURIComponent(query)}${lowStock ? "&lowStock=1" : ""}${categoryId ? `&categoryId=${categoryId}` : ""}`);
   const [creating, setCreating] = useState(false);
   const [importing, setImporting] = useState(false);
   const navigate = useNavigate();
@@ -41,7 +44,11 @@ export function PartsPage() {
         )}
       />
       <div className="mb-3 flex items-center gap-3">
-        <SearchInput value={q} onChange={setQ} placeholder="Search part no, name, brand, vehicle" />
+        <SearchInput value={q} onChange={setQ} placeholder="Search part no, OEM no, name, brand, tyre size…" />
+        <Select value={categoryId} onChange={(e) => setCategoryId(e.target.value)} aria-label="Category" className="w-48">
+          <option value="">All categories</option>
+          {(categories.data?.categories ?? []).map((c) => <option key={c.id} value={c.id}>{c.name}</option>)}
+        </Select>
         <div className="inline-flex rounded-md border border-zinc-300 bg-white p-0.5 text-sm shadow-xs">
           {[{ v: false, label: "All parts" }, { v: true, label: "Low stock" }].map((o) => (
             <button key={o.label} type="button" onClick={() => setParams(o.v ? { lowStock: "1" } : {})}
@@ -64,7 +71,13 @@ export function PartsPage() {
           )}
           columns={[
             { header: "Part no", cell: (p) => <span className="font-mono text-[13px] font-medium">{p.partNo}</span> },
-            { header: "Name", cell: (p) => <span className={clsx(!p.active && "text-zinc-400 line-through")}>{p.name}</span> },
+            { header: "Name", cell: (p) => (
+              <span className={clsx(!p.active && "text-zinc-400 line-through")}>
+                {p.name}{p.supersededById && <span className="ml-2"><Badge>Replaced</Badge></span>}
+                {p.matchedBy && <span className="ml-2 text-xs text-zinc-500">{p.matchedBy}</span>}
+              </span>
+            ) },
+            { header: "Category", cell: (p) => catName(p.categoryId) },
             { header: "Brand", cell: (p) => p.brand ?? "—" },
             { header: "Type", cell: (p) => (p.stocked ? <Badge>Stocked</Badge> : <Badge tone="brand">Per job</Badge>) },
             { header: "On hand", align: "right", cell: (p) => <span className={stockTone(p)}>{p.stocked ? `${p.onHand} ${p.unit === "each" ? "" : p.unit}` : "—"}</span> },

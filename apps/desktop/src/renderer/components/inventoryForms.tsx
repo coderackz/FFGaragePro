@@ -3,11 +3,14 @@ import { toast } from "sonner";
 import { ADJUSTMENT_REASONS, formatAED, roundFils } from "@ffgp/shared";
 import { patch, post } from "../lib/api";
 import { useAuth } from "../lib/auth";
-import type { Part, Supplier } from "../lib/types";
+import type { Part, PartCategory, Supplier } from "../lib/types";
+import { useApi } from "../lib/useApi";
+import { AttributeFields, FitmentRows, NumberRows, PackRows, type Fitments, type Numbers, type Packs } from "./catalogueFields";
 import { Button, Field, Input, Modal, MoneyInput, NumberInput, Select, Textarea } from "./ui";
 
 const emptyPart = {
   partNo: "", name: "", nameAr: "", brand: "", unit: "each", stocked: true, sellPriceFils: 0, reorderLevel: 0, location: "", fits: "", active: true,
+  categoryId: null as string | null, attributes: {} as Record<string, string | number>, numbers: [] as Numbers, fitments: [] as Fitments, packs: [] as Packs,
 };
 
 export function PartFormModal({ open, part, onClose, onSaved }: { open: boolean; part?: Part | null; onClose: () => void; onSaved: (p: Part) => void }) {
@@ -17,19 +20,32 @@ export function PartFormModal({ open, part, onClose, onSaved }: { open: boolean;
   useEffect(() => {
     if (!open) return;
     setForm(part
-      ? { partNo: part.partNo, name: part.name, nameAr: part.nameAr ?? "", brand: part.brand ?? "", unit: part.unit, stocked: part.stocked, sellPriceFils: part.sellPriceFils, reorderLevel: part.reorderLevel, location: part.location ?? "", fits: part.fits ?? "", active: part.active }
+      ? {
+        partNo: part.partNo, name: part.name, nameAr: part.nameAr ?? "", brand: part.brand ?? "", unit: part.unit, stocked: part.stocked, sellPriceFils: part.sellPriceFils, reorderLevel: part.reorderLevel, location: part.location ?? "", fits: part.fits ?? "", active: part.active,
+        categoryId: part.categoryId ?? null, attributes: part.attributes ?? {}, numbers: part.numbers ?? [], fitments: part.fitments ?? [], packs: part.packs ?? [],
+      }
       : { ...emptyPart, reorderLevel: settings?.inventory.defaultReorderLevel ?? 0 });
   }, [open, part]); // eslint-disable-line react-hooks/exhaustive-deps
   // Settings → Pricing markup: a suggested selling price from what the part costs on average.
   const markup = settings?.pricing.partsMarkupPct ?? null;
   const suggested = markup != null && part?.avgCostFils ? roundFils(part.avgCostFils * (1 + markup / 100)) : null;
   const set = <K extends keyof typeof form>(k: K, v: (typeof form)[K]) => setForm((f) => ({ ...f, [k]: v }));
+  const categories = useApi<{ categories: PartCategory[] }>(open ? "/api/part-categories" : null);
+  const category = categories.data?.categories.find((c) => c.id === form.categoryId);
 
   const submit = async (e: FormEvent) => {
     e.preventDefault();
     setBusy(true);
     try {
-      const res = part ? await patch<{ part: Part }>(`/api/parts/${part.id}`, form) : await post<{ part: Part }>("/api/parts", form);
+      // Numbers given as typed; blank rows dropped. Numeric specs sent as numbers.
+      const body = {
+        ...form,
+        numbers: form.numbers.filter((n) => n.number.trim()).map(({ number, kind, brand }) => ({ number, kind, brand })),
+        fitments: form.fitments.filter((f) => f.make.trim()).map(({ id: _, ...f }) => f),
+        packs: form.packs.filter((p) => p.name.trim()).map(({ name, size }) => ({ name, size })),
+        attributes: Object.fromEntries(Object.entries(form.attributes).map(([k, v]) => [k, category?.attributes.find((a) => a.key === k)?.type === "number" && v !== "" ? Number(v) : v])),
+      };
+      const res = part ? await patch<{ part: Part }>(`/api/parts/${part.id}`, body) : await post<{ part: Part }>("/api/parts", body);
       toast.success(part ? "Part saved" : "Part added");
       onSaved(res.part);
       onClose();
@@ -41,7 +57,7 @@ export function PartFormModal({ open, part, onClose, onSaved }: { open: boolean;
   };
 
   return (
-    <Modal open={open} onClose={onClose} title={part ? "Edit part" : "New part"} width="max-w-2xl"
+    <Modal open={open} onClose={onClose} title={part ? "Edit part" : "New part"} width="max-w-3xl"
       footer={<><Button onClick={onClose}>Cancel</Button><Button variant="primary" type="submit" form="part-form" busy={busy}>Save</Button></>}>
       <form id="part-form" onSubmit={submit} className="grid grid-cols-2 gap-3">
         <Field label="Part number"><Input value={form.partNo} onChange={(e) => set("partNo", e.target.value)} required autoFocus /></Field>
@@ -72,7 +88,17 @@ export function PartFormModal({ open, part, onClose, onSaved }: { open: boolean;
         </Field>
         {form.stocked && <Field label="Reorder when at or below"><NumberInput value={form.reorderLevel} onChange={(v) => set("reorderLevel", v)} /></Field>}
         <Field label="Shelf / bin"><Input value={form.location} onChange={(e) => set("location", e.target.value)} /></Field>
-        <Field label="Fits (vehicles)" className="col-span-2"><Input value={form.fits} onChange={(e) => set("fits", e.target.value)} placeholder="e.g. Nissan Patrol 2016–2022" /></Field>
+        <Field label="Category">
+          <Select value={form.categoryId ?? ""} onChange={(e) => setForm((f) => ({ ...f, categoryId: e.target.value || null, attributes: {} }))} aria-label="Category">
+            <option value="">None</option>
+            {(categories.data?.categories ?? []).map((c) => <option key={c.id} value={c.id}>{c.name}</option>)}
+          </Select>
+        </Field>
+        <Field label="Notes on fit" hint="Free text, as before"><Input value={form.fits} onChange={(e) => set("fits", e.target.value)} placeholder="e.g. Nissan Patrol 2016–2022" /></Field>
+        <AttributeFields category={category} values={form.attributes} onChange={(v) => set("attributes", v)} />
+        <NumberRows rows={form.numbers} onChange={(v) => set("numbers", v)} />
+        <FitmentRows rows={form.fitments} onChange={(v) => set("fitments", v)} />
+        <PackRows rows={form.packs} unit={form.unit} onChange={(v) => set("packs", v)} />
         {part && (
           <label className="col-span-2 flex items-center gap-2 text-sm">
             <input type="checkbox" checked={form.active} onChange={(e) => set("active", e.target.checked)} /> Active (shown when picking parts)

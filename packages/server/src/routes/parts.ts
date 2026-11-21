@@ -138,10 +138,10 @@ export function partRoutes(app: FastifyInstance, db: Db): void {
       },
     );
     const showCost = can(user.role, "costs.view");
-    type Out = ReturnType<typeof partOut> & { matchedBy: string | null; fitsVehicle: boolean; replaces: string | null; rank: number };
+    type Out = ReturnType<typeof partOut> & { matchedBy: string | null; fitsVehicle: boolean; replacesPartNo: string | null; rank: number };
     const out = (p: PartRow, replaces: string | null = null): Out => {
       const rank = vehicle?.make ? fitRank(db, p.id, vehicle) : 1;
-      return { ...partOut(p, showCost), matchedBy: q ? matchedBy(db, p.id, q, [p.part_no, p.name, p.brand ?? "", p.fits ?? "", p.spec_text].join(" ")) : null, fitsVehicle: rank === 0, replaces, rank };
+      return { ...partOut(p, showCost), matchedBy: q ? matchedBy(db, p.id, q, [p.part_no, p.name, p.brand ?? "", p.fits ?? "", p.spec_text].join(" ")) : null, fitsVehicle: rank === 0, replacesPartNo: replaces, rank };
     };
     let list: Out[] = rows.map((p) => out(p));
     if (req.query.picker === "1") {

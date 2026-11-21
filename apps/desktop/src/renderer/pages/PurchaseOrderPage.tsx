@@ -9,7 +9,7 @@ import { Button, Card, Empty, Field, MoneyInput, NumberInput, PageHeader, Select
 import { get, patch, post } from "../lib/api";
 import { useAuth } from "../lib/auth";
 import { formatAED, formatDate, formatDateTime } from "../lib/format";
-import type { DocLine, PoLine, PurchaseOrder, Supplier } from "../lib/types";
+import type { DocLine, Part, PoLine, PurchaseOrder, Supplier } from "../lib/types";
 import { useApi } from "../lib/useApi";
 import { printPurchaseOrder } from "../print/print";
 
@@ -55,7 +55,10 @@ export function PurchaseOrderPage() {
     const body = {
       version: po?.version,
       notes,
-      lines: clean().map((l) => ({ id: l.id, partId: l.partId, description: l.description.trim(), qty: l.qty, unitCostFils: l.unitCostFils ?? 0, jobDocumentId: l.jobDocumentId })),
+      lines: clean().map((l) => ({
+        id: l.id, partId: l.partId, description: l.description.trim(), qty: l.qty, unitCostFils: l.unitCostFils ?? 0, jobDocumentId: l.jobDocumentId,
+        packName: l.partId ? l.packName ?? null : null, packSize: l.partId ? l.packSize ?? null : null,
+      })),
     };
     if (isNew) {
       const res = await post<{ purchaseOrder: PurchaseOrder }>("/api/purchase-orders", { supplierId, notes, lines: body.lines.map(({ id: _, ...l }) => l) });
@@ -141,7 +144,9 @@ export function PurchaseOrderPage() {
                             onChange={(p) => change(i, { description: p.description ?? l.description, ...(p.partId !== undefined ? { partId: p.partId, partNo: p.partNo, stocked: p.partStocked } : {}) })}
                             onPick={(part) => !l.unitCostFils && part.avgCostFils && change(i, { unitCostFils: part.avgCostFils })} />
                         ) : <div className="py-1">{l.description}</div>}
-                        {l.partId && <div className="mt-1"><PartLink line={asDocLine} editable={editable} onUnlink={() => change(i, { partId: null, partNo: null, stocked: null })} /></div>}
+                        {l.partId && <div className="mt-1"><PartLink line={asDocLine} editable={editable} onUnlink={() => change(i, { partId: null, partNo: null, stocked: null, packName: null, packSize: null })} /></div>}
+                        {l.partId && editable && <PackChooser line={l} showCost={showCost} onChange={(p) => change(i, p)} />}
+                        {l.packName && l.packSize && !editable && <div className="mt-1 text-xs text-zinc-500">{Math.round(l.qty / l.packSize)} × {l.packName}</div>}
                       </td>
                       <td className="px-2 py-2.5">{l.jobDocumentId ? <Link className="font-mono text-[13px] text-brand-700 hover:underline" to={`/documents/${l.jobDocumentId}`}>{l.jobDocumentNumber}</Link> : <span className="text-zinc-400">—</span>}</td>
                       <td className="px-2 py-1.5 text-right tabular">
@@ -181,5 +186,48 @@ export function PurchaseOrderPage() {
       </div>
       {po && <ReceiveDialog po={po} open={receiving} onClose={() => setReceiving(false)} onDone={(p) => poQuery.setData({ purchaseOrder: p })} />}
     </>
+  );
+}
+
+/**
+ * Buying a part in its packs: pick the pack, then the number of packs and the price per pack. The line still holds
+ * the quantity and cost in the part's own unit (what receiving and stock use).
+ */
+function PackChooser({ line, showCost, onChange }: { line: PoLine; showCost: boolean; onChange: (p: Partial<PoLine>) => void }) {
+  const part = useApi<{ part: Part }>(line.partId ? `/api/parts/${line.partId}` : null);
+  const packs = part.data?.part.packs ?? [];
+  if (!packs.length) return null;
+  const size = line.packSize ?? null;
+  const count = size ? Math.round(line.qty / size) : 0;
+  const choose = (name: string) => {
+    const p = packs.find((x) => x.name === name);
+    if (!p) return onChange({ packName: null, packSize: null });
+    const n = Math.max(1, Math.round(line.qty / p.size) || 1);
+    onChange({ packName: p.name, packSize: p.size, qty: n * p.size });
+  };
+  return (
+    <div className="mt-1.5 flex flex-wrap items-center gap-2 text-xs text-zinc-600">
+      <label className="inline-flex items-center gap-1.5 whitespace-nowrap">Buy in
+        <span className="w-36 shrink-0">
+          <Select value={line.packName ?? ""} onChange={(e) => choose(e.target.value)} className="!h-7 text-xs" aria-label="Buy in">
+            <option value="">{part.data?.part.unit ?? "units"}</option>
+            {packs.map((p) => <option key={p.name} value={p.name}>{p.name}</option>)}
+          </Select>
+        </span>
+      </label>
+      {size && (
+        <>
+          <label className="inline-flex items-center gap-1.5 whitespace-nowrap">Packs
+            <span className="w-16 shrink-0"><NumberInput value={count} min={1} onChange={(n) => onChange({ qty: Math.max(1, Math.round(n)) * size })} className="!h-7 text-xs" aria-label="Packs" /></span>
+          </label>
+          {showCost && (
+            <label className="inline-flex items-center gap-1.5 whitespace-nowrap">Cost per pack
+              <span className="w-24 shrink-0"><MoneyInput fils={Math.round((line.unitCostFils ?? 0) * size)} onChange={(c) => onChange({ unitCostFils: Math.round(c / size) })} className="!h-7 text-xs" aria-label="Cost per pack" /></span>
+            </label>
+          )}
+          <span className="whitespace-nowrap">= {line.qty} {part.data?.part.unit}</span>
+        </>
+      )}
+    </div>
   );
 }

@@ -42,7 +42,14 @@ Use one PC as the main computer, or link the garage to Fleetfix Cloud: every PC 
 
 ## Stock
 - Parts shows what's on hand at average cost. Count stock and post the differences from the part's page.
-- Bills (Finance) are for everything that isn't parts on a purchase order: rent, utilities, outside work.`,
+- Bills (Finance) are for everything that isn't parts on a purchase order: rent, utilities, outside work.
+
+## The parts catalogue
+- Give a part a category (set them up in Settings → Inventory) and fill in that category's details, such as filter type or size.
+- Other numbers: add the OEM and other brands' numbers. Searching any of them finds the part.
+- Fits: list the vehicles a part fits (make, model, years, engine). On a job card the part picker shows "Fits" for the job's vehicle and lists fitting parts before you type. "Fits this vehicle" on a part line adds the job's vehicle to that part.
+- Packs: say how a part is bought, such as "Box of 10". On a purchase order choose the pack, the number of packs and the price per pack. Stock is still counted in the part's own unit.
+- Replaced by: when a supplier replaces a number, mark the old part as replaced. The parts list shows a "Replaced" badge and the picker points to the new part.`,
   },
   {
     slug: "books", title: "The books", area: "Accounts",

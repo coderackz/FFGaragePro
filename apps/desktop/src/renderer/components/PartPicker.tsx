@@ -1,7 +1,9 @@
 import clsx from "clsx";
 import { Link2Off } from "lucide-react";
 import { useEffect, useRef, useState } from "react";
-import { get } from "../lib/api";
+import { toast } from "sonner";
+import { get, post } from "../lib/api";
+import { useAuth } from "../lib/auth";
 import type { DocLine, Part } from "../lib/types";
 import { useDebounced } from "../lib/useApi";
 import { Input } from "./ui";
@@ -10,8 +12,10 @@ import { Input } from "./ui";
  * Description field for a part line. Typing searches the parts list; picking a part links the line to it
  * (stock and cost follow it). Typing without picking keeps a free-text line.
  */
-export function PartPicker({ line, onChange, onPick, priceOf }: {
+export function PartPicker({ line, onChange, onPick, priceOf, vehicleId }: {
   line: DocLine; onChange: (patch: Partial<DocLine>) => void; onPick?: (p: Part) => void;
+  /** The job's vehicle: parts that fit it come first (and with nothing typed, those are offered). */
+  vehicleId?: string | null;
   /** The line price for a picked part (a document whose prices include VAT adds it). Default: its selling price. */
   priceOf?: (p: Part) => number;
 }) {
@@ -22,14 +26,16 @@ export function PartPicker({ line, onChange, onPick, priceOf }: {
   const box = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
-    if (!open || line.partId || q.trim().length < 2) {
+    const typed = q.trim();
+    if (!open || line.partId || (typed.length < 2 && !(typed === "" && vehicleId))) {
       setResults([]);
       return;
     }
     let live = true;
-    get<{ parts: Part[] }>(`/api/parts?active=1&q=${encodeURIComponent(q.trim())}`).then((r) => live && (setResults(r.parts.slice(0, 8)), setActive(0))).catch(() => undefined);
+    const url = `/api/parts?active=1&picker=1&q=${encodeURIComponent(typed)}${vehicleId ? `&vehicleId=${vehicleId}` : ""}`;
+    get<{ parts: Part[] }>(url).then((r) => live && (setResults(r.parts.slice(0, 8)), setActive(0))).catch(() => undefined);
     return () => { live = false; };
-  }, [q, open, line.partId]);
+  }, [q, open, line.partId, vehicleId]);
 
   useEffect(() => {
     const onDoc = (e: MouseEvent) => box.current && !box.current.contains(e.target as Node) && setOpen(false);
@@ -71,7 +77,12 @@ export function PartPicker({ line, onChange, onPick, priceOf }: {
               onMouseEnter={() => setActive(i)}
               className={clsx("flex cursor-pointer items-center gap-3 px-3 py-1.5 text-sm", i === active && "bg-brand-50")}>
               <span className="w-24 shrink-0 truncate font-mono text-xs text-zinc-500">{p.partNo}</span>
-              <span className="min-w-0 flex-1 truncate">{p.name}{p.brand ? <span className="text-zinc-400"> · {p.brand}</span> : null}</span>
+              <span className="min-w-0 flex-1 truncate">
+                {p.name}{p.brand ? <span className="text-zinc-400"> · {p.brand}</span> : null}
+                {p.fitsVehicle && <span className="ml-1.5 rounded bg-emerald-50 px-1 text-[11px] font-medium text-emerald-700 ring-1 ring-emerald-200">Fits</span>}
+                {p.replacesPartNo && <span className="ml-1.5 text-xs text-amber-700">replaces {p.replacesPartNo}</span>}
+                {p.matchedBy && <span className="ml-1.5 text-xs text-zinc-500">{p.matchedBy}</span>}
+              </span>
               <span className={clsx("shrink-0 text-xs tabular", !p.stocked ? "text-zinc-400" : p.onHand <= 0 ? "text-red-700" : "text-zinc-500")}>
                 {p.stocked ? `${p.onHand} on shelf` : "per job"}
               </span>
@@ -84,8 +95,17 @@ export function PartPicker({ line, onChange, onPick, priceOf }: {
 }
 
 /** "Linked to OF-1001 · 9 on shelf" chip shown under a linked part line, with a way to unlink. */
-export function PartLink({ line, editable, onUnlink }: { line: DocLine; editable: boolean; onUnlink: () => void }) {
+export function PartLink({ line, editable, onUnlink, vehicleId }: { line: DocLine; editable: boolean; onUnlink: () => void; vehicleId?: string | null }) {
+  const { can } = useAuth();
+  const [added, setAdded] = useState(false);
   if (!line.partId) return null;
+  const addFit = async () => {
+    try {
+      await post(`/api/parts/${line.partId}/fitments/from-vehicle`, { vehicleId });
+      setAdded(true);
+      toast.success("Saved: this part fits this vehicle");
+    } catch (e) { toast.error((e as Error).message); }
+  };
   const shelf = line.partStocked ? `${line.partOnHand ?? 0} on shelf` : "bought per job";
   return (
     <span className="inline-flex items-center gap-1 rounded bg-zinc-100 px-1.5 py-0.5 text-xs text-zinc-600">
@@ -94,6 +114,9 @@ export function PartLink({ line, editable, onUnlink }: { line: DocLine; editable
         <button type="button" onClick={onUnlink} className="ml-0.5 text-zinc-400 hover:text-zinc-700" title="Unlink from the parts list" aria-label="Unlink part">
           <Link2Off className="size-3" />
         </button>
+      )}
+      {vehicleId && can("inventory.edit") && !added && (
+        <button type="button" onClick={() => void addFit()} className="ml-1.5 text-zinc-500 underline hover:text-zinc-800" title="Add this vehicle to the part's fitment">Fits this vehicle</button>
       )}
     </span>
   );

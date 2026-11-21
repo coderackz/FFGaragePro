@@ -47,7 +47,7 @@ describe("catalogue", () => {
     expect(loop.body.error).toMatch(/loop/);
     // The picker: the old part has no stock, so its newest replacement is offered instead.
     const picked = await g.search("OLD-1", "&picker=1");
-    expect(picked.map((x: { partNo: string; replaces: string | null }) => [x.partNo, x.replaces])).toEqual([["NEW-3", "OLD-1"]]);
+    expect(picked.map((x: { partNo: string; replacesPartNo: string | null }) => [x.partNo, x.replacesPartNo])).toEqual([["NEW-3", "OLD-1"]]);
     // With stock it's still offered first (old stock goes first), alongside the replacement.
     await call(g.app, "POST", `/api/parts/${a.id}/adjustments`, g.owner, { qty: 2, reason: "count", note: "found" });
     const withStock = await g.search("OLD-1", "&picker=1");
