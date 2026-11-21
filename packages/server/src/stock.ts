@@ -59,22 +59,25 @@ function chainIds(db: Db, doc: ChainDoc): string[] {
 
 const inList = (ids: string[]) => ids.map(() => "?").join(", ");
 
-/** A kit's parts and quantities (empty for a part that isn't a kit). */
+/** A kit's parts and quantities as it is now (empty for a part that isn't a kit). */
 export const kitParts = (db: Db, partId: string) =>
   db.all<{ partId: string; qty: number }>("SELECT component_part_id AS partId, qty FROM kit_components WHERE kit_part_id = ?", [partId]);
+/** A kit line's parts: as kept on the line when it was written (kit_json), or the kit as it is now for older lines. */
+export const kitPartsOf = (db: Db, partId: string, kitJson: string | null | undefined) =>
+  kitJson ? (JSON.parse(kitJson) as { partId: string; qty: number }[]) : kitParts(db, partId);
 
 /**
  * The stocked parts a set of part lines takes, by part: a kit line counts as its parts × the line's quantity.
  * Lines Fleet Fix supplies take nothing.
  */
-function partsWanted(db: Db, lines: { partId: string | null; qty: number; suppliedBy: string }[]): Map<string, number> {
+function partsWanted(db: Db, lines: { partId: string | null; qty: number; suppliedBy: string; kitJson?: string | null }[]): Map<string, number> {
   const wanted = new Map<string, number>();
   const add = (id: string, q: number) => wanted.set(id, round3((wanted.get(id) ?? 0) + q));
   for (const l of lines) {
     if (!l.partId || l.suppliedBy !== "garage") continue;
     const p = db.get<{ stocked: number; is_kit: number }>("SELECT stocked, is_kit FROM parts WHERE id = ?", [l.partId]);
-    if (p?.is_kit) {
-      for (const c of kitParts(db, l.partId)) {
+    if (p?.is_kit || l.kitJson) {
+      for (const c of kitPartsOf(db, l.partId, l.kitJson)) {
         if (db.get<{ stocked: number }>("SELECT stocked FROM parts WHERE id = ?", [c.partId])?.stocked) add(c.partId, c.qty * l.qty);
       }
     } else if (p?.stocked) add(l.partId, l.qty);
@@ -102,7 +105,9 @@ export function reconcileDocumentStock(db: Db, docId: string, userId: string, op
   if (!doc || doc.type === "estimate" || doc.type === "credit_note") return [];
   const wanted = partsWanted(
     db,
-    db.all<{ partId: string | null; qty: number; suppliedBy: string }>("SELECT part_id AS partId, qty, supplied_by AS suppliedBy FROM document_lines WHERE document_id = ?", [docId]),
+    db.all<{ partId: string | null; qty: number; suppliedBy: string; kitJson: string | null }>(
+      "SELECT part_id AS partId, qty, supplied_by AS suppliedBy, kit_json AS kitJson FROM document_lines WHERE document_id = ?", [docId],
+    ),
   );
   const taken = takenByPart(db, chainIds(db, doc));
   const partIds = new Set([...wanted.keys(), ...taken.keys()]);
@@ -171,9 +176,9 @@ export function documentCost(db: Db, docId: string): DocumentCost {
   if (!doc) return { lineCosts, partsCostFils: 0, costPending: false, uncostedLines: 0 };
   const lines = db.all<{
     id: string; kind: string; qty: number; supplied_by: string; part_id: string | null; stocked: number | null; avg_cost_fils: number | null;
-    po_line_id: string | null; po_received: number | null; po_cost: number | null; is_kit: number | null;
+    po_line_id: string | null; po_received: number | null; po_cost: number | null; is_kit: number | null; kit_json: string | null;
   }>(
-    `SELECT dl.id, dl.kind, dl.qty, dl.supplied_by, dl.part_id, p.stocked, p.avg_cost_fils, p.is_kit, dl.po_line_id,
+    `SELECT dl.id, dl.kind, dl.qty, dl.supplied_by, dl.part_id, p.stocked, p.avg_cost_fils, p.is_kit, dl.kit_json, dl.po_line_id,
             pl.received_qty AS po_received, pl.unit_cost_fils AS po_cost
      FROM document_lines dl LEFT JOIN parts p ON p.id = dl.part_id LEFT JOIN po_lines pl ON pl.id = dl.po_line_id
      WHERE dl.document_id = ? ORDER BY dl.position`,
@@ -191,9 +196,9 @@ export function documentCost(db: Db, docId: string): DocumentCost {
   for (const l of lines) {
     let cost: number | null = 0;
     if (l.supplied_by !== "garage") cost = 0;
-    else if (l.part_id && l.is_kit) {
+    else if (l.part_id && (l.is_kit || l.kit_json)) {
       // A kit costs what its parts cost; unknown while any of them was taken at no cost.
-      const parts = kitParts(db, l.part_id).map((c) => ({ ...c, unit: perUnit(c.partId, db.get<{ a: number }>("SELECT avg_cost_fils AS a FROM parts WHERE id = ?", [c.partId])?.a ?? 0) }));
+      const parts = kitPartsOf(db, l.part_id, l.kit_json).map((c) => ({ ...c, unit: perUnit(c.partId, db.get<{ a: number }>("SELECT avg_cost_fils AS a FROM parts WHERE id = ?", [c.partId])?.a ?? 0) }));
       cost = parts.some((c) => c.unit <= 0) ? null : Math.round(parts.reduce((s, c) => s + c.unit * c.qty, 0) * l.qty);
     }
     else if (l.po_line_id && l.po_received && l.po_received > 0) {

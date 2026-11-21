@@ -20,6 +20,15 @@ export function parseDot(input: string, today = todayYmd()): { week: number; yea
   return { week, year, code: `${m[1]}${m[2]}` };
 }
 
+/**
+ * Codes typed or pasted for units coming in: one per line, or separated by commas, semicolons or spaces. DOTs may be
+ * written "25 24" or "25/24", so for tyres a pair of 2-digit numbers is one code.
+ */
+export function splitUnitCodes(text: string, tracking: Tracking): string[] {
+  const joined = tracking === "dot" ? text.replace(/\b(\d{2})\s*\/?\s+(\d{2})\b|\b(\d{2})\s*\/\s*(\d{2})\b/g, (_m, a, b, c, d) => `${a ?? c}${b ?? d}`) : text;
+  return joined.split(/[\s,;]+/).map((s) => s.trim()).filter(Boolean);
+}
+
 /** Whole months from when a tyre was made to `today`. */
 export function dotAgeMonths(code: string, today = todayYmd()): number | null {
   const d = parseDot(code, today);

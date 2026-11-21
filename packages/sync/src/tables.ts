@@ -24,12 +24,13 @@ export const SYNC_TABLES: SyncTable[] = [
   { name: "part_fitments", key: "id" },
   { name: "part_packs", key: "id" },
   { name: "kit_components", key: "id" },
-  { name: "stock_units", key: "id" },
   { name: "suppliers", key: "id" },
   { name: "documents", key: "id", derived: ["net_fils", "vat_fils", "gross_fils", "paid_fils", "credited_fils"] },
   { name: "purchase_orders", key: "id", derived: ["net_fils", "version"] },
   { name: "po_lines", key: "id", derived: ["received_qty"] },
   { name: "document_lines", key: "document_id", set: true },
+  // Tyres and batteries one by one: after the documents and PO lines they point to.
+  { name: "stock_units", key: "id" },
   // Old-style payments (before migration 8) still syncing after an upgrade; each becomes a receipt on arrival.
   { name: "payments", key: "id", insertOnly: true },
   { name: "receipts", key: "id", insertOnly: true },

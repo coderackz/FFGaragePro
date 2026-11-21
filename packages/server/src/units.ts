@@ -38,7 +38,7 @@ export function unitsOf(db: Db, partId: string, status: string): UnitRow[] {
  * Checks the codes for `qty` units of a tracked part coming in (a delivery or opening stock) and returns them as
  * stored: DOTs as "WWYY", serials in capitals. A part that isn't tracked takes none.
  */
-export function checkIncomingCodes(db: Db, partId: string, qty: number, codes: string[], label: string): string[] {
+export function checkIncomingCodes(db: Db, partId: string, qty: number, codes: string[], label: string, seen: Set<string> = new Set()): string[] {
   const p = getPart(db, partId);
   if (!isTracked(p)) {
     if (codes.length) throw badRequest(`${label}: this part isn't tracked one by one`);
@@ -53,9 +53,11 @@ export function checkIncomingCodes(db: Db, partId: string, qty: number, codes: s
       return d.code;
     });
   }
+  // `seen`: serials already on other lines of the same delivery.
   const serials = codes.map((c) => c.trim().toUpperCase());
-  const twice = serials.find((s, i) => serials.indexOf(s) !== i);
+  const twice = serials.find((s, i) => serials.indexOf(s) !== i || seen.has(`${partId}:${s}`));
   if (twice) throw badRequest(`${label}: ${twice} twice`);
+  for (const s of serials) seen.add(`${partId}:${s}`);
   for (const s of serials) {
     const held = db.get("SELECT 1 FROM stock_units WHERE part_id = ? AND code = ? COLLATE NOCASE AND status IN ('in_stock','fitted')", [partId, s]);
     if (held) throw conflict(`${label}: ${s} is already in stock or fitted`);
@@ -146,11 +148,19 @@ export interface UnitConflict { unitId: string; code: string; partNo: string; lo
 
 const earlier = (a: ChainDoc, b: ChainDoc) => a.created_at < b.created_at || (a.created_at === b.created_at && a.id < b.id);
 
+/** A document that lost a unit stops naming it, so it can be saved again with another one (and isn't told twice). */
+function dropFromLines(db: Db, docId: string, unitId: string): void {
+  for (const l of db.all<{ id: string; unit_ids_json: string }>("SELECT id, unit_ids_json FROM document_lines WHERE document_id = ? AND unit_ids_json LIKE ?", [docId, `%${unitId}%`])) {
+    const ids = (JSON.parse(l.unit_ids_json || "[]") as string[]).filter((x) => x !== unitId);
+    db.run("UPDATE document_lines SET unit_ids_json = ? WHERE id = ?", [JSON.stringify(ids), l.id]);
+  }
+}
+
 /**
  * Makes the units fitted to a document's work exactly the ones its lines name: named units become fitted to it
  * (keeping the day first fitted, and the warranty from it), units it held that are no longer named go back on the
  * shelf. Units a credit note took back stay back. A unit another document already holds stays with the earlier of
- * the two, and is returned as a conflict. Deterministic, so every computer reaches the same answer. Runs where stock
+ * the two; the later one stops naming it, and it's returned as a conflict (once). Deterministic, so every computer reaches the same answer. Runs where stock
  * does (reconcileDocumentStock: a job card when saved, an invoice when issued). Call inside db.tx.
  */
 export function reconcileDocumentUnits(db: Db, docId: string): UnitConflict[] {
@@ -184,9 +194,13 @@ export function reconcileDocumentUnits(db: Db, docId: string): UnitConflict[] {
       const other = getDoc(db, u.document_id);
       if (other && earlier(other, doc)) {
         conflicts.push({ unitId: u.id, code: u.code, partNo: p.part_no, loserDocId: doc.id, winnerDocId: other.id });
+        dropFromLines(db, doc.id, u.id);
         continue;
       }
-      if (other) conflicts.push({ unitId: u.id, code: u.code, partNo: p.part_no, loserDocId: other.id, winnerDocId: doc.id });
+      if (other) {
+        conflicts.push({ unitId: u.id, code: u.code, partNo: p.part_no, loserDocId: other.id, winnerDocId: doc.id });
+        dropFromLines(db, other.id, u.id);
+      }
     } else if (u.status !== "fitted" && u.status !== "in_stock") continue;
     const fittedAt = ours && u.fitted_at ? u.fitted_at : today();
     const ends = warrantyEnds(fittedAt, p.warranty_months);

@@ -147,7 +147,7 @@ export function AdjustStockModal({ open, part, onClose, onSaved }: { open: boole
     try {
       await post(`/api/parts/${part.id}/adjustments`, {
         qty: goingIn ? qty : -qty, reason, note: note || null, ...(opening ? { unitCostFils: costFils } : {}),
-        ...(tracking !== "none" ? (goingIn ? { units: splitCodes(codes) } : { unitIds }) : {}),
+        ...(tracking !== "none" ? (goingIn ? { units: splitCodes(codes, tracking) } : { unitIds }) : {}),
       });
       toast.success("Stock updated");
       onSaved();

@@ -135,9 +135,10 @@ export function saveKit(db: Db, partId: string, isKit: boolean, components: { pa
       if (c.partId === partId) throw badRequest("A kit can't contain itself");
       if (seen.has(c.partId)) throw badRequest("A part is in the kit twice");
       seen.add(c.partId);
-      const p = db.get<{ part_no: string; stocked: number; is_kit: number }>("SELECT part_no, stocked, is_kit FROM parts WHERE id = ?", [c.partId]);
+      const p = db.get<{ part_no: string; stocked: number; is_kit: number; tracking: string }>("SELECT part_no, stocked, is_kit, tracking FROM parts WHERE id = ?", [c.partId]);
       if (!p) throw badRequest("A part in the kit doesn't exist");
       if (p.is_kit) throw badRequest(`${p.part_no} is a kit: no kit inside a kit`);
+      if (p.tracking !== "none") throw badRequest(`${p.part_no} is tracked one by one (each picked on the job), so it can't be in a kit`);
       if (!p.stocked) throw badRequest(`${p.part_no}: a kit is made of stocked parts`);
     }
   }

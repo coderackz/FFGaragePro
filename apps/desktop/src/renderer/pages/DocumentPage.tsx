@@ -123,15 +123,7 @@ export function DocumentPage() {
     setDraft((d) => ({ ...d, ...patchDraft }));
     setDirty(true);
   };
-  const updateLine = (i: number, patchLine: Partial<DocLine>) => update({
-    lines: draft.lines.map((l, j) => {
-      if (j !== i) return l;
-      const next = { ...l, ...patchLine };
-      // Fewer tyres than picked: keep the first ones picked.
-      const keep = Math.max(0, Math.floor(next.qty));
-      return next.unitIds && next.unitIds.length > keep ? { ...next, unitIds: next.unitIds.slice(0, keep), units: (next.units ?? []).filter((u) => next.unitIds!.slice(0, keep).includes(u.id)) } : next;
-    }),
-  });
+  const updateLine = (i: number, patchLine: Partial<DocLine>) => update({ lines: draft.lines.map((l, j) => (j === i ? { ...l, ...patchLine } : l)) });
 
   const cleanLines = () => draft.lines.filter((l) => l.description.trim() !== "" || l.unitPriceFils > 0);
 
@@ -152,7 +144,8 @@ export function DocumentPage() {
     const lines = cleanLines().map(({ kind, description, qty, unitPriceFils, discountPct, partId, suppliedBy, poLineId, unitIds }) => ({
       kind, description: description.trim(), qty, unitPriceFils, discountPct,
       partId: kind === "part" ? partId ?? null : null, suppliedBy: kind === "part" ? suppliedBy ?? "garage" : "garage", poLineId: poLineId ?? null,
-      unitIds: kind === "part" && partId && (suppliedBy ?? "garage") === "garage" ? unitIds ?? [] : [],
+      // More tyres picked than the quantity (it was lowered): the first ones picked are kept.
+      unitIds: kind === "part" && partId && (suppliedBy ?? "garage") === "garage" ? (unitIds ?? []).slice(0, Math.max(0, Math.floor(qty))) : [],
     }));
     const body = { vehicleId: draft.vehicleId, odometer: draft.odometer, notes: draft.notes, lines, ...(type === "invoice" && !isNew ? { lpoNumber: draft.lpoNumber } : {}),
       ...(!isNew && draft.language !== doc?.language ? { language: draft.language } : {}),

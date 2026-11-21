@@ -1,4 +1,4 @@
-import { dotAgeMonths } from "@ffgp/shared";
+import { dotAgeMonths, splitUnitCodes } from "@ffgp/shared";
 import { Plus, Trash2 } from "lucide-react";
 import type { Part, StockUnit } from "../lib/types";
 import { useApi } from "../lib/useApi";
@@ -75,12 +75,12 @@ function KitRows({ rows, onChange }: { rows: KitRow[]; onChange: (rows: KitRow[]
   );
 }
 
-/** Codes typed or pasted (one per line, or separated by commas or spaces). */
-export const splitCodes = (text: string) => text.split(/[\s,;]+/).map((s) => s.trim()).filter(Boolean);
+/** Codes typed or pasted: see splitUnitCodes ("25 24" is one DOT). */
+export const splitCodes = (text: string, tracking: Tracking) => splitUnitCodes(text, tracking === "none" ? "serial" : tracking);
 
 /** A box for each unit's DOT code or serial coming in, with a count against the quantity. */
 export function UnitCodesInput({ tracking, qty, value, onChange, label }: { tracking: Tracking; qty: number; value: string; onChange: (v: string) => void; label: string }) {
-  const n = splitCodes(value).length;
+  const n = splitCodes(value, tracking).length;
   return (
     <div className="mt-1">
       <Textarea value={value} onChange={(e) => onChange(e.target.value)} rows={2} aria-label={label} className="font-mono text-xs"

@@ -122,6 +122,10 @@ export function partRoutes(app: FastifyInstance, db: Db): void {
    * on for a part with stock is allowed: units from before simply aren't listed.
    */
   function saveTracking(existing: PartRow, input: PartInput, present: (k: Sent) => boolean) {
+    if (present("tracking") && input.tracking !== "none" && existing.tracking === "none") {
+      const kit = db.get<{ part_no: string }>("SELECT p.part_no FROM kit_components k JOIN parts p ON p.id = k.kit_part_id WHERE k.component_part_id = ? LIMIT 1", [existing.id]);
+      if (kit) throw conflict(`This part is in the kit ${kit.part_no}: take it out of the kit before tracking it one by one`);
+    }
     if (present("tracking")) db.run("UPDATE parts SET tracking = ? WHERE id = ?", [input.tracking, existing.id]);
     if (present("warrantyMonths")) db.run("UPDATE parts SET warranty_months = ? WHERE id = ?", [input.warrantyMonths, existing.id]);
     if (present("kit")) saveKit(db, existing.id, input.isKit, input.components);

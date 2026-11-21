@@ -46,7 +46,7 @@ export function ReceiveDialog({ po, open, onClose, onDone }: { po: PurchaseOrder
     try {
       const res = await post<{ purchaseOrder: PurchaseOrder }>(`/api/purchase-orders/${po.id}/receive`, {
         supplierInvoiceNo: invoiceNo || null, supplierInvoiceDate: invoiceDate || null, vatFils,
-        lines: rows.filter((r) => r.qty > 0).map(({ poLineId, qty, unitCostFils, tracking, codes }) => ({ poLineId, qty, unitCostFils, units: tracking === "none" ? [] : splitCodes(codes) })),
+        lines: rows.filter((r) => r.qty > 0).map(({ poLineId, qty, unitCostFils, tracking, codes }) => ({ poLineId, qty, unitCostFils, units: tracking === "none" ? [] : splitCodes(codes, tracking) })),
       });
       toast.success(res.purchaseOrder.status === "received" ? `${po.number} fully received` : "Delivery recorded");
       onDone(res.purchaseOrder);

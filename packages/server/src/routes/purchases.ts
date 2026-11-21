@@ -133,9 +133,10 @@ export function purchaseRoutes(app: FastifyInstance, db: Db, docs: { full: Docum
       incoming.set(r.poLineId, total);
     }
     // Tyres and batteries: each one's DOT code or serial, checked before anything is written.
+    const seenCodes = new Set<string>();
     const codes = input.lines.map((r) => {
       const line = lines.get(r.poLineId)!;
-      return line.part_id ? checkIncomingCodes(db, line.part_id, r.qty, r.units, line.description) : r.units.length ? (() => { throw badRequest(`${line.description}: this line isn't a part`); })() : [];
+      return line.part_id ? checkIncomingCodes(db, line.part_id, r.qty, r.units, line.description, seenCodes) : r.units.length ? (() => { throw badRequest(`${line.description}: this line isn't a part`); })() : [];
     });
     // Whole packs at the PO's price are packs × the pack price, like the PO itself.
     const net = input.lines.reduce((sum, r) => {

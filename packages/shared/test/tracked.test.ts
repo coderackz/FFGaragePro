@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { dotAgeMonths, kitAvailable, lineSchema, oldestFirst, parseDot, partSchema, receiveSchema, warrantyEnds } from "../src";
+import { dotAgeMonths, kitAvailable, lineSchema, oldestFirst, parseDot, partSchema, receiveSchema, splitUnitCodes, warrantyEnds } from "../src";
 
 describe("tracked stock", () => {
   it("dot parse", () => {
@@ -9,6 +9,12 @@ describe("tracked stock", () => {
     expect(parseDot("0126", today)).toEqual({ week: 1, year: 2026, code: "0126" });
     // Week 0 or 54, a 3-digit code, a date after today: not a DOT.
     for (const bad of ["0024", "5424", "524", "abcd", "4826", "0127"]) expect(parseDot(bad, today), bad).toBeNull();
+  });
+
+  it("split codes", () => {
+    expect(splitUnitCodes("25 24, 26 24", "dot")).toEqual(["2524", "2624"]);
+    expect(splitUnitCodes("2524 2624\n25/24;1025", "dot")).toEqual(["2524", "2624", "2524", "1025"]);
+    expect(splitUnitCodes("SN 1\nSN-2, SN-3", "serial")).toEqual(["SN", "1", "SN-2", "SN-3"]);
   });
 
   it("oldest first", () => {

@@ -7,7 +7,7 @@ import { Button, Card } from "./ui";
 interface Issue {
   id: string;
   at: string;
-  kind: "unique_rename" | "frozen_invoice" | "apply_failed" | "frozen_payroll" | "frozen_asset";
+  kind: "unique_rename" | "frozen_invoice" | "apply_failed" | "frozen_payroll" | "frozen_asset" | "unit_taken";
   message: string;
 }
 
@@ -16,6 +16,7 @@ const KIND: Record<Issue["kind"], string> = {
   frozen_invoice: "Issued invoice kept",
   frozen_payroll: "Approved payroll kept",
   frozen_asset: "Sold asset kept",
+  unit_taken: "Tyre or battery fitted elsewhere",
   apply_failed: "Change not applied",
 };
 
