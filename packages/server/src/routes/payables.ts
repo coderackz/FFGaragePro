@@ -1,5 +1,5 @@
 import type { FastifyInstance } from "fastify";
-import { can, coreWriteoffSchema, dubaiDate, supplierReturnSchema } from "@ffgp/shared";
+import { can, coreWriteoffSchema, dubaiDate, supplierReturnSchema, warrantyClaimSchema, warrantyResolveSchema } from "@ffgp/shared";
 import { requireAction, sessionUser } from "../auth";
 import type { Db } from "../db";
 import { badRequest, notFound } from "../errors";
@@ -13,6 +13,7 @@ import {
 } from "../payables/money";
 import { reserveNumber, type NumberSource } from "../numbering";
 import { coresOwed, createSupplierReturn, listReturns, returnOut, writeOffCores } from "../payables/returns";
+import { claimOut, createClaim, listClaims, resolveClaim } from "../payables/warranty";
 import { supplierOut } from "./parts";
 
 const YMD = /^\d{4}-\d{2}-\d{2}$/;
@@ -104,6 +105,32 @@ export function payablesRoutes(app: FastifyInstance, db: Db, o: PayablesRouteOpt
     const input = coreWriteoffSchema.parse(req.body);
     db.tx(() => writeOffCores(db, input, user));
     return { cores: coresOwed(db, input.supplierId) };
+  });
+
+  // ── Warranty claims ──
+  app.get<{ Querystring: { status?: string; supplierId?: string } }>("/api/warranty-claims", async (req) => {
+    requireAction(sessionUser(db, req), "payables.manage");
+    return { warrantyClaims: listClaims(db, { status: req.query.status || null, supplierId: req.query.supplierId || null }) };
+  });
+  app.get<{ Params: { id: string } }>("/api/warranty-claims/:id", async (req) => {
+    requireAction(sessionUser(db, req), "payables.manage");
+    return { warrantyClaim: claimOut(db, req.params.id) };
+  });
+  app.post("/api/warranty-claims", async (req) => {
+    const user = sessionUser(db, req);
+    requireAction(user, "payables.manage");
+    const input = warrantyClaimSchema.parse(req.body);
+    const reserved = await reserveNumber(o.numbers, "warranty_claim");
+    const id = db.tx(() => createClaim(db, input, user, o.numbers, reserved));
+    return { warrantyClaim: claimOut(db, id) };
+  });
+  app.post<{ Params: { id: string } }>("/api/warranty-claims/:id/resolve", async (req) => {
+    const user = sessionUser(db, req);
+    requireAction(user, "payables.manage");
+    const input = warrantyResolveSchema.parse(req.body);
+    const reserved = input.outcome === "credited" ? await reserveNumber(o.numbers, "supplier_return") : null;
+    db.tx(() => resolveClaim(db, req.params.id, input, user, o.numbers, reserved));
+    return { warrantyClaim: claimOut(db, req.params.id) };
   });
 
   // ── Paying suppliers ──

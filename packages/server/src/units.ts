@@ -153,7 +153,8 @@ export function checkLineUnits(db: Db, chain: string[], lines: { kind: string; p
       if (!u || u.part_id !== p.id) throw badRequest(`${p.part_no}: that unit isn't one of this part's`);
       if (seen.has(id)) throw badRequest(`${p.part_no}: ${u.code} is chosen twice`);
       seen.add(id);
-      const ours = u.status === "fitted" && u.document_id !== null && chain.includes(u.document_id);
+      // Fitted to this work, or fitted here and since gone back on a warranty claim (the line still records it).
+      const ours = (u.status === "fitted" || u.status === "returned") && u.document_id !== null && chain.includes(u.document_id);
       if (u.status === "fitted" && !ours) {
         const on = u.document_id ? getDoc(db, u.document_id)?.number : null;
         throw conflict(`${p.part_no}: ${u.code} is already fitted${on ? ` on ${on}` : ""}`);
