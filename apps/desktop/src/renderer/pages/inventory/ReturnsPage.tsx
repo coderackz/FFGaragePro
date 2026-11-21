@@ -89,11 +89,13 @@ function ReturnDialog({ open, kind, onClose, onDone, preset }: {
     setReason(kind === "core" ? "Old units returned" : ""); setRef(""); setVat(null);
   }, [open]); // eslint-disable-line react-hooks/exhaustive-deps
   const net = lines.reduce((s, l) => s + Math.round(l.qty * l.unitCreditFils), 0);
-  const vatShown = vat ?? Math.round(net * 0.05);
+  // The garage's VAT rate until the user types the supplier's own figure (only then is it sent).
+  const { garage } = useAuth();
+  const vatShown = vat ?? Math.round((net * (garage?.vatRateBp ?? 500)) / 10000);
   const set = (i: number, p: Partial<ReturnLine>) => setLines((ls) => ls.map((l, j) => (j === i ? { ...l, ...p } : l)));
   const submit = () => run(async () => {
     if (lines.some((l) => !l.partId)) throw new Error("Pick each part by its number");
-    await post("/api/supplier-returns", { supplierId, kind, reason, supplierRef: ref || null, vatFils: vatShown, lines });
+    await post("/api/supplier-returns", { supplierId, kind, reason, supplierRef: ref || null, ...(vat !== null ? { vatFils: vat } : {}), lines });
     onDone(); onClose();
   }, kind === "core" ? "Cores returned" : "Return made", setBusy);
   return (

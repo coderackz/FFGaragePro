@@ -36,6 +36,15 @@ export function usageSince(db: Db, from: string): Map<string, { qty: number; val
 const lastUsed = (db: Db) =>
   new Map(db.all<{ part_id: string; last: string }>("SELECT part_id, MAX(created_at) AS last FROM stock_movements WHERE reason IN ('job', 'invoice') AND qty < 0 GROUP BY part_id").map((r) => [r.part_id, r.last]));
 
+/**
+ * The last time stock of each part arrived: deliveries, opening stock, and stock added by hand (a count, a warranty
+ * replacement). Not parts coming back from jobs or invoices.
+ */
+const lastArrived = (db: Db) =>
+  new Map(db.all<{ part_id: string; last: string }>(
+    "SELECT part_id, MAX(created_at) AS last FROM stock_movements WHERE qty > 0 AND reason IN ('receive', 'opening', 'adjust') AND supplier_return_id IS NULL GROUP BY part_id",
+  ).map((r) => [r.part_id, r.last]));
+
 /** Stock still to come on purchase orders that aren't cancelled (drafts count: they're about to be sent). */
 export function onOrder(db: Db): Map<string, number> {
   const rows = db.all<{ part_id: string; q: number }>(
@@ -134,12 +143,16 @@ export function moversReport(db: Db, days = 90) {
   };
 }
 
-/** Dead stock: parts with stock not used for a job or invoice in `months`, and what they're worth. */
+/**
+ * Dead stock: parts with stock not used for a job or invoice in `months`, and what they're worth. Stock that only
+ * arrived within the period isn't dead yet.
+ */
 export function deadStockReport(db: Db, months = 6) {
   const cutoff = since(months * 30.4375);
   const last = lastUsed(db);
+  const arrived = lastArrived(db);
   const parts = plannedParts(db)
-    .filter((p) => p.on_hand > 0 && (last.get(p.id) ?? "") < cutoff)
+    .filter((p) => p.on_hand > 0 && (last.get(p.id) ?? "") < cutoff && (arrived.get(p.id) ?? "") < cutoff)
     .map((p) => ({ partId: p.id, partNo: p.part_no, name: p.name, onHand: p.on_hand, lastUsed: last.get(p.id) ?? null, valueFils: stockValue(p) }));
   return { months, parts, totalFils: parts.reduce((s, p) => s + p.valueFils, 0) };
 }
@@ -162,11 +175,9 @@ export function valuationReport(db: Db) {
   return { categories, totalFils: categories.reduce((s, c) => s + c.valueFils, 0) };
 }
 
-/** Stock aging by the last time each part was received (deliveries and opening stock). */
+/** Stock aging by the last time each part arrived (deliveries, opening stock, or stock added by hand). */
 export function agingReport(db: Db) {
-  const received = new Map(
-    db.all<{ part_id: string; last: string }>("SELECT part_id, MAX(created_at) AS last FROM stock_movements WHERE reason IN ('receive', 'opening') AND qty > 0 GROUP BY part_id").map((r) => [r.part_id, r.last]),
-  );
+  const received = lastArrived(db);
   const buckets = Object.fromEntries(STOCK_AGE_BUCKETS.map((b) => [b, 0])) as Record<StockAgeBucket, number>;
   const parts = plannedParts(db)
     .filter((p) => p.on_hand > 0)

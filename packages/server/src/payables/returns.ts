@@ -78,12 +78,13 @@ const coresOf = (db: Db, supplierId: string, partId: string) => coresOwed(db, su
 export function writeDebitNote(
   db: Db, user: SessionUser, numbers: NumberSource | undefined, reserved: Reserved | null,
   head: { supplierId: string; kind: ReturnKind; reason: string; supplierRef?: string | null; vatFils?: number },
-  lines: { partId: string; description: string; qty: number; unitCreditFils: number; unitCostFils: number; unitIds: string[] }[],
+  lines: { partId: string; description: string; qty: number; unitCreditFils: number; unitCostFils: number; unitIds: string[]; netFils?: number }[],
 ): string {
   const { series, seq } = takeNumber(db, "supplier_return", reserved, numbers);
   const number = formatNumberOf("supplier_return", seq, series, prefixOf(getSettings(db), "supplier_return"));
   const id = newId();
-  const nets = lines.map((l) => roundFils(l.qty * l.unitCreditFils));
+  // A line may carry its exact net (a lump-sum credit, or every core owed back at the deposits paid).
+  const nets = lines.map((l) => l.netFils ?? roundFils(l.qty * l.unitCreditFils));
   const net = nets.reduce((s, n) => s + n, 0);
   const vat = head.vatFils ?? vatOn(db, net);
   db.run(
@@ -105,11 +106,16 @@ export function writeDebitNote(
  */
 export function createSupplierReturn(db: Db, input: ReturnInput, user: SessionUser, numbers: NumberSource | undefined, reserved: Reserved | null): string {
   if (!db.get("SELECT 1 FROM suppliers WHERE id = ?", [input.supplierId])) throw notFound("Supplier not found");
+  const seen = new Set<string>();
   const lines = input.lines.map((l) => {
     const p = db.get<{ part_no: string; name: string; stocked: number; is_kit: number; on_hand: number; avg_cost_fils: number }>(
       "SELECT part_no, name, stocked, is_kit, on_hand, avg_cost_fils FROM parts WHERE id = ?", [l.partId],
     );
     if (!p) throw badRequest("Part not found");
+    // Each part once: the shelf and the cores owed are checked per line.
+    if (seen.has(l.partId)) throw badRequest(`${p.part_no} is on the return twice: put it on one line`);
+    seen.add(l.partId);
+    let netFils: number | undefined;
     if (input.kind === "return") {
       if (!p.stocked || p.is_kit) throw badRequest(`${p.part_no}: only parts kept on the shelf go back this way`);
       if (round3(p.on_hand - l.qty) < 0) throw badRequest(`${p.part_no}: only ${Math.max(0, p.on_hand)} on the shelf`);
@@ -117,8 +123,10 @@ export function createSupplierReturn(db: Db, input: ReturnInput, user: SessionUs
       const owed = coresOf(db, input.supplierId, l.partId);
       if (l.qty > owed.qty) throw badRequest(`${p.part_no}: only ${owed.qty} core${owed.qty === 1 ? "" : "s"} owed by this supplier`);
       if (l.unitIds.length) throw badRequest("Cores don't take units");
+      // All of them back at the deposit each: exactly the deposits paid, so Core deposits clears to the fil.
+      if (l.qty === owed.qty && Math.abs(roundFils(l.qty * l.unitCreditFils) - owed.valueFils) <= Math.ceil(l.qty)) netFils = owed.valueFils;
     }
-    return { ...l, description: `${p.name} (${p.part_no})`, unitCostFils: input.kind === "return" ? p.avg_cost_fils : 0 };
+    return { ...l, description: `${p.name} (${p.part_no})`, unitCostFils: input.kind === "return" ? p.avg_cost_fils : 0, netFils };
   });
   const id = writeDebitNote(db, user, numbers, reserved, { supplierId: input.supplierId, kind: input.kind, reason: input.reason, supplierRef: input.supplierRef, vatFils: input.vatFils }, lines);
   if (input.kind === "return") {

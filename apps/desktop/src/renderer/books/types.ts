@@ -22,6 +22,7 @@ export const SOURCE_LABELS: Record<string, string> = {
   expense: "Expense", transfer: "Transfer", cheque_deposit: "Cheques paid in", cheque_clear: "Cheque cleared", vat_return: "VAT return",
   payroll_run: "Payroll", wps_paid: "Salaries paid", bonus_paid: "Cash bonus", staff_advance: "Staff advance", payroll_opening: "Gratuity brought forward",
   final_settlement: "Final settlement", settlement_paid: "Settlement paid", depreciation: "Depreciation", asset_disposal: "Asset disposal",
+  supplier_return: "Debit note", core_writeoff: "Core written off",
 };
 
 /** 1,234.50 (fils → AED, no currency sign: report columns are all AED). */

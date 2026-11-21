@@ -89,7 +89,7 @@ export function resolveClaim(
   } else if (input.outcome === "credited") {
     const p = db.get<{ name: string; part_no: string }>("SELECT name, part_no FROM parts WHERE id = ?", [c.part_id])!;
     returnId = writeDebitNote(db, user, numbers, reserved, { supplierId: c.supplier_id, kind: "warranty", reason: `Warranty credit on ${c.number}: ${c.reason}`, vatFils: input.vatFils }, [
-      { partId: c.part_id, description: `${p.name} (${p.part_no}) — ${c.number}`, qty: 1, unitCreditFils: input.creditFils!, unitCostFils: 0, unitIds: [] },
+      { partId: c.part_id, description: `${p.name} (${p.part_no}) — ${c.number}`, qty: c.qty, unitCreditFils: Math.round(input.creditFils! / c.qty), unitCostFils: 0, unitIds: [], netFils: input.creditFils! },
     ]);
   }
   if (input.outcome !== "rejected" && c.unit_id) db.run("UPDATE stock_units SET status = 'returned', updated_at = ? WHERE id = ? AND status = 'fitted'", [now(), c.unit_id]);

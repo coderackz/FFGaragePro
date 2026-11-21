@@ -46,7 +46,8 @@ test("reorder: suggested orders into draft POs, min/max levels, stock reports", 
   await nav(page, "Stock reports");
   await expect(page.getByRole("row", { name: /OF-1/ })).toContainText("A");
   await page.getByRole("tab", { name: "Dead stock" }).click();
-  await expect(page.getByRole("row", { name: /AF-1/ })).toContainText("Never");
+  // The air filter came in today: not dead stock yet, although it's never been used.
+  await expect(page.getByText("No dead stock")).toBeVisible();
   await page.getByRole("tab", { name: "Valuation" }).click();
   await expect(page.getByTestId("report-total")).toHaveText("AED 1,145.00");
   await shot("03-valuation");

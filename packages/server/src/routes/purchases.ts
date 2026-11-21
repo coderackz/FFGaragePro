@@ -300,7 +300,6 @@ export function purchaseRoutes(app: FastifyInstance, db: Db, docs: { full: Docum
     return { purchaseOrder: full(req.params.id, user) };
   });
 
-  /** "Request part" on a job-card line: adds it to the supplier's open draft PO, or buys and receives it in one step. */
   /**
    * Suggested orders made into draft purchase orders: one new draft per supplier, priced at the supplier's last
    * price (else the average cost). Returns the drafts made.
@@ -329,6 +328,7 @@ export function purchaseRoutes(app: FastifyInstance, db: Db, docs: { full: Docum
     return { purchaseOrders: made.map((id) => full(id, user)) };
   });
 
+  /** "Request part" on a job-card line: adds it to the supplier's open draft PO, or buys and receives it in one step. */
   app.post("/api/purchase-requests", async (req) => {
     const user = sessionUser(db, req);
     requireAction(user, "documents.edit");

@@ -82,6 +82,8 @@ describe("planning", () => {
     await g.sell(b.id, 10);
     await g.sell(old.id, 2);
     g.age(old.id, 400);
+    // Never used, and it came in long ago: dead. (Just received, it wouldn't be.)
+    g.age(dead.id, 400);
     const abc = (await call(g.app, "GET", "/api/reports/inventory/abc", g.owner)).body;
     expect(abc.parts.map((p: { partNo: string; abc: string }) => [p.partNo, p.abc])).toEqual([["A-1", "A"], ["B-1", "B"], ["D-1", "C"], ["O-1", "C"]]);
     expect(abc.parts[0]).toMatchObject({ usageQty: 50, usageValueFils: 50000 });
@@ -97,7 +99,7 @@ describe("planning", () => {
     ]);
     expect(val.totalFils).toBe(60800);
     const aging = (await call(g.app, "GET", "/api/reports/inventory/aging", g.owner)).body;
-    expect(aging.buckets).toEqual({ "0–90": 60000, "91–180": 0, "181–365": 0, "Over 365": 800 });
+    expect(aging.buckets).toEqual({ "0–90": 50000, "91–180": 0, "181–365": 0, "Over 365": 10800 });
     // Costs only for those who may see them.
     const advisor = await addUser(g.app, g.owner, "advisor");
     expect((await call(g.app, "GET", "/api/reports/inventory/valuation", advisor)).status).toBe(403);
