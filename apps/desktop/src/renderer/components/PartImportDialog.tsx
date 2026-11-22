@@ -3,7 +3,7 @@ import { toast } from "sonner";
 import { post } from "../lib/api";
 import { Button, Modal } from "./ui";
 
-interface ImportResult { created: number; updated: number; errors: { row: number; message: string }[] }
+interface ImportResult { created: number; updated: number; countChanges: number; errors: { row: number; message: string }[] }
 
 const EXAMPLE = "part_no,name,brand,unit,stocked,sell_price,cost,qty,reorder_level,location,fits\nOF-1001,Oil filter,Bosch,each,yes,35.00,18.00,10,4,A1,Nissan Sunny";
 
@@ -12,8 +12,9 @@ export function PartImportDialog({ open, onClose, onDone }: { open: boolean; onC
   const [fileName, setFileName] = useState("");
   const [check, setCheck] = useState<ImportResult | null>(null);
   const [busy, setBusy] = useState(false);
+  const [setCounts, setSetCounts] = useState(false);
   useEffect(() => {
-    if (open) { setCsv(null); setFileName(""); setCheck(null); }
+    if (open) { setCsv(null); setFileName(""); setCheck(null); setSetCounts(false); }
   }, [open]);
 
   const choose = async (file: File | undefined) => {
@@ -21,6 +22,7 @@ export function PartImportDialog({ open, onClose, onDone }: { open: boolean; onC
     const text = await file.text();
     setCsv(text);
     setFileName(file.name);
+    setSetCounts(false);
     setBusy(true);
     try {
       setCheck(await post<ImportResult>("/api/parts/import", { csv: text, dryRun: true }));
@@ -35,10 +37,10 @@ export function PartImportDialog({ open, onClose, onDone }: { open: boolean; onC
     if (!csv) return;
     setBusy(true);
     try {
-      const res = await post<ImportResult>("/api/parts/import", { csv, dryRun: false });
+      const res = await post<ImportResult>("/api/parts/import", { csv, dryRun: false, setCounts: setCounts && check!.countChanges > 0 });
       if (res.errors.length) setCheck(res);
       else {
-        toast.success(`Imported: ${res.created} new, ${res.updated} updated`);
+        toast.success(`Imported: ${res.created} new, ${res.updated} updated${setCounts && res.countChanges ? `, ${res.countChanges} shelf counts set` : ""}`);
         onDone();
         onClose();
       }
@@ -56,7 +58,7 @@ export function PartImportDialog({ open, onClose, onDone }: { open: boolean; onC
       <div className="space-y-3 text-sm">
         <p className="text-zinc-600">
           Save your parts list as a CSV file. The first row names the columns; <b>part_no</b> and <b>name</b> are required.
-          Prices are in AED before VAT. <b>qty</b> and <b>cost</b> set opening stock for new parts. An existing part number updates that part's details.
+          Prices are in AED before VAT. <b>qty</b> and <b>cost</b> set opening stock for new parts. An existing part number updates that part's details; its <b>qty</b> can also set its shelf count.
         </p>
         <pre className="overflow-x-auto rounded-md bg-zinc-50 p-2.5 text-xs text-zinc-600">{EXAMPLE}</pre>
         <label className="flex items-center gap-3">
@@ -64,6 +66,15 @@ export function PartImportDialog({ open, onClose, onDone }: { open: boolean; onC
           {fileName && <span className="text-zinc-500">{fileName}</span>}
         </label>
         {check && ok && <div className="rounded-md bg-emerald-50 px-3 py-2 text-emerald-800">Ready: {check.created} new parts, {check.updated} to update.</div>}
+        {check && ok && check.countChanges > 0 && (
+          <label className="flex items-start gap-2 rounded-md bg-amber-50 px-3 py-2 text-amber-900">
+            <input type="checkbox" className="mt-0.5" checked={setCounts} onChange={(e) => setSetCounts(e.target.checked)} data-testid="set-counts" />
+            <span>
+              Also set the shelf count of {check.countChanges} existing {check.countChanges === 1 ? "part" : "parts"} to the <b>qty</b> in the file.
+              Leave this off if the file is older than your last sales — the difference is posted as a stock adjustment.
+            </span>
+          </label>
+        )}
         {check && !ok && (
           <div className="max-h-48 overflow-y-auto rounded-md bg-red-50 px-3 py-2 text-red-800">
             <div className="mb-1 font-medium">Fix these rows and choose the file again — nothing was imported:</div>

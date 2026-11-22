@@ -6,7 +6,7 @@ import { requireAction, sessionUser } from "../auth";
 import { newId, now, type Db } from "../db";
 import { parseCsv } from "../csv";
 import { badRequest, conflict, HttpError, notFound } from "../errors";
-import { postMovement } from "../stock";
+import { postMovement, round3 } from "../stock";
 import { addUnits, checkIncomingCodes, unitOut, unitsOf, writeOffUnits, type UnitRow } from "../units";
 
 export interface PartRow {
@@ -419,16 +419,18 @@ export function partRoutes(app: FastifyInstance, db: Db): void {
   app.post("/api/parts/import", async (req) => {
     const user = sessionUser(db, req);
     requireAction(user, "inventory.edit");
-    const { csv, dryRun } = z.object({ csv: z.string().max(4_000_000), dryRun: z.boolean().default(false) }).parse(req.body);
+    const { csv, dryRun, setCounts } = z
+      .object({ csv: z.string().max(4_000_000), dryRun: z.boolean().default(false), setCounts: z.boolean().default(false) })
+      .parse(req.body);
     const rows = parseCsv(csv);
     const header = (rows[0] ?? []).map((h) => h.trim().toLowerCase().replace(/\s+/g, "_"));
     const col = new Map<Column, number>();
     COLUMNS.forEach((c) => { const i = header.indexOf(c); if (i >= 0) col.set(c, i); });
     if (!col.has("part_no") || !col.has("name")) {
-      return { created: 0, updated: 0, errors: [{ row: 1, message: "The first row must name the columns, including part_no and name" }] };
+      return { created: 0, updated: 0, countChanges: 0, errors: [{ row: 1, message: "The first row must name the columns, including part_no and name" }] };
     }
     const errors: { row: number; message: string }[] = [];
-    let created = 0, updated = 0;
+    let created = 0, updated = 0, countChanges = 0;
     const seen = new Set<string>();
     try {
       db.tx(() => {
@@ -489,8 +491,24 @@ export function partRoutes(app: FastifyInstance, db: Db): void {
             const cost = money("cost");
             const qty = num("qty");
             const id = savePart(parsed.data, existing, (k) => (k === "category" || k === "categoryId" ? has("category") : k === "numbers" ? has("numbers") : k === "fitments" ? has("fitment") : false));
-            if (existing) updated++;
-            else {
+            if (existing) {
+              updated++;
+              // An existing part's qty is a shelf count: reported always, set only when asked (an old sheet
+              // re-imported for its prices mustn't undo a month of sales). Kits have no shelf of their own.
+              const diff = qty === undefined || !existing.stocked || existing.is_kit || !parsed.data.stocked ? 0 : round3(qty - existing.on_hand);
+              if (diff !== 0) {
+                countChanges++;
+                if (setCounts) {
+                  try {
+                    if (diff < 0) writeOffUnits(db, id, -diff, [], qty!);
+                  } catch (error) {
+                    if (error instanceof HttpError) throw badRequest(`qty: ${existing.part_no} is tracked one by one — count it on the part's page`);
+                    throw error;
+                  }
+                  postMovement(db, { partId: id, qty: diff, reason: "adjust", note: "count (CSV import)", userId: user.id });
+                }
+              }
+            } else {
               created++;
               if (parsed.data.stocked && qty) {
                 postMovement(db, { partId: id, qty, reason: "opening", unitCostFils: cost ?? 0, note: "CSV import", userId: user.id });
@@ -506,7 +524,7 @@ export function partRoutes(app: FastifyInstance, db: Db): void {
     } catch (error) {
       if (!(error instanceof RollBack)) throw error;
     }
-    return errors.length ? { created: 0, updated: 0, errors } : { created, updated, errors };
+    return errors.length ? { created: 0, updated: 0, countChanges: 0, errors } : { created, updated, countChanges, errors };
   });
 
   // ---- Suppliers ----
