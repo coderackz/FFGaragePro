@@ -4,6 +4,7 @@ import { useState } from "react";
 import { useNavigate, useSearchParams } from "react-router";
 import { PartFormModal } from "../components/inventoryForms";
 import { PartImportDialog } from "../components/PartImportDialog";
+import { ShowMore, usePageLimit } from "../components/ShowMore";
 import { Badge, Button, Card, Empty, Modal, PageHeader, SearchInput, Select, Spinner, Table } from "../components/ui";
 import { useAuth } from "../lib/auth";
 import { formatAED, formatDate } from "../lib/format";
@@ -25,7 +26,9 @@ export function PartsPage() {
   const [categoryId, setCategoryId] = useState("");
   const categories = useApi<{ categories: PartCategory[] }>("/api/part-categories");
   const catName = (id: string | null | undefined) => categories.data?.categories.find((c) => c.id === id)?.name ?? "—";
-  const { data, loading, reload } = useApi<{ parts: Part[] }>(`/api/parts?q=${encodeURIComponent(query)}${lowStock ? "&lowStock=1" : ""}${categoryId ? `&categoryId=${categoryId}` : ""}`);
+  const filters = `q=${encodeURIComponent(query)}${lowStock ? "&lowStock=1" : ""}${categoryId ? `&categoryId=${categoryId}` : ""}`;
+  const [limit, showMore] = usePageLimit(filters);
+  const { data, loading, reload } = useApi<{ parts: Part[]; more: boolean }>(`/api/parts?${filters}&limit=${limit}`);
   const [creating, setCreating] = useState(false);
   const [importing, setImporting] = useState(false);
   const [finding, setFinding] = useState(false);
@@ -87,6 +90,7 @@ export function PartsPage() {
             ...(showCost ? [{ header: "Avg cost", align: "right" as const, cell: (p: Part) => (p.stocked ? formatAED(p.avgCostFils ?? 0) : "—") }] : []),
           ]}
         />
+        <ShowMore more={data?.more} loading={loading} shown={data?.parts.length ?? 0} onMore={showMore} />
       </Card>
       <PartFormModal open={creating} onClose={() => setCreating(false)} onSaved={(p) => navigate(`/parts/${p.id}`)} />
       <PartImportDialog open={importing} onClose={() => setImporting(false)} onDone={() => void reload()} />

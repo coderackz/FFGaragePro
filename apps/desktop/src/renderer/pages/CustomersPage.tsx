@@ -2,6 +2,7 @@ import { Plus, Users } from "lucide-react";
 import { useState } from "react";
 import { useNavigate } from "react-router";
 import { CustomerFormModal } from "../components/forms";
+import { ShowMore, usePageLimit } from "../components/ShowMore";
 import { Badge, Button, Card, Empty, PageHeader, SearchInput, Spinner, Table } from "../components/ui";
 import type { Customer } from "../lib/types";
 import { useApi, useDebounced } from "../lib/useApi";
@@ -9,7 +10,8 @@ import { useApi, useDebounced } from "../lib/useApi";
 export function CustomersPage() {
   const [q, setQ] = useState("");
   const query = useDebounced(q);
-  const { data, loading } = useApi<{ customers: Customer[] }>(`/api/customers?q=${encodeURIComponent(query)}`);
+  const [limit, showMore] = usePageLimit(query);
+  const { data, loading } = useApi<{ customers: Customer[]; more: boolean }>(`/api/customers?q=${encodeURIComponent(query)}&limit=${limit}`);
   const [creating, setCreating] = useState(false);
   const navigate = useNavigate();
 
@@ -33,6 +35,7 @@ export function CustomersPage() {
             { header: "Vehicles", cell: (c) => <span className="font-mono text-[13px]">{c.plates?.join(", ") || "—"}</span> },
           ]}
         />
+        <ShowMore more={data?.more} loading={loading} shown={data?.customers.length ?? 0} onMore={showMore} />
       </Card>
       <CustomerFormModal open={creating} onClose={() => setCreating(false)} onSaved={(c) => navigate(`/customers/${c.id}`)} />
     </>

@@ -3,6 +3,7 @@ import { useState } from "react";
 import { useNavigate } from "react-router";
 import { PO_STATUSES, STATUS_LABELS } from "@ffgp/shared";
 import { Button, Card, Empty, PageHeader, Select, Spinner, StatusBadge, Table } from "../components/ui";
+import { ShowMore, usePageLimit } from "../components/ShowMore";
 import { useAuth } from "../lib/auth";
 import { formatAED, formatDate } from "../lib/format";
 import type { PurchaseOrderSummary, Supplier } from "../lib/types";
@@ -13,8 +14,9 @@ export function PurchaseOrdersPage() {
   const navigate = useNavigate();
   const [status, setStatus] = useState("");
   const [supplierId, setSupplierId] = useState("");
-  const qs = new URLSearchParams({ ...(status ? { status } : {}), ...(supplierId ? { supplierId } : {}) }).toString();
-  const { data, loading } = useApi<{ purchaseOrders: PurchaseOrderSummary[] }>(`/api/purchase-orders${qs ? `?${qs}` : ""}`);
+  const filters = new URLSearchParams({ ...(status ? { status } : {}), ...(supplierId ? { supplierId } : {}) }).toString();
+  const [limit, showMore] = usePageLimit(filters);
+  const { data, loading } = useApi<{ purchaseOrders: PurchaseOrderSummary[]; more: boolean }>(`/api/purchase-orders?${filters ? `${filters}&` : ""}limit=${limit}`);
   const suppliers = useApi<{ suppliers: Supplier[] }>("/api/suppliers");
   const showCost = can("costs.view");
 
@@ -48,6 +50,7 @@ export function PurchaseOrdersPage() {
             ...(showCost ? [{ header: "Amount", align: "right" as const, cell: (p: PurchaseOrderSummary) => formatAED(p.netFils ?? 0) }] : []),
           ]}
         />
+        <ShowMore more={data?.more} loading={loading} shown={data?.purchaseOrders.length ?? 0} onMore={showMore} />
       </Card>
     </>
   );

@@ -2,6 +2,7 @@ import { Car, Plus } from "lucide-react";
 import { useState } from "react";
 import { useNavigate } from "react-router";
 import { VehicleFormModal } from "../components/forms";
+import { ShowMore, usePageLimit } from "../components/ShowMore";
 import { Button, Card, Empty, PageHeader, SearchInput, Spinner, Table } from "../components/ui";
 import { formatKm, vehicleLabel } from "../lib/format";
 import type { Vehicle } from "../lib/types";
@@ -10,7 +11,8 @@ import { useApi, useDebounced } from "../lib/useApi";
 export function VehiclesPage() {
   const [q, setQ] = useState("");
   const query = useDebounced(q);
-  const { data, loading } = useApi<{ vehicles: Vehicle[] }>(`/api/vehicles?q=${encodeURIComponent(query)}`);
+  const [limit, showMore] = usePageLimit(query);
+  const { data, loading } = useApi<{ vehicles: Vehicle[]; more: boolean }>(`/api/vehicles?q=${encodeURIComponent(query)}&limit=${limit}`);
   const [creating, setCreating] = useState(false);
   const navigate = useNavigate();
 
@@ -35,6 +37,7 @@ export function VehiclesPage() {
             { header: "Odometer", cell: (v) => formatKm(v.odometer), align: "right" },
           ]}
         />
+        <ShowMore more={data?.more} loading={loading} shown={data?.vehicles.length ?? 0} onMore={showMore} />
       </Card>
       <VehicleFormModal open={creating} onClose={() => setCreating(false)} onSaved={(v) => navigate(`/customers/${v.customerId}`)} />
     </>

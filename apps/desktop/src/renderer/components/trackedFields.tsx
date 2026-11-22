@@ -3,6 +3,7 @@ import { Plus, Trash2 } from "lucide-react";
 import type { Part, StockUnit } from "../lib/types";
 import { useApi } from "../lib/useApi";
 import { Button, Field, Input, NumberInput, Select, Textarea } from "./ui";
+import { ALL } from "./ShowMore";
 
 // Tyres by DOT, batteries by serial, and kits (inventory v2, Part 2): the bits of the screens that deal with them.
 
@@ -44,7 +45,7 @@ export function TrackingFields({ stocked, tracking, warrantyMonths, isKit, compo
 
 /** A kit's parts: a stocked part (typed by its number) and how many of it. */
 function KitRows({ rows, onChange }: { rows: KitRow[]; onChange: (rows: KitRow[]) => void }) {
-  const parts = useApi<{ parts: Part[] }>("/api/parts?active=1");
+  const parts = useApi<{ parts: Part[] }>(`/api/parts?active=1&limit=${ALL}`);
   const stocked = (parts.data?.parts ?? []).filter((p) => p.stocked && !p.isKit);
   const set = (i: number, p: Partial<KitRow>) => onChange(rows.map((r, j) => (j === i ? { ...r, ...p } : r)));
   return (

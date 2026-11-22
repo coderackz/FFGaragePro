@@ -9,6 +9,7 @@ import { del, get, patch, post } from "../../lib/api";
 import type { Customer } from "../../lib/types";
 import { useApi } from "../../lib/useApi";
 import { BackToBooks } from "./ReportPage";
+import { ALL } from "../../components/ShowMore";
 
 interface EditLine { accountId: string; debit: string; credit: string; customerId: string; documentId: string | null; memo: string; vatBox: VatTag | "" }
 const blank = (): EditLine => ({ accountId: "", debit: "", credit: "", customerId: "", documentId: null, memo: "", vatBox: "" });
@@ -31,7 +32,7 @@ export function JournalEditor({ opening = false }: { opening?: boolean }) {
   const navigate = useNavigate();
   const prefill = (useLocation().state as { prefill?: JournalPrefill } | null)?.prefill;
   const accounts = useApi<{ accounts: Account[] }>("/api/books/accounts");
-  const customers = useApi<{ customers: Customer[] }>("/api/customers");
+  const customers = useApi<{ customers: Customer[] }>(`/api/customers?limit=${ALL}`);
   const [draftId, setDraftId] = useState<string | null>(id ?? null);
   const [kind, setKind] = useState<"manual" | "opening">(opening ? "opening" : "manual");
   const [date, setDate] = useState(prefill?.date ?? dubaiDate(new Date().toISOString()));

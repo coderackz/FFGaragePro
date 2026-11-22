@@ -6,6 +6,7 @@ import { requireAction, sessionUser } from "../auth";
 import { newId, now, type Db } from "../db";
 import { parseCsv } from "../csv";
 import { badRequest, conflict, HttpError, notFound } from "../errors";
+import { page, pageLimit } from "../paging";
 import { postMovement, round3 } from "../stock";
 import { addUnits, checkIncomingCodes, unitOut, unitsOf, writeOffUnits, type UnitRow } from "../units";
 
@@ -154,7 +155,8 @@ export function partRoutes(app: FastifyInstance, db: Db): void {
    * (`fitsVehicle`), and with nothing typed, only the parts that fit. `picker`: a replaced part with no stock gives way to
    * its newest replacement (`replaces`); with stock, it's offered first and its replacement after it.
    */
-  app.get<{ Querystring: { q?: string; lowStock?: string; active?: string; categoryId?: string; vehicleId?: string; picker?: string } }>("/api/parts", async (req) => {
+  app.get<{ Querystring: { q?: string; lowStock?: string; active?: string; categoryId?: string; vehicleId?: string; picker?: string; limit?: string } }>("/api/parts", async (req) => {
+    const limit = pageLimit(req.query.limit);
     const user = sessionUser(db, req);
     const q = req.query.q?.trim() || null;
     const nq = q ? normalizeNumber(q) : "";
@@ -162,9 +164,9 @@ export function partRoutes(app: FastifyInstance, db: Db): void {
       ? db.get<VehicleFit>("SELECT make, model, year, engine FROM vehicles WHERE id = ?", [req.query.vehicleId]) ?? null
       : null;
     // Nothing typed: the parts that fit the vehicle; a vehicle without a make fits nothing.
-    if (!q && vehicle && !vehicle.make) return { parts: [] };
+    if (!q && vehicle && !vehicle.make) return { parts: [], more: false };
     const fitOnly = !q && !!vehicle?.make;
-    // The parts that fit (and those with fitment that doesn't) are worked out before the list is cut at 300, so a
+    // The parts that fit (and those with fitment that doesn't) are worked out before the list is cut, so a
     // fitting part far down the alphabet still comes first.
     const fitting: string[] = [];
     const notFitting: string[] = [];
@@ -179,7 +181,7 @@ export function partRoutes(app: FastifyInstance, db: Db): void {
       for (const [id, ok] of byPart) (ok ? fitting : notFitting).push(id);
     }
     const squashed = "REPLACE(REPLACE(REPLACE(REPLACE(UPPER(part_no), ' ', ''), '-', ''), '.', ''), '/', '')";
-    const rows = db.all<PartRow>(
+    const fetched = db.all<PartRow>(
       `SELECT * FROM parts
        WHERE (:q IS NULL OR part_no LIKE :like ESCAPE '\\' OR name LIKE :like ESCAPE '\\' OR brand LIKE :like ESCAPE '\\' OR fits LIKE :like ESCAPE '\\'
               OR spec_text LIKE :like ESCAPE '\\'
@@ -190,13 +192,14 @@ export function partRoutes(app: FastifyInstance, db: Db): void {
          AND (:cat IS NULL OR category_id = :cat)
          AND (:fitOnly = 0 OR id IN (SELECT value FROM json_each(:fitting)))
        ORDER BY CASE WHEN id IN (SELECT value FROM json_each(:fitting)) THEN 0 WHEN id IN (SELECT value FROM json_each(:notFitting)) THEN 2 ELSE 1 END,
-         name COLLATE NOCASE, part_no COLLATE NOCASE LIMIT 300`,
+         name COLLATE NOCASE, part_no COLLATE NOCASE LIMIT :limit`,
       {
         q, like: like(q ?? ""), nq, nlike: like(nq), low: req.query.lowStock === "1" ? 1 : 0,
         active: req.query.active === "1" ? 1 : req.query.active === "0" ? 0 : null,
-        cat: req.query.categoryId || null, fitOnly: fitOnly ? 1 : 0, fitting: JSON.stringify(fitting), notFitting: JSON.stringify(notFitting),
+        limit: limit + 1, cat: req.query.categoryId || null, fitOnly: fitOnly ? 1 : 0, fitting: JSON.stringify(fitting), notFitting: JSON.stringify(notFitting),
       },
     );
+    const { rows, more } = page(fetched, limit);
     const showCost = can(user.role, "costs.view");
     type Out = ReturnType<typeof partOut> & { kitAvailable: number | null; matchedBy: string | null; fitsVehicle: boolean; replacesPartNo: string | null; rank: number };
     const fitSet = new Set(fitting), notFitSet = new Set(notFitting);
@@ -223,7 +226,7 @@ export function partRoutes(app: FastifyInstance, db: Db): void {
       list = list.map((p, i) => ({ p, i })).sort((a, b) => a.p.rank - b.p.rank || a.i - b.i).map((x) => x.p);
       if (fitOnly) list = list.filter((p) => p.fitsVehicle);
     }
-    return { parts: list.map(({ rank: _rank, ...p }) => p) };
+    return { parts: list.map(({ rank: _rank, ...p }) => p), more };
   });
 
   app.get<{ Params: { id: string } }>("/api/parts/:id", async (req) => {

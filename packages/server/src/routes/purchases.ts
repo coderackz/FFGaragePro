@@ -4,6 +4,7 @@ import { can, formatPoNumber, poLineNetFils, poLineTotalFils, prefixOf, poSchema
 import { z } from "zod";
 import { requireAction, sessionUser, type SessionUser } from "../auth";
 import { newId, now, type Db } from "../db";
+import { page, pageLimit } from "../paging";
 import { badRequest, conflict, notFound } from "../errors";
 import { addUnits, checkIncomingCodes } from "../units";
 import { postMovement, round3 } from "../stock";
@@ -233,21 +234,24 @@ export function purchaseRoutes(app: FastifyInstance, db: Db, docs: { full: Docum
     };
   }
 
-  app.get<{ Querystring: { status?: string; supplierId?: string } }>("/api/purchase-orders", async (req) => {
+  app.get<{ Querystring: { status?: string; supplierId?: string; limit?: string } }>("/api/purchase-orders", async (req) => {
     const user = sessionUser(db, req);
-    const rows = db.all<PoRow & { supplier_name: string; line_count: number }>(
+    const limit = pageLimit(req.query.limit);
+    const fetched = db.all<PoRow & { supplier_name: string; line_count: number }>(
       `SELECT po.*, s.name AS supplier_name, (SELECT COUNT(*) FROM po_lines WHERE po_id = po.id) AS line_count
        FROM purchase_orders po JOIN suppliers s ON s.id = po.supplier_id
        WHERE (:status IS NULL OR po.status = :status) AND (:supplier IS NULL OR po.supplier_id = :supplier)
-       ORDER BY po.created_at DESC, po.rowid DESC LIMIT 300`,
-      { status: req.query.status ?? null, supplier: req.query.supplierId ?? null },
+       ORDER BY po.created_at DESC, po.rowid DESC LIMIT :limit`,
+      { status: req.query.status ?? null, supplier: req.query.supplierId ?? null, limit: limit + 1 },
     );
+    const { rows, more } = page(fetched, limit);
     const showCost = can(user.role, "costs.view");
     return {
       purchaseOrders: rows.map((r) => ({
         id: r.id, number: r.number, status: r.status, supplierId: r.supplier_id, supplierName: r.supplier_name, lineCount: r.line_count,
         createdAt: r.created_at, ...(showCost ? { netFils: r.net_fils } : {}),
       })),
+      more,
     };
   });
 

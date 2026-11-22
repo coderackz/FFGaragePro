@@ -10,6 +10,7 @@ import { useAuth } from "../../lib/auth";
 import { formatAED, formatDate } from "../../lib/format";
 import type { Part, StockUnit, Supplier } from "../../lib/types";
 import { useApi } from "../../lib/useApi";
+import { ALL } from "../../components/ShowMore";
 
 interface DebitNote {
   id: string; number: string; kind: "return" | "core" | "warranty"; date: string; reason: string; supplierRef: string | null;
@@ -41,7 +42,7 @@ export function ReturnsPage() {
 }
 
 const useSuppliers = () => useApi<{ suppliers: Supplier[] }>("/api/suppliers").data?.suppliers ?? [];
-const useStockedParts = () => (useApi<{ parts: Part[] }>("/api/parts?active=1").data?.parts ?? []).filter((p) => p.stocked && !p.isKit);
+const useStockedParts = () => (useApi<{ parts: Part[] }>(`/api/parts?active=1&limit=${ALL}`).data?.parts ?? []).filter((p) => p.stocked && !p.isKit);
 const run = async (fn: () => Promise<void>, done: string, setBusy: (b: boolean) => void) => {
   setBusy(true);
   try { await fn(); toast.success(done); } catch (e) { toast.error((e as Error).message); } finally { setBusy(false); }
@@ -239,7 +240,7 @@ function ClaimDialog({ open, onClose, onDone }: { open: boolean; onClose: () => 
   const [qty, setQty] = useState(1);
   const [reason, setReason] = useState("");
   const [busy, setBusy] = useState(false);
-  const parts = useApi<{ parts: Part[] }>(open ? "/api/parts?active=1" : null).data?.parts ?? [];
+  const parts = useApi<{ parts: Part[] }>(open ? `/api/parts?active=1&limit=${ALL}` : null).data?.parts ?? [];
   const found = useApi<{ units: StockUnit[] }>(open && serial.trim().length >= 3 ? `/api/stock-units?q=${encodeURIComponent(serial.trim())}` : null).data?.units ?? [];
   useEffect(() => { if (open) { setSerial(""); setUnit(null); setSupplierId(""); setPartNo(""); setQty(1); setReason(""); } }, [open]);
   const part = useMemo(() => (unit ? parts.find((p) => p.id === unit.partId) : parts.find((p) => p.partNo.toLowerCase() === partNo.trim().toLowerCase())), [unit, parts, partNo]);

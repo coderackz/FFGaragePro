@@ -4,6 +4,7 @@ import { requireAction, sessionUser, type SessionUser } from "../auth";
 import { customerBalance, customerLedger } from "../ledger";
 import { newId, now, type Db } from "../db";
 import { badRequest, conflict, forbidden, notFound } from "../errors";
+import { page, pageLimit } from "../paging";
 
 interface CustomerRow {
   id: string; kind: string; name: string; phone: string | null; email: string | null; trn: string | null;
@@ -53,18 +54,20 @@ export function customerRoutes(app: FastifyInstance, db: Db): void {
   const getVehicle = (id: string) =>
     db.get<VehicleRow>("SELECT v.*, c.name AS customer_name FROM vehicles v JOIN customers c ON c.id = v.customer_id WHERE v.id = ?", [id]);
 
-  app.get<{ Querystring: { q?: string } }>("/api/customers", async (req) => {
+  app.get<{ Querystring: { q?: string; limit?: string } }>("/api/customers", async (req) => {
     sessionUser(db, req);
     const q = req.query.q?.trim();
-    const rows = db.all<CustomerRow>(
+    const limit = pageLimit(req.query.limit);
+    const fetched = db.all<CustomerRow>(
       `SELECT c.*, (SELECT group_concat(plate) FROM vehicles WHERE customer_id = c.id) AS plates
        FROM customers c
        WHERE :q IS NULL OR c.name LIKE :like ESCAPE '\\' OR c.phone LIKE :like ESCAPE '\\' OR c.email LIKE :like ESCAPE '\\'
           OR EXISTS (SELECT 1 FROM vehicles v WHERE v.customer_id = c.id AND v.plate LIKE :like ESCAPE '\\')
-       ORDER BY c.name COLLATE NOCASE LIMIT 300`,
-      { q: q || null, like: like(q ?? "") },
+       ORDER BY c.name COLLATE NOCASE LIMIT :limit`,
+      { q: q || null, like: like(q ?? ""), limit: limit + 1 },
     );
-    return { customers: rows.map((c) => customerWithBalance(db, c)) };
+    const { rows, more } = page(fetched, limit);
+    return { customers: rows.map((c) => customerWithBalance(db, c)), more };
   });
 
   app.get<{ Params: { id: string } }>("/api/customers/:id", async (req) => {
@@ -123,17 +126,19 @@ export function customerRoutes(app: FastifyInstance, db: Db): void {
     return { customer: customerWithBalance(db, c), from, to, statement: customerLedger(db, c.id, from, to) };
   });
 
-  app.get<{ Querystring: { q?: string } }>("/api/vehicles", async (req) => {
+  app.get<{ Querystring: { q?: string; limit?: string } }>("/api/vehicles", async (req) => {
     sessionUser(db, req);
     const q = req.query.q?.trim();
-    const rows = db.all<VehicleRow>(
+    const limit = pageLimit(req.query.limit);
+    const fetched = db.all<VehicleRow>(
       `SELECT v.*, c.name AS customer_name FROM vehicles v JOIN customers c ON c.id = v.customer_id
        WHERE :q IS NULL OR v.plate LIKE :like ESCAPE '\\' OR v.make LIKE :like ESCAPE '\\' OR v.model LIKE :like ESCAPE '\\'
           OR v.vin LIKE :like ESCAPE '\\' OR c.name LIKE :like ESCAPE '\\'
-       ORDER BY v.plate LIMIT 300`,
-      { q: q || null, like: like(q ?? "") },
+       ORDER BY v.plate LIMIT :limit`,
+      { q: q || null, like: like(q ?? ""), limit: limit + 1 },
     );
-    return { vehicles: rows.map(vehicleOut) };
+    const { rows, more } = page(fetched, limit);
+    return { vehicles: rows.map(vehicleOut), more };
   });
 
   app.get<{ Params: { id: string } }>("/api/vehicles/:id", async (req) => {
