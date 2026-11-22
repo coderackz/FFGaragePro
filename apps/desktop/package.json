@@ -53,17 +53,22 @@
     "asar": true,
     "win": {
       "target": "nsis",
+      "icon": "resources/icon.ico",
       "artifactName": "FleetfixGaragePro-Setup-${version}.${ext}"
     },
     "nsis": {
       "oneClick": false,
       "allowToChangeInstallationDirectory": true,
       "createDesktopShortcut": true,
-      "shortcutName": "Fleetfix Garage Pro"
+      "shortcutName": "Fleetfix Garage Pro",
+      "installerIcon": "resources/icon.ico",
+      "uninstallerIcon": "resources/icon.ico",
+      "installerHeaderIcon": "resources/icon.ico"
     },
     "mac": {
       "target": "dmg",
-      "category": "public.app-category.business"
+      "category": "public.app-category.business",
+      "icon": "resources/icon.icns"
     }
   },
   "dependencies": {
