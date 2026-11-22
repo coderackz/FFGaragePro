@@ -4,7 +4,7 @@
 
 ## Why
 
-The user compared the current job card with a full redesign mockup and chose to **keep the current design** with targeted changes: things advisors need every day (line numbers, units, longer work descriptions, an overall discount with a control on big discounts) and things that get in the way (a Save button that loses work if forgotten, a language box that doesn't belong on the document, a repeated vehicle card, wrapping part details, misaligned figures).
+The user compared the current job card with a full redesign mockup and chose to **keep the current design** with targeted changes: things advisors need every day (line numbers, units, longer work descriptions, an overall discount with a control on big discounts) and things that get in the way (a Save button that loses work if forgotten, a language box that doesn't belong on the document, vehicle details that are hard to read, wrapping part details, misaligned figures).
 
 **Success:** an advisor builds an estimate or job card without pressing Save and without losing work to a power cut; the printout carries numbered lines with units and full labour descriptions; a discount above the limit always has a named person and a reason behind it.
 
@@ -32,7 +32,7 @@ The user compared the current job card with a full redesign mockup and chose to 
    - **If another PC changed the document meanwhile, nothing is overwritten:** the save is refused, the user is told to reload, and their changes stay kept on the PC.
    - Only documents that can still be edited auto-save (issued invoices and converted documents are read-only as today).
 8. **No "Document language" on the document screen.** A document uses its customer's language setting (still on the customer form), as today when it is made.
-9. **No vehicle card on the right.** "VIN … · last … km" moves under the Vehicle dropdown as small grey text.
+9. **Vehicle card on the right stays, with clear details:** **Plate No** (large), make, model and year, **VIN No** ("Not recorded" when missing), and **Odometer** — this visit's reading as entered on the document, with the last recorded reading beside it ("84,250 km · last 84,250"). Labels are written out (Plate No, VIN No, Odometer) instead of the current single grey line.
 10. **Part details stay on one tidy line.** Under a linked part, "OF-1001 · 9 on shelf · unlink · Fits this vehicle" never splits inside a piece; a whole piece wraps if the column is narrow.
 11. **VAT, Total and the delete button line up** with the middle of the input boxes on the same line.
 
