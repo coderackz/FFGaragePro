@@ -1,6 +1,6 @@
 import type { FastifyInstance } from "fastify";
 import {
-  type ApprovalInput, approvalSchema, can, CONVERTS_TO, creditNoteSchema, DOC_STATUSES, DOC_TYPES, docTotals, type DocType, documentCreateSchema, documentUpdateSchema, dubaiDate, dueDate, formatAED, formatDocNumber, formatNumberOf, issueSchema, type LineInput, lineSchema, lineTotals, paymentSchema, prefixOf, promoShares,
+  type ApprovalInput, approvalSchema, can, CONVERTS_TO, creditNoteSchema, DOC_STATUSES, DOC_TYPES, docTotals, type DocType, documentCreateSchema, documentUpdateSchema, dubaiDate, dueDate, formatAED, formatDocNumber, formatNumberOf, issueSchema, type LineInput, lineSchema, lineTotals, paymentSchema, prefixOf, promoShares, type PromoTerms, discountSchema, discountPct, needsConfirmation,
 } from "@ffgp/shared";
 import { z } from "zod";
 import { audit } from "../audit";
@@ -26,6 +26,8 @@ interface DocRow {
   language: string;
   promo_code: string | null; promo_kind: "percent" | "amount" | null; promo_value: number | null; promo_applies: "all" | "labour" | "parts" | null;
   promo_discount_fils: number; promo_override_by: string | null;
+  discount_kind: "percent" | "amount" | null; discount_value: number | null; discount_confirmed_by: string | null; discount_confirmed_at: string | null;
+  discount_remark: string | null;
 }
 interface LineRow {
   id: string; position: number; kind: string; description: string; qty: number; unit_price_fils: number;
@@ -185,6 +187,33 @@ export function documentRoutes(
     });
   }
 
+  /** What's spread over the lines: the promo code, else the overall discount, else nothing. */
+  function discountTerms(d: DocRow): PromoTerms | null {
+    if (d.promo_code && d.promo_kind && d.promo_value !== null && d.promo_applies) return { kind: d.promo_kind, value: d.promo_value, appliesTo: d.promo_applies };
+    if (d.discount_kind && d.discount_value !== null) return { kind: d.discount_kind, value: d.discount_value, appliesTo: "all" };
+    return null;
+  }
+
+  /** A discount's share of the bill (after line discounts; Fleet Fix parts aren't charged) and the garage's limit. */
+  function discountShare(d: DocRow, lines: LineInput[], terms: PromoTerms) {
+    const charged = lines.map((l) => (l.suppliedBy === "fleetfix" ? { ...l, unitPriceFils: 0, discountPct: 0 } : l));
+    const s = promoShares(charged, terms, !!d.prices_include_vat);
+    return { discountFils: s.discountFils, pct: discountPct(s.discountFils, s.baseFils), limit: getSettings(db).pricing.discountConfirmAbovePct };
+  }
+
+  /** The overall discount as the screens see it; not applied while a promo code is on the document. */
+  function discountInfo(d: DocRow) {
+    if (!d.discount_kind || d.discount_value === null) return null;
+    const applied = !d.promo_code;
+    const { discountFils, pct, limit } = discountShare(d, currentLines(d.id), { kind: d.discount_kind, value: d.discount_value, appliesTo: "all" });
+    const confirmedBy = d.discount_confirmed_by ? db.get<{ name: string }>("SELECT name FROM users WHERE id = ?", [d.discount_confirmed_by])?.name ?? null : null;
+    return {
+      kind: d.discount_kind, value: d.discount_value, discountFils: applied ? discountFils : 0, pct: applied ? pct : 0, applied,
+      confirmedBy, confirmedAt: d.discount_confirmed_at, remark: d.discount_remark,
+      needsConfirmation: applied && needsConfirmation(pct, limit) && !d.discount_confirmed_at,
+    };
+  }
+
   /** Replaces a document's lines. A job card's stock follows its lines straight away. */
   /** A line as written: a kit line copied from another document keeps the parts its kit had there (kitJson). */
   type LineWrite = LineInput & { kitJson?: string | null };
@@ -208,8 +237,9 @@ export function documentRoutes(
     // Parts Fleet Fix supplies are never charged to the customer.
     const charged = lines.map((l) => (l.suppliedBy === "fleetfix" ? { ...l, unitPriceFils: 0, discountPct: 0 } : l));
     // A promo code on the document: its discount spread over the lines it applies to, before VAT.
-    const promo = doc?.promo_code && doc.promo_kind && doc.promo_value !== null && doc.promo_applies
-      ? promoShares(charged, { kind: doc.promo_kind, value: doc.promo_value, appliesTo: doc.promo_applies }, includeVat) : null;
+    // Or the document's overall discount, spread the same way over every line (a promo code wins if both arrived).
+    const terms = doc ? discountTerms(doc) : null;
+    const promo = terms ? promoShares(charged, terms, includeVat) : null;
     let net = 0, vat = 0, gross = 0;
     charged.forEach((base, i) => {
       const line = { ...base, promoFils: promo?.shares[i] ?? 0 };
@@ -326,6 +356,7 @@ export function documentRoutes(
       })),
       totals: { netFils: d.net_fils, vatFils: d.vat_fils, grossFils: d.gross_fils },
       promo: d.promo_code ? { code: d.promo_code, kind: d.promo_kind, value: d.promo_value, appliesTo: d.promo_applies, discountFils: d.promo_discount_fils } : null,
+      discount: discountInfo(d),
       ...(cost
         ? { partsCostFils: cost.partsCostFils, marginFils: d.net_fils - cost.partsCostFils, costPending: cost.costPending, uncostedLines: cost.uncostedLines }
         : {}),
@@ -481,6 +512,14 @@ export function documentRoutes(
         details: l.details ?? null, unit: l.unit ?? null,
       }));
       const newDocId = insertDoc(user, { type: target, customerId: d.customer_id, vehicleId: d.vehicle_id, odometer: d.odometer, notes: d.notes, sourceId: d.id, pricesIncludeVat: !!d.prices_include_vat }, lines, target === convertsTo ? reserved : null);
+      // The overall discount goes with the work, with its confirmation.
+      if (d.discount_kind) {
+        db.run(
+          "UPDATE documents SET discount_kind = ?, discount_value = ?, discount_confirmed_by = ?, discount_confirmed_at = ?, discount_remark = ? WHERE id = ?",
+          [d.discount_kind, d.discount_value, d.discount_confirmed_by, d.discount_confirmed_at, d.discount_remark, newDocId],
+        );
+        if (!d.promo_code) writeLines(newDocId, lines, user.id);
+      }
       // The promo code goes with the work (it's checked again when the invoice is issued).
       if (d.promo_code) {
         db.run("UPDATE documents SET promo_code = ?, promo_kind = ?, promo_value = ?, promo_applies = ? WHERE id = ?", [d.promo_code, d.promo_kind, d.promo_value, d.promo_applies, newDocId]);
@@ -508,6 +547,7 @@ export function documentRoutes(
         throw badRequest(`Promo ${d.promo_code} takes the whole bill to AED 0.00, and an invoice needs something to charge. Remove the promo, or add a charged line.`);
       }
       if (d.gross_fils <= 0) throw badRequest("Add at least one charged line before issuing");
+      if (discountInfo(d)?.needsConfirmation) throw conflict("The discount is above the limit: confirm it with a remark first");
       const c = creditCustomer(d.customer_id)!;
       const lpo = input.lpoNumber ?? d.lpo_number;
       if (c.lpo_required && !lpo) throw badRequest("This customer needs an LPO number on the invoice");
@@ -726,6 +766,7 @@ export function documentRoutes(
       const d = getDoc(req.params.id);
       if (!d) throw notFound("Document not found");
       if (!linesEditable(d)) throw conflict(`${d.number} can no longer be edited`);
+      if (d.discount_kind) throw conflict("Remove the discount first: a document has a promo code or a discount, not both");
       const r = findCode(db, code);
       if (!r) throw badRequest(`No such code: ${code.toUpperCase()}`);
       const lines = currentLines(d.id);
@@ -747,6 +788,51 @@ export function documentRoutes(
       if (!d) throw notFound("Document not found");
       if (!linesEditable(d)) throw conflict(`${d.number} can no longer be edited`);
       db.run("UPDATE documents SET promo_code = NULL, promo_kind = NULL, promo_value = NULL, promo_applies = NULL, promo_override_by = NULL WHERE id = ?", [d.id]);
+      writeLines(d.id, currentLines(d.id), user.id);
+    });
+    return { document: full(req.params.id, user) };
+  });
+
+  // ── Overall discount on a document that can still change ───────────────────────────────────────────────────────
+  app.put<{ Params: { id: string } }>("/api/documents/:id/discount", async (req) => {
+    const user = sessionUser(db, req);
+    requireAction(user, "documents.edit");
+    const input = discountSchema.parse(req.body);
+    db.tx(() => {
+      const d = getDoc(req.params.id);
+      if (!d) throw notFound("Document not found");
+      if (!linesEditable(d) || d.type === "credit_note") throw conflict(`${d.number} can no longer be edited`);
+      if (d.promo_code) throw conflict("Remove the promo code first: a document has a promo code or a discount, not both");
+      const lines = currentLines(d.id);
+      const { pct, limit } = discountShare(d, lines, { kind: input.kind, value: input.value, appliesTo: "all" });
+      const above = needsConfirmation(pct, limit);
+      if (above && !(input.confirmed && input.remark)) {
+        throw badRequest(`A discount above ${limit}% needs the confirmation ticked and a remark`);
+      }
+      const t = now();
+      db.run(
+        `UPDATE documents SET discount_kind = ?, discount_value = ?, discount_confirmed_by = ?, discount_confirmed_at = ?, discount_remark = ?, updated_at = ?
+         WHERE id = ?`,
+        [input.kind, input.value, above ? user.id : null, above ? t : null, above ? input.remark! : null, t, d.id],
+      );
+      writeLines(d.id, lines, user.id);
+      if (above) audit(db, { action: "discount.confirm", entity: "document", entityId: d.id, after: { document: d.number, pct, remark: input.remark }, userId: user.id });
+    });
+    return { document: full(req.params.id, user) };
+  });
+
+  app.delete<{ Params: { id: string } }>("/api/documents/:id/discount", async (req) => {
+    const user = sessionUser(db, req);
+    requireAction(user, "documents.edit");
+    db.tx(() => {
+      const d = getDoc(req.params.id);
+      if (!d) throw notFound("Document not found");
+      if (!linesEditable(d)) throw conflict(`${d.number} can no longer be edited`);
+      db.run(
+        `UPDATE documents SET discount_kind = NULL, discount_value = NULL, discount_confirmed_by = NULL, discount_confirmed_at = NULL, discount_remark = NULL,
+           updated_at = ? WHERE id = ?`,
+        [now(), d.id],
+      );
       writeLines(d.id, currentLines(d.id), user.id);
     });
     return { document: full(req.params.id, user) };

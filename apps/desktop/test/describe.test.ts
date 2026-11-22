@@ -34,6 +34,8 @@ describe("activity log in plain words", () => {
   it("credit, receipts and credit notes", () => {
     expect(describeAudit(entry({ action: "credit.override", after: { document: "INV-00012", approvedBy: "Owner One" } })))
       .toBe("Approved going over the credit limit on INV-00012");
+    expect(describeAudit(entry({ action: "discount.confirm", after: { document: "JC-00007", pct: 30, remark: "Fleet customer, agreed" } })))
+      .toBe("Gave a 30% discount on JC-00007: Fleet customer, agreed");
     expect(describeAudit(entry({ action: "receipt.create", after: { receipt: "RCT-00004", customer: "Emirates Logistics", amountFils: 30000, allocations: [] } })))
       .toBe("Received RCT-00004 from Emirates Logistics: AED 300.00");
     expect(describeAudit(entry({ action: "receipt.create", after: { receipt: "RCT-00005", customer: "Emirates Logistics", amountFils: -1150, allocations: [] } })))

@@ -78,6 +78,8 @@ export function describeAudit(e: AuditEntry): string {
       const { username, ...rest } = e.before ?? {};
       return `Changed user ${username ?? ""} — ${changes(rest, e.after)}`;
     }
+    case "discount.confirm":
+      return `Gave a ${after.pct}% discount on ${after.document ?? "a document"}: ${after.remark ?? ""}`;
     case "credit.override":
       return `Approved going over the credit limit on ${after.document ?? "a document"}`;
     case "receipt.create": {
