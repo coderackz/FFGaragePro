@@ -153,6 +153,8 @@ export const settingsSchemas = {
     partsMarkupPct: z.number().min(0).max(1000).nullable().default(null),
     maxDiscountAccountantPct: z.number().min(0).max(100).default(100),
     maxDiscountAdvisorPct: z.number().min(0).max(100).default(100),
+    /** An overall discount above this share of the bill needs a tick and a remark from whoever gives it. */
+    discountConfirmAbovePct: z.number().min(0).max(100).default(25),
   }),
   inventory: z.object({
     belowZero: z.enum(["warn", "block"]).default("warn"),

@@ -30,7 +30,7 @@ interface DocRow {
 interface LineRow {
   id: string; position: number; kind: string; description: string; qty: number; unit_price_fils: number;
   discount_pct: number; net_fils: number; vat_fils: number; gross_fils: number; part_id: string | null; supplied_by: string; part_name_ar?: string | null;
-  promo_fils?: number;
+  promo_fils?: number; details?: string | null; unit?: string | null;
   po_line_id: string | null; part_no?: string | null; part_stocked?: number | null; part_on_hand?: number | null; part_unit?: string | null; po_qty?: number | null; po_received?: number | null; po_number?: string | null;
   po_id?: string | null; po_status?: string | null; unit_ids_json?: string; part_tracking?: string | null; part_is_kit?: number | null; kit_json?: string | null;
 }
@@ -170,6 +170,21 @@ export function documentRoutes(
     return out;
   }
 
+  /**
+   * A line's description and unit as they'll be stored: what was sent, or (left out by an older screen) what the
+   * line at the same position had, if it is the same line (kind and title). Part lines have no description.
+   */
+  function keepDetails<T extends LineInput>(docId: string, lines: T[]): T[] {
+    const old = db.all<{ position: number; kind: string; description: string; details: string | null; unit: string | null }>(
+      "SELECT position, kind, description, details, unit FROM document_lines WHERE document_id = ?", [docId],
+    );
+    return lines.map((l, i) => {
+      const was = old.find((o) => o.position === i && o.kind === l.kind && o.description.trim() === l.description.trim());
+      const details = l.details !== undefined ? l.details : was?.details ?? null;
+      return { ...l, details: l.kind === "part" ? null : details, unit: l.unit !== undefined ? l.unit : was?.unit ?? null };
+    });
+  }
+
   /** Replaces a document's lines. A job card's stock follows its lines straight away. */
   /** A line as written: a kit line copied from another document keeps the parts its kit had there (kitJson). */
   type LineWrite = LineInput & { kitJson?: string | null };
@@ -185,7 +200,7 @@ export function documentRoutes(
       if (!l.partId || !db.get<{ is_kit: number }>("SELECT is_kit FROM parts WHERE id = ?", [l.partId])?.is_kit) return l.kitJson ?? null;
       return l.kitJson ?? JSON.stringify(kitParts(db, l.partId));
     });
-    const lines = resolvePoLinks(docId, withUnits);
+    const lines = keepDetails(docId, resolvePoLinks(docId, withUnits));
     db.run("DELETE FROM document_lines WHERE document_id = ?", [docId]);
     const rate = vatRate();
     // Fixed when the document was created, so changing the Tax setting never changes a document's totals.
@@ -202,11 +217,12 @@ export function documentRoutes(
       net += t.netFils; vat += t.vatFils; gross += t.grossFils;
       db.run(
         `INSERT INTO document_lines (id, document_id, position, kind, description, qty, unit_price_fils, discount_pct, net_fils, vat_fils, gross_fils,
-           part_id, supplied_by, po_line_id, promo_fils, unit_ids_json, kit_json)
-         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+           part_id, supplied_by, po_line_id, promo_fils, unit_ids_json, kit_json, details, unit)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
         [
           newId(), docId, i, line.kind, line.description, line.qty, line.unitPriceFils, line.discountPct, t.netFils, t.vatFils, t.grossFils,
           line.partId ?? null, line.suppliedBy, line.poLineId ?? null, line.promoFils, JSON.stringify(line.unitIds ?? []), kitJsons[i] ?? null,
+          line.details ?? null, line.unit ?? null,
         ],
       );
     });
@@ -298,7 +314,7 @@ export function documentRoutes(
       printCount: db.get<{ n: number }>("SELECT COUNT(*) AS n FROM document_prints WHERE document_id = ?", [id])!.n,
       customer, vehicle, source, derived, creditNotes,
       lines: lines.map((l) => ({
-        id: l.id, kind: l.kind, description: l.description, qty: l.qty, unitPriceFils: l.unit_price_fils,
+        id: l.id, kind: l.kind, description: l.description, details: l.details ?? null, unit: l.unit ?? null, qty: l.qty, unitPriceFils: l.unit_price_fils,
         discountPct: l.discount_pct, netFils: l.net_fils, vatFils: l.vat_fils, grossFils: l.gross_fils, promoFils: l.promo_fils ?? 0,
         partId: l.part_id, partNo: l.part_no ?? null, partNameAr: l.part_name_ar ?? null,
         partStocked: l.part_id ? !!l.part_stocked : null, partOnHand: l.part_id ? l.part_on_hand ?? null : null, partUnit: l.part_unit ?? null, suppliedBy: l.supplied_by, poLineId: l.po_line_id,
@@ -462,6 +478,7 @@ export function documentRoutes(
       const lines = db.all<LineRow>("SELECT * FROM document_lines WHERE document_id = ? ORDER BY position", [d.id]).map((l) => ({
         kind: l.kind as LineInput["kind"], description: l.description, qty: l.qty, unitPriceFils: l.unit_price_fils, discountPct: l.discount_pct,
         partId: l.part_id, suppliedBy: l.supplied_by as LineInput["suppliedBy"], poLineId: l.po_line_id, unitIds: unitIdsOf(l), kitJson: l.kit_json ?? null,
+        details: l.details ?? null, unit: l.unit ?? null,
       }));
       const newDocId = insertDoc(user, { type: target, customerId: d.customer_id, vehicleId: d.vehicle_id, odometer: d.odometer, notes: d.notes, sourceId: d.id, pricesIncludeVat: !!d.prices_include_vat }, lines, target === convertsTo ? reserved : null);
       // The promo code goes with the work (it's checked again when the invoice is issued).
@@ -524,6 +541,7 @@ export function documentRoutes(
   type SourceLine = {
     id: string; position: number; kind: string; description: string; qty: number; unit_price_fils: number; discount_pct: number; part_id: string | null; supplied_by: string;
     part_stocked: number | null; net_fils: number; vat_fils: number; promo_fils: number; unit_ids_json?: string; kit_json?: string | null; part_is_kit?: number | null;
+    details: string | null; unit: string | null;
   };
 
   /**
@@ -608,10 +626,10 @@ export function documentRoutes(
         if (unitIds.length && !back.length) throw badRequest("Only parts going back on the shelf take units");
         db.run(
           `INSERT INTO document_lines (id, document_id, position, kind, description, qty, unit_price_fils, discount_pct, net_fils, vat_fils, gross_fils,
-             part_id, supplied_by, source_line_id, unit_ids_json)
-           VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+             part_id, supplied_by, source_line_id, unit_ids_json, details, unit)
+           VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
           [newId(), cnId, i, line.kind, line.description, qty, line.unit_price_fils, line.discount_pct, tt.netFils, tt.vatFils, tt.grossFils,
-            line.part_id, line.supplied_by, line.id, JSON.stringify(back)],
+            line.part_id, line.supplied_by, line.id, JSON.stringify(back), line.details ?? null, line.unit ?? null],
         );
         // Back on the shelf: the part, or a kit's parts (as the kit was when sold).
         const kit = line.kind === "part" && line.part_id && line.supplied_by === "garage" && !line.part_stocked && (line.kit_json || line.part_is_kit) ? kitPartsOf(db, line.part_id, line.kit_json) : [];
@@ -697,6 +715,7 @@ export function documentRoutes(
     db.all<LineRow>("SELECT * FROM document_lines WHERE document_id = ? ORDER BY position", [docId]).map((l) => ({
       kind: l.kind as LineInput["kind"], description: l.description, qty: l.qty, unitPriceFils: l.unit_price_fils, discountPct: l.discount_pct,
       partId: l.part_id, suppliedBy: l.supplied_by as LineInput["suppliedBy"], poLineId: l.po_line_id, unitIds: unitIdsOf(l), kitJson: l.kit_json ?? null,
+      details: l.details ?? null, unit: l.unit ?? null,
     }));
 
   app.post<{ Params: { id: string } }>("/api/documents/:id/promo", async (req) => {

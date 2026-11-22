@@ -1516,6 +1516,20 @@ CREATE TABLE warranty_claims (
 CREATE INDEX warranty_claims_supplier ON warranty_claims(supplier_id, status);
 `,
   },
+  {
+    id: 25,
+    // Document editor refinements: labour and other lines get a description and every line a unit; a document can
+    // carry an overall discount (spread over the lines like a promo), confirmed with a remark above the limit.
+    sql: `
+ALTER TABLE document_lines ADD COLUMN details TEXT;
+ALTER TABLE document_lines ADD COLUMN unit TEXT;
+ALTER TABLE documents ADD COLUMN discount_kind TEXT CHECK (discount_kind IN ('percent', 'amount'));
+ALTER TABLE documents ADD COLUMN discount_value REAL;
+ALTER TABLE documents ADD COLUMN discount_confirmed_by TEXT REFERENCES users(id);
+ALTER TABLE documents ADD COLUMN discount_confirmed_at TEXT;
+ALTER TABLE documents ADD COLUMN discount_remark TEXT;
+`,
+  },
 ];
 
 /** The newest migration this code knows: the garage database's schema version. */

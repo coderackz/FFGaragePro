@@ -105,6 +105,11 @@ export const lineSchema = z.object({
   poLineId: z.string().uuid().nullable().optional(),
   /** Tyres and batteries tracked one by one: the units this line fits. */
   unitIds: z.array(z.string().uuid()).max(1000).default([]),
+  /** Labour and other lines: the work in detail, printed under the title. Left out = keep what's stored. */
+  details: z.string().max(2000).nullable().optional()
+    .transform((v) => (v === undefined ? undefined : v?.trim() ? v.replace(/\s+$/, "") : null)),
+  /** What the quantity counts (Pc, Box, Hr…). Left out = keep what's stored. */
+  unit: z.string().trim().max(12).nullable().optional().transform((v) => (v === undefined ? undefined : v || null)),
 }).refine((l) => l.suppliedBy === "garage" || l.kind === "part", { message: "Only parts can be supplied by Fleet Fix", path: ["suppliedBy"] });
 export type LineInput = z.infer<typeof lineSchema>;
 
