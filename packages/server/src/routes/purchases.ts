@@ -368,7 +368,7 @@ export function purchaseRoutes(app: FastifyInstance, db: Db, docs: { full: Docum
       updateNet(poId);
       if (input.alreadyBought) {
         const net = lineNet(input.qty, input.unitCostFils!);
-        const vatFils = roundFils((net * (garage(db)?.vat_rate_bp ?? 500)) / 10000);
+        const vatFils = input.vatFils ?? roundFils((net * (garage(db)?.vat_rate_bp ?? 500)) / 10000);
         receive(getPo(poId)!, {
           supplierInvoiceNo: input.supplierInvoiceNo, supplierInvoiceDate: now().slice(0, 10), vatFils,
           lines: [{ poLineId, qty: input.qty, unitCostFils: input.unitCostFils!, units: input.units }],

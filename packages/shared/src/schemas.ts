@@ -349,6 +349,8 @@ export const requestPartSchema = z.object({
   alreadyBought: z.boolean().default(false),
   unitCostFils: money.optional(),
   supplierInvoiceNo: optionalText(60),
+  /** Bought now: the VAT on the shop's receipt (none from a shop that isn't VAT-registered); left out = the garage's rate. */
+  vatFils: money.optional(),
   /** Bought now, a tracked part: each unit's DOT code or serial. */
   units: z.array(text(60).min(1)).max(1000).default([]),
 });

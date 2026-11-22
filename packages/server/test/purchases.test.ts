@@ -102,6 +102,20 @@ describe("purchasing", () => {
     expect(po.receipts[0].supplierInvoiceNo).toBe("CASH-12");
   });
 
+  it("already bought: VAT is the garage's rate unless the receipt says otherwise (none from a shop without VAT)", async () => {
+    const { app, owner, accountant, customer } = await world();
+    const disc = await createPart(app, owner, { partNo: "BD-220", name: "Brake disc", stocked: false });
+    const receiptOf = async (extra: Record<string, unknown>) => {
+      const jc = await jobCard(app, accountant, customer.id, [partLine(disc, 2)]);
+      const res = await request(app, accountant, jc.id, { qty: 2, alreadyBought: true, unitCostFils: 3000, ...extra });
+      expect(res.status).toBe(200);
+      return (await call(app, "GET", `/api/purchase-orders/${res.body.document.lines[0].purchaseOrderId}`, accountant)).body.purchaseOrder.receipts[0];
+    };
+    expect(await receiptOf({})).toMatchObject({ netFils: 6000, vatFils: 300, grossFils: 6300 });
+    expect(await receiptOf({ vatFils: 0 })).toMatchObject({ netFils: 6000, vatFils: 0, grossFils: 6000 });
+    expect(await receiptOf({ vatFils: 290 })).toMatchObject({ vatFils: 290, grossFils: 6290 });
+  });
+
   it("an already-bought part gets its own PO, leaving the open draft alone", async () => {
     const { app, owner, accountant, customer } = await world();
     const disc = await createPart(app, owner, { partNo: "BD-220", name: "Brake disc", stocked: false });
