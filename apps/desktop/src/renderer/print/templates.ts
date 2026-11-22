@@ -44,6 +44,7 @@ const PAGE_CSS = `
   .c { text-align: center; width: 16mm; }
   .b { font-weight: 700; }
   .k { color: #a1a1aa; font-size: 8pt; margin-top: 0.5mm; }
+  .d { color: #52525b; font-size: 8.5pt; margin-top: 0.6mm; white-space: normal; }
   .box { display: inline-block; width: 4mm; height: 4mm; border: 1.2px solid #52525b; border-radius: 0.6mm; }
   .bottom { display: flex; justify-content: space-between; gap: 10mm; margin-top: 5mm; }
   .notes { flex: 1; font-size: 9.5pt; color: #3f3f46; white-space: pre-line; }
@@ -153,16 +154,21 @@ export function renderDocumentHtml(doc: DocumentFull, garage: Garage, settings: 
   // Tyres and batteries: each one's DOT, or serial and the warranty's end.
   const units = (l: DocumentFull["lines"][number]) =>
     (l.units ?? []).map((u) => (u.kind === "dot" ? `DOT ${esc(u.code)}` : `Serial ${esc(u.code)}${u.warrantyEnds ? ` · warranty to ${date(u.warrantyEnds)}` : ""}`)).join(", ");
-  const qty = (l: DocumentFull["lines"][number]) => (ds.showLabourHours && l.kind === "labour" ? `${l.qty} h` : `${l.qty}`);
+  // A line's unit beside its quantity ("2 Pc", "1.5 Hr"); without one, labour shows hours as before.
+  const qty = (l: DocumentFull["lines"][number]) => (l.unit ? `${l.qty} ${esc(l.unit)}` : ds.showLabourHours && l.kind === "labour" ? `${l.qty} h` : `${l.qty}`);
+  // Labour and other lines: the work in detail under the title, line breaks kept.
+  const details = (l: DocumentFull["lines"][number]) => (l.details ? `<div class="d">${esc(l.details).replace(/\n/g, "<br>")}</div>` : "");
+  // Each line's share of the overall discount, or of the promo code.
+  const shareLabel = doc.discount?.applied ? "Discount" : "Promo";
   const rows = doc.lines
     .map((l, i) => {
       if (isJob) {
         const notes = [partNo(l), units(l), l.suppliedBy === "fleetfix" ? "Supplied by Fleet Fix" : ""].filter(Boolean).join(" · ");
-        return `<tr><td class="n">${i + 1}</td><td>${esc(l.description)}${bi ? arLine(l.partNameAr) : ""}${notes ? `<div class="k">${notes}</div>` : ""}</td><td>${KIND[l.kind] ?? ""}</td><td class="r">${qty(l)}</td><td class="c"><span class="box"></span></td></tr>`;
+        return `<tr><td class="n">${i + 1}</td><td>${esc(l.description)}${bi ? arLine(l.partNameAr) : ""}${details(l)}${notes ? `<div class="k">${notes}</div>` : ""}</td><td>${KIND[l.kind] ?? ""}</td><td class="r">${qty(l)}</td><td class="c"><span class="box"></span></td></tr>`;
       }
       const t = shownLineTotals(doc, l, garage.vatRateBp);
       const notes = [KIND[l.kind] ?? "", partNo(l), units(l), l.suppliedBy === "fleetfix" ? "Supplied by Fleet Fix" : ""].filter(Boolean).join(" · ");
-      return `<tr><td class="n">${i + 1}</td><td>${esc(l.description)}${bi ? arLine(l.partNameAr) : ""}<div class="k">${notes}</div></td><td class="r">${qty(l)}</td><td class="r">${money(l.unitPriceFils)}</td><td class="r">${l.discountPct ? `${l.discountPct}%` : l.promoFils ? "" : "—"}${l.promoFils ? `<div class="k">Promo −${money(l.promoFils)}</div>` : ""}</td><td class="r">${money(t.netFils)}</td><td class="r">${money(t.vatFils)}</td><td class="r b">${money(t.grossFils)}</td></tr>`;
+      return `<tr><td class="n">${i + 1}</td><td>${esc(l.description)}${bi ? arLine(l.partNameAr) : ""}${details(l)}<div class="k">${notes}</div></td><td class="r">${qty(l)}</td><td class="r">${money(l.unitPriceFils)}</td><td class="r">${l.discountPct ? `${l.discountPct}%` : l.promoFils ? "" : "—"}${l.promoFils ? `<div class="k">${shareLabel} −${money(l.promoFils)}</div>` : ""}</td><td class="r">${money(t.netFils)}</td><td class="r">${money(t.vatFils)}</td><td class="r b">${money(t.grossFils)}</td></tr>`;
     })
     .join("");
 
@@ -173,6 +179,7 @@ export function renderDocumentHtml(doc: DocumentFull, garage: Garage, settings: 
   const totals = isJob
     ? ""
     : `<table class="totals">
+        ${doc.discount?.applied && doc.discount.discountFils > 0 ? `<tr><td>${t("Discount")}${doc.discount.kind === "percent" ? ` ${doc.discount.value}%` : ""}</td><td class="r">−${money(doc.discount.discountFils)}</td></tr>` : ""}
         ${doc.promo && doc.promo.discountFils > 0 ? `<tr><td>${t("Promo discount")} ${esc(doc.promo.code)} (${doc.promo.kind === "percent" ? `${doc.promo.value}%` : money(doc.promo.value)}${doc.promo.appliesTo === "all" ? "" : ` ${doc.promo.appliesTo}`})</td><td class="r">−${money(doc.promo.discountFils)}</td></tr>` : ""}
         <tr><td>${t("Subtotal (excl. VAT)")}</td><td class="r">${money(doc.totals.netFils)}</td></tr>
         <tr><td>${vatLabel(vatPct, lang)}</td><td class="r">${money(doc.totals.vatFils)}</td></tr>

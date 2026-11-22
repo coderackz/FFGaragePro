@@ -26,6 +26,10 @@ export interface Vehicle {
 
 export interface DocLine {
   id?: string; kind: LineKind; description: string; qty: number; unitPriceFils: number; discountPct: number;
+  /** Labour and other lines: the work in detail, printed under the title. */
+  details?: string | null;
+  /** What the quantity counts (Pc, Box, Hr…). */
+  unit?: string | null;
   netFils?: number; vatFils?: number; grossFils?: number;
   /** This line's share of the document's promo discount (set by the server). */
   promoFils?: number;
@@ -70,6 +74,11 @@ export interface DocumentFull {
   lines: DocLine[]; totals: { netFils: number; vatFils: number; grossFils: number }; paidFils: number; balanceFils: number; payments: Payment[];
   partsCostFils?: number; marginFils?: number; costPending?: boolean; uncostedLines?: number;
   promo?: { code: string; kind: "percent" | "amount"; value: number; appliesTo: "all" | "labour" | "parts"; discountFils: number } | null;
+  /** The overall discount (spread over the lines like a promo); not applied while a promo code is on the document. */
+  discount?: {
+    kind: "percent" | "amount"; value: number; discountFils: number; pct: number; applied: boolean;
+    confirmedBy: string | null; confirmedAt: string | null; remark: string | null; needsConfirmation: boolean;
+  } | null;
 }
 export interface DocumentSummary {
   id: string; type: DocType; number: string; status: string; customerName: string; plate: string | null; grossFils: number;

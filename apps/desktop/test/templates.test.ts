@@ -50,6 +50,26 @@ describe("printed documents follow Settings", () => {
     expect(draft).not.toContain(">PAID<");
   });
 
+  it("a line's unit prints beside its quantity and its description under its title", () => {
+    const lines = SAMPLE_DOCUMENTS.invoice.lines.map((l) => (l.kind === "labour" ? { ...l, unit: "Hr", details: "Pads and discs\nBleed <brakes>" } : l));
+    for (const doc of [{ ...invoice(), lines }, { ...SAMPLE_DOCUMENTS.jobcard, lines }]) {
+      const html = renderDocumentHtml(doc, SAMPLE_GARAGE, settings());
+      expect(html).toContain("1.5 Hr");
+      expect(html).toContain("Pads and discs<br>Bleed &lt;brakes&gt;");
+    }
+  });
+
+  it("a manual discount prints above VAT, and its share on each line says Discount", () => {
+    const lines = SAMPLE_DOCUMENTS.invoice.lines.map((l, i) => (i === 0 ? { ...l, promoFils: 2700 } : l));
+    const pct = renderDocumentHtml({ ...invoice(), lines, discount: { kind: "percent", value: 10, discountFils: 5000, pct: 10, applied: true, confirmedBy: null, confirmedAt: null, remark: null, needsConfirmation: false } }, SAMPLE_GARAGE, settings());
+    expect(pct).toContain("Discount 10%");
+    expect(pct).toContain("−50.00");
+    expect(pct).toContain("Discount −27.00");
+    expect(pct).not.toContain("Promo −");
+    const amount = renderDocumentHtml({ ...invoice(), discount: { kind: "amount", value: 5000, discountFils: 5000, pct: 4, applied: true, confirmedBy: null, confirmedAt: null, remark: null, needsConfirmation: false } }, SAMPLE_GARAGE, settings());
+    expect(amount).toMatch(/<td>Discount<\/td>/);
+  });
+
   it("part numbers and labour hours can be hidden", () => {
     const shown = renderDocumentHtml(invoice(), SAMPLE_GARAGE, settings());
     expect(shown).toContain("Part no. 90915-YZZE1");
