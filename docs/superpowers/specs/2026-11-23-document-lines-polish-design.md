@@ -66,7 +66,7 @@ The user compared the current job card with a full redesign mockup and chose to 
 
 - **One migration (25):** line `details` and `unit`; the document's manual discount (kind, value) and its confirmation (who, when, remark); the discount limit setting. **Deploy the cloud before the garage PCs**, as for every migration.
 - **Older PCs** that save without the new fields must not wipe them (fields not sent are kept), and must not drop or change a manual discount made on an updated PC.
-- Sync: the new columns travel with the existing document and line sync; a manual discount and a promo can't end up together after a merge (if both arrive, the earlier one wins and the other is dropped with a sync issue). *(My call.)*
+- Sync: the new columns travel with the existing document and line sync; if a promo code and a manual discount both arrive on one document from different PCs, the promo code applies and the manual discount waits (the screen says "Not applied: this document has a promo code") until the promo is removed. *(My call.)*
 - Money stays in integer fils; VAT rounding as today.
 - Works in the Electron app and the browser (cloud) app, at the widths in the e2e checks (1024–1440 px; the summary sits beside the lines only at 1440 px and up, as today).
 - No icons added (the user doesn't want icons on this screen).
