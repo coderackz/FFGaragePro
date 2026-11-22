@@ -23,7 +23,8 @@ and margin (Owner and Accountant only). Parts list import from CSV.
 - **Catalogue:** categories with their own details (Settings → Inventory), other numbers (OEM and cross-references,
   all searchable), vehicles each part fits (the job card's picker shows fitting parts first; "Fits this vehicle" adds
   one from a line), packs ("Box of 10" — a purchase order buys and prints in packs, stock stays in units), and
-  "Replaced by" for superseded numbers. The CSV import takes category, other numbers and fitment.
+  "Replaced by" for superseded numbers. The CSV import takes category, other numbers and fitment; for parts already in
+  the list, its `qty` can set the shelf count (only when ticked — posted as a stock adjustment).
 - **Tyres and batteries one by one:** a part tracked by DOT or by serial has a `stock_units` row per unit (DOT or
   serial entered on receiving; picked on the job card, oldest DOT first; printed on the invoice with a battery's
   warranty end; found by serial). Units never move stock themselves; two computers fitting the same unit offline:
