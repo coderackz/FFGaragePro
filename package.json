@@ -28,7 +28,8 @@
     "e2e:catalogue": "playwright test -c playwright.catalogue.config.ts",
     "e2e:tracked": "playwright test -c playwright.tracked.config.ts",
     "e2e:planning": "playwright test -c playwright.planning.config.ts",
-    "e2e:returns": "playwright test -c playwright.returns.config.ts"
+    "e2e:returns": "playwright test -c playwright.returns.config.ts",
+    "e2e:minors": "playwright test -c playwright.minors.config.ts"
   },
   "devDependencies": {
     "@playwright/test": "^1.65.1",
