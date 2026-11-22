@@ -66,13 +66,13 @@ test("tyres by DOT, batteries by serial, and kits", async ({ page, request }) =>
   const vehicle = (await api("post", "/api/vehicles", { customerId: customer.id, plate: "DXB A 12345", make: "Toyota", model: "Land Cruiser", year: 2018 })).vehicle;
   const jc = (await api("post", "/api/documents", { type: "jobcard", customerId: customer.id, vehicleId: vehicle.id })).document;
   await page.goto(`/#/documents/${jc.id}`);
-  await page.getByRole("button", { name: "Part", exact: true }).click();
+  await page.getByRole("button", { name: "+ Part", exact: true }).click();
   await page.getByLabel("Part", { exact: true }).last().fill("MICH");
   await page.getByRole("option", { name: /MICH-LTX/ }).click();
   await page.getByLabel("Quantity").last().fill("2");
   await page.getByRole("button", { name: "Pick the oldest 2" }).click();
   await expect(page.getByText("2 of 2 picked")).toBeVisible();
-  await page.getByRole("button", { name: "Part", exact: true }).click();
+  await page.getByRole("button", { name: "+ Part", exact: true }).click();
   await page.getByLabel("Part", { exact: true }).last().fill("KIT-MIN");
   await page.getByRole("option", { name: /KIT-MIN/ }).click();
   await page.getByRole("button", { name: "Save", exact: true }).click();

@@ -52,7 +52,7 @@ test("the parts catalogue: numbers, fitment, category, packs, replaced by", asyn
   const vehicle = (await (await request.post(`${API}/api/vehicles`, { headers, data: { customerId: customer.id, plate: "DXB A 12345", make: "Toyota", model: "Land Cruiser", year: 2018 } })).json()).vehicle;
   const jc = (await (await request.post(`${API}/api/documents`, { headers, data: { type: "jobcard", customerId: customer.id, vehicleId: vehicle.id } })).json()).document;
   await page.goto(`/#/documents/${jc.id}`);
-  await page.getByRole("button", { name: "Part", exact: true }).click();
+  await page.getByRole("button", { name: "+ Part", exact: true }).click();
   await page.getByLabel("Part", { exact: true }).last().click();
   await expect(page.getByRole("option", { name: /TY-OF1.*Fits/ })).toBeVisible();
   await page.getByLabel("Part", { exact: true }).last().fill("04152yzza1");

@@ -109,15 +109,17 @@ export function PartLink({ line, editable, onUnlink, vehicleId }: { line: DocLin
   };
   const shelf = line.partIsKit ? "kit (its parts come off the shelf)" : line.partStocked ? `${line.partOnHand ?? 0} on shelf` : "bought per job";
   return (
-    <span className="inline-flex items-center gap-1 rounded bg-zinc-100 px-1.5 py-0.5 text-xs text-zinc-600">
-      <span className="font-mono">{line.partNo}</span> · <span className={clsx(line.partStocked && (line.partOnHand ?? 0) < 0 && "text-red-700")}>{shelf}</span>
+    // Each piece stays whole ("OF-1001", "9 on shelf"); a narrow column moves a whole piece to the next line.
+    <span className="inline-flex flex-wrap items-center gap-x-1.5 gap-y-0.5 rounded bg-zinc-100 px-1.5 py-0.5 text-xs text-zinc-600">
+      <span className="font-mono whitespace-nowrap">{line.partNo}{" "}</span>
+      <span className={clsx("whitespace-nowrap", line.partStocked && (line.partOnHand ?? 0) < 0 && "text-red-700")}>· {shelf}</span>
       {editable && (
         <button type="button" onClick={onUnlink} className="ml-0.5 text-zinc-400 hover:text-zinc-700" title="Unlink from the parts list" aria-label="Unlink part">
           <Link2Off className="size-3" />
         </button>
       )}
       {vehicleId && can("inventory.edit") && !added && (
-        <button type="button" onClick={() => void addFit()} className="ml-1.5 text-zinc-500 underline hover:text-zinc-800" title="Add this vehicle to the part's fitment">Fits this vehicle</button>
+        <button type="button" onClick={() => void addFit()} className="whitespace-nowrap text-zinc-500 underline hover:text-zinc-800" title="Add this vehicle to the part's fitment">Fits this vehicle</button>
       )}
     </span>
   );

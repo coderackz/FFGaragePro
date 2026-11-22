@@ -1,78 +1,128 @@
 import { PackagePlus, Trash2, TriangleAlert } from "lucide-react";
-import { catalogueLinePrice, LINE_KINDS, type DocType, type LineKind } from "@ffgp/shared";
+import { useMemo, useState } from "react";
+import { catalogueLinePrice, defaultUnit, LINE_KINDS, UNIT_SUGGESTIONS, type DocType, type LineKind } from "@ffgp/shared";
 import { PartLink, PartPicker } from "../PartPicker";
 import { UnitChooser } from "../trackedFields";
-import { Badge, Empty, Input, MoneyInput, NumberInput, Select } from "../ui";
+import { Badge, Empty, Input, MoneyInput, NumberInput, Select, Textarea } from "../ui";
 import { formatAED, formatDate } from "../../lib/format";
 import type { DocLine } from "../../lib/types";
 import { shownLineTotals } from "../../print/templates";
 
 export const KIND_LABELS: Record<LineKind, string> = { labour: "Labour", part: "Part", other: "Other" };
 
-export function LinesTable({ type, lines, promoFils, vehicleId, editable, vatRate, includeVat, onChange, onRemove, onRequest, showCost }: {
+/** A line counts (gets a number and is saved) once it has a title or a price; blank lines are dropped. */
+export const lineCounts = (l: DocLine) => l.description.trim() !== "" || l.unitPriceFils > 0;
+
+export function LinesTable({ type, lines, promoFils, vehicleId, editable, vatRate, includeVat, onChange, onRemove, onRequest, onAdd, showCost }: {
   /** The job's vehicle: the part search puts what fits it first. */
   vehicleId?: string | null;
-  /** Each line's share of the promo as the lines stand now (worked out here while editing, before saving). */
+  /** Each line's share of the promo or discount as the lines stand now (worked out while editing, before saving). */
   promoFils?: number[];
   type: DocType; lines: DocLine[]; editable: boolean; vatRate: number; includeVat: boolean; onChange: (i: number, l: Partial<DocLine>) => void; onRemove: (i: number) => void;
   onRequest?: (i: number) => void; showCost: boolean;
+  /** Adds a line of that kind (the buttons under the last line). */
+  onAdd?: (kind: LineKind) => void;
 }) {
-  if (lines.length === 0) return <Empty title="No items" />;
+  const [describing, setDescribing] = useState<Set<number>>(new Set());
+  // SL No: 1, 2, 3… over the lines that will be saved.
+  const numbers = useMemo(() => {
+    let n = 0;
+    return lines.map((l) => (lineCounts(l) ? ++n : null));
+  }, [lines]);
+  // A unit still at its kind's default follows a change of kind or part; one the advisor typed stays.
+  const untouched = (l: DocLine) => !l.unit || l.unit === defaultUnit(l.kind, l.partUnit);
+  const addButtons = editable && onAdd && (
+    <div className="flex items-center gap-4 border-t border-zinc-100 px-3 py-2 text-sm">
+      {LINE_KINDS.map((k) => (
+        <button key={k} type="button" onClick={() => onAdd(k)} className="font-medium text-brand-700 hover:underline">+ {KIND_LABELS[k]}</button>
+      ))}
+    </div>
+  );
+  if (lines.length === 0) return <>{editable ? addButtons : <Empty title="No items" />}</>;
   return (
     <div className="overflow-x-auto">
+    <datalist id="unit-suggestions">{UNIT_SUGGESTIONS.map((u) => <option key={u} value={u} />)}</datalist>
     <table className="w-full min-w-[700px] table-fixed text-sm">
       <thead>
-        <tr className="border-b border-zinc-200 bg-zinc-50/80 text-left text-xs font-medium tracking-wide text-zinc-500 uppercase">
-          <th className="w-[124px] px-3 py-2 font-medium">Type</th>
+        <tr className="border-b border-zinc-200 bg-zinc-50/80 text-left text-xs font-medium tracking-wide whitespace-nowrap text-zinc-500 uppercase">
+          <th className="w-8 py-2 pl-1 text-right font-medium">#</th>
+          <th className="w-[92px] px-1.5 py-2 font-medium">Type</th>
           <th className="px-2 py-2 font-medium">Description</th>
-          <th className="w-[64px] px-2 py-2 text-right font-medium">Qty</th>
-          <th className="w-[96px] px-2 py-2 text-right font-medium">{includeVat ? "Price incl. VAT" : "Unit price"}</th>
-          <th className="w-[64px] px-2 py-2 text-right font-medium">Disc %</th>
-          <th className="w-[70px] px-2 py-2 text-right font-medium">VAT</th>
-          <th className="w-[96px] px-3 py-2 text-right font-medium">Total</th>
-          {editable && <th className="w-10" />}
+          <th className="w-[60px] px-1.5 py-2 text-right font-medium">Qty</th>
+          <th className="w-[56px] px-1.5 py-2 font-medium">Unit</th>
+          <th className="w-[88px] px-1.5 py-2 text-right font-medium">{includeVat ? "Price incl. VAT" : "Unit price"}</th>
+          <th className="w-[56px] px-1.5 py-2 text-right font-medium">Disc %</th>
+          <th className="w-[60px] px-1.5 py-2 text-right font-medium">VAT</th>
+          <th className="w-[84px] px-2 py-2 text-right font-medium">Total</th>
+          {editable && <th className="w-8" />}
         </tr>
       </thead>
       <tbody className="divide-y divide-zinc-100">
         {lines.map((line, i) => {
           const t = shownLineTotals({ type, pricesIncludeVat: includeVat }, promoFils ? { ...line, promoFils: promoFils[i] ?? 0 } : line, vatRate);
+          const hasDetails = line.kind !== "part";
+          const showDetails = hasDetails && (!!line.details || describing.has(i));
           return (
             <tr key={i} className="align-top">
-              <td className="px-3 py-1.5">
+              <td className="py-1.5 pl-1 text-right leading-8 text-zinc-500 tabular" data-testid="line-number">{numbers[i] ?? ""}</td>
+              <td className="px-1.5 py-1.5">
                 {editable ? (
-                  <Select value={line.kind} onChange={(e) => onChange(i, { kind: e.target.value as LineKind })} className="h-8" aria-label="Line type">
+                  <Select value={line.kind} onChange={(e) => {
+                    const kind = e.target.value as LineKind;
+                    onChange(i, { kind, ...(untouched(line) ? { unit: defaultUnit(kind) } : {}) });
+                  }} className="h-8 pr-0.5 pl-2 text-[13px]" aria-label="Line type">
                     {LINE_KINDS.map((k) => <option key={k} value={k}>{KIND_LABELS[k]}</option>)}
                   </Select>
                 ) : (
-                  <span className="text-zinc-600">{KIND_LABELS[line.kind]}</span>
+                  <span className="leading-8 text-zinc-600">{KIND_LABELS[line.kind]}</span>
                 )}
               </td>
               <td className="px-2 py-1.5 break-words">
                 {editable && line.kind === "part" ? (
-                  <PartPicker line={line} vehicleId={vehicleId} onChange={(p) => onChange(i, p)} priceOf={(p) => catalogueLinePrice(p.sellPriceFils, vatRate, includeVat)} />
+                  <PartPicker line={line} vehicleId={vehicleId} priceOf={(p) => catalogueLinePrice(p.sellPriceFils, vatRate, includeVat)}
+                    onChange={(p) => onChange(i, p.partUnit !== undefined && untouched(line) ? { ...p, unit: defaultUnit("part", p.partUnit) } : p)} />
                 ) : editable ? (
-                  <Input value={line.description} onChange={(e) => onChange(i, { description: e.target.value })} placeholder={line.kind === "labour" ? "e.g. Replace front brake pads" : "Description"} className="h-8" />
+                  <Input value={line.description} onChange={(e) => onChange(i, { description: e.target.value })} placeholder={line.kind === "labour" ? "e.g. Replace front brake pads" : "Description"} className="h-8" aria-label="Line title" />
                 ) : (
-                  line.description
+                  <div className="leading-8">{line.description}</div>
                 )}
+                {hasDetails && editable && (showDetails ? (
+                  <Textarea value={line.details ?? ""} maxLength={2000} autoFocus={!line.details && describing.has(i)}
+                    rows={Math.min(8, Math.max(2, (line.details ?? "").split("\n").length + 1))}
+                    onChange={(e) => onChange(i, { details: e.target.value })}
+                    onBlur={() => { if (!line.details?.trim()) setDescribing((d) => { const n = new Set(d); n.delete(i); return n; }); }}
+                    placeholder="The work in detail — printed under the title" className="mt-1 min-h-0 text-sm" aria-label="Line description" />
+                ) : (
+                  <button type="button" onClick={() => setDescribing((d) => new Set(d).add(i))} className="mt-0.5 text-xs font-medium text-zinc-500 hover:text-zinc-800 hover:underline">
+                    Add description
+                  </button>
+                ))}
+                {hasDetails && !editable && line.details && <div className="mt-0.5 text-xs whitespace-pre-line text-zinc-600">{line.details}</div>}
                 {line.kind === "part" && <PartControls vehicleId={vehicleId} line={line} editable={editable} showCost={showCost} fitsUnits={type !== "estimate"} onChange={(p) => onChange(i, p)} onRequest={onRequest && (() => onRequest(i))} />}
               </td>
-              <td className="px-2 py-1.5 text-right tabular">
-                {editable ? <NumberInput value={line.qty} onChange={(qty) => onChange(i, { qty })} className="h-8" aria-label="Quantity" /> : line.qty}
+              <td className="px-1.5 py-1.5 text-right tabular">
+                {editable ? <NumberInput value={line.qty} onChange={(qty) => onChange(i, { qty })} className="h-8" aria-label="Quantity" /> : <span className="leading-8">{line.qty}</span>}
               </td>
-              <td className="px-2 py-1.5 text-right tabular">
-                {editable && line.suppliedBy !== "fleetfix" ? <MoneyInput fils={line.unitPriceFils} onChange={(unitPriceFils) => onChange(i, { unitPriceFils })} className="h-8" aria-label="Unit price" /> : formatAED(line.unitPriceFils).replace("AED ", "")}
+              <td className="px-1.5 py-1.5">
+                {editable
+                  ? <Input value={line.unit ?? ""} list="unit-suggestions" maxLength={12} onChange={(e) => onChange(i, { unit: e.target.value })} className="h-8 px-1.5! text-center" aria-label="Unit" />
+                  : <span className="leading-8 text-zinc-600">{line.unit ?? ""}</span>}
               </td>
-              <td className="px-2 py-1.5 text-right tabular">
-                {editable ? <NumberInput value={line.discountPct} onChange={(discountPct) => onChange(i, { discountPct: Math.min(100, discountPct) })} className="h-8" aria-label="Discount percent" /> : line.discountPct || "—"}
+              <td className="px-1.5 py-1.5 text-right tabular">
+                {editable && line.suppliedBy !== "fleetfix" ? <MoneyInput fils={line.unitPriceFils} onChange={(unitPriceFils) => onChange(i, { unitPriceFils })} className="h-8" aria-label="Unit price" /> : <span className="leading-8">{formatAED(line.unitPriceFils).replace("AED ", "")}</span>}
               </td>
-              <td className="px-2 py-1.5 text-right text-zinc-500 tabular">{formatAED(t.vatFils).replace("AED ", "")}</td>
-              <td className="px-3 py-1.5 text-right font-medium tabular">{formatAED(t.grossFils).replace("AED ", "")}</td>
+              <td className="px-1.5 py-1.5 text-right tabular">
+                {editable ? <NumberInput value={line.discountPct} onChange={(discountPct) => onChange(i, { discountPct: Math.min(100, discountPct) })} className="h-8" aria-label="Discount percent" /> : <span className="leading-8">{line.discountPct || "—"}</span>}
+              </td>
+              <td className="px-1.5 py-1.5 text-right leading-8 text-zinc-500 tabular">{formatAED(t.vatFils).replace("AED ", "")}</td>
+              <td className="px-2 py-1.5 text-right leading-8 font-medium tabular">{formatAED(t.grossFils).replace("AED ", "")}</td>
               {editable && (
-                <td className="pr-2">
-                  <button type="button" onClick={() => onRemove(i)} className="rounded p-1.5 text-zinc-400 hover:bg-red-50 hover:text-red-600" aria-label="Remove line">
-                    <Trash2 className="size-4" />
-                  </button>
+                <td className="py-1.5 pr-1">
+                  <div className="flex h-8 items-center">
+                    <button type="button" onClick={() => onRemove(i)} className="rounded p-1 text-zinc-400 hover:bg-red-50 hover:text-red-600" aria-label="Remove line">
+                      <Trash2 className="size-4" />
+                    </button>
+                  </div>
                 </td>
               )}
             </tr>
@@ -80,6 +130,7 @@ export function LinesTable({ type, lines, promoFils, vehicleId, editable, vatRat
         })}
       </tbody>
     </table>
+    {addButtons}
     </div>
   );
 }

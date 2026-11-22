@@ -1,9 +1,9 @@
-import { ArrowLeft, ArrowRight, Banknote, CircleCheck, FileDown, FileMinus, Plus, Printer, Save, Send } from "lucide-react";
+import { ArrowLeft, ArrowRight, Banknote, CircleCheck, FileDown, FileMinus, Printer, Save, Send } from "lucide-react";
 import { useEffect, useMemo, useState } from "react";
 import { Link, useNavigate, useParams, useSearchParams } from "react-router";
 import { toast } from "sonner";
 import {
-  CONVERTS_TO, DEFAULT_SETTINGS, DOC_LABELS, DOC_STATUSES, LINE_KINDS, PAYMENT_METHODS, STATUS_LABELS, docTotals, promoShares, type DocType, type LineKind,
+  CONVERTS_TO, DEFAULT_SETTINGS, defaultUnit, DOC_LABELS, DOC_STATUSES, PAYMENT_METHODS, STATUS_LABELS, docTotals, promoShares, type DocType, type LineKind,
 } from "@ffgp/shared";
 import { CustomerPicker } from "../components/CustomerPicker";
 import { CustomerFormModal } from "../components/forms";
@@ -15,7 +15,7 @@ import { PAYMENT_LABELS, formatAED, formatDate, formatDateTime, formatKm } from 
 import type { Customer, DocLine, DocumentFull, Vehicle } from "../lib/types";
 import { useApi } from "../lib/useApi";
 import { CreditNoteDialog } from "../components/CreditNoteDialog";
-import { KIND_LABELS, LinesTable } from "../components/document/LinesTable";
+import { LinesTable, lineCounts } from "../components/document/LinesTable";
 import { useOwnerApproval } from "../components/OwnerApproval";
 import { printDocument } from "../print/print";
 import { MessageLog } from "../components/MessageLog";
@@ -43,7 +43,7 @@ interface Draft {
 
 /** A new empty line; labour starts at the garage's labour rate (Settings → Pricing). */
 const blankLine = (kind: LineKind, labourRateFils?: number | null): DocLine => ({
-  kind, description: "", qty: 1, unitPriceFils: kind === "labour" ? labourRateFils ?? 0 : 0, discountPct: 0,
+  kind, description: "", qty: 1, unitPriceFils: kind === "labour" ? labourRateFils ?? 0 : 0, discountPct: 0, unit: defaultUnit(kind),
 });
 
 export function DocumentPage() {
@@ -122,7 +122,7 @@ export function DocumentPage() {
   };
   const updateLine = (i: number, patchLine: Partial<DocLine>) => update({ lines: draft.lines.map((l, j) => (j === i ? { ...l, ...patchLine } : l)) });
 
-  const cleanLines = () => draft.lines.filter((l) => l.description.trim() !== "" || l.unitPriceFils > 0);
+  const cleanLines = () => draft.lines.filter(lineCounts);
 
   const validate = (): string | null => {
     if (!draft.customer) return "Choose a customer";
@@ -138,8 +138,9 @@ export function DocumentPage() {
       toast.error(problem);
       return null;
     }
-    const lines = cleanLines().map(({ kind, description, qty, unitPriceFils, discountPct, partId, suppliedBy, poLineId, unitIds }) => ({
+    const lines = cleanLines().map(({ kind, description, details, unit, qty, unitPriceFils, discountPct, partId, suppliedBy, poLineId, unitIds }) => ({
       kind, description: description.trim(), qty, unitPriceFils, discountPct,
+      details: kind === "part" ? null : details?.trim() ? details : null, unit: unit?.trim() || null,
       partId: kind === "part" ? partId ?? null : null, suppliedBy: kind === "part" ? suppliedBy ?? "garage" : "garage", poLineId: poLineId ?? null,
       // More tyres picked than the quantity (it was lowered): the first ones picked are kept.
       unitIds: kind === "part" && partId && (suppliedBy ?? "garage") === "garage" ? (unitIds ?? []).slice(0, Math.max(0, Math.floor(qty))) : [],
@@ -429,16 +430,11 @@ export function DocumentPage() {
             </div>
           </Card>
 
-          <Card
-            title={type === "jobcard" ? "Work & parts" : "Items"}
-            padded={false}
-            actions={editable && LINE_KINDS.map((k) => (
-              <Button key={k} size="sm" variant="ghost" icon={<Plus className="size-3.5" />} onClick={() => update({ lines: [...draft.lines, { ...blankLine(k, settings?.pricing.labourRateFils), discountPct: customerDetail.data?.customer.discountPct ?? 0 }] })}>{KIND_LABELS[k]}</Button>
-            ))}
-          >
+          <Card title={type === "jobcard" ? "Work & parts" : "Items"} padded={false}>
             <LinesTable
               type={type} vehicleId={draft.vehicleId} lines={draft.lines} promoFils={promo && type !== "credit_note" ? promoLines.map((l) => l.promoFils ?? 0) : undefined} editable={editable} vatRate={vatRate} includeVat={includeVat} onChange={updateLine}
               onRemove={(i) => update({ lines: draft.lines.filter((_, j) => j !== i) })}
+              onAdd={(k) => update({ lines: [...draft.lines, { ...blankLine(k, settings?.pricing.labourRateFils), discountPct: customerDetail.data?.customer.discountPct ?? 0 }] })}
               onRequest={type === "jobcard" && !isNew && editable && can("documents.edit") ? onRequest : undefined}
               showCost={can("costs.view")}
             />

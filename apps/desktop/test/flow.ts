@@ -40,7 +40,7 @@ export async function garageDay(page: Page, shot: (name: string) => Promise<unkn
   await page.getByPlaceholder("e.g. Replace front brake pads").fill("Front brake service — replace pads, clean calipers");
   await page.getByLabel("Quantity").first().fill("1.5");
   await page.getByLabel("Unit price").first().fill("180");
-  await page.getByRole("button", { name: "Part", exact: true }).click();
+  await page.getByRole("button", { name: "+ Part", exact: true }).click();
   await page.getByPlaceholder("Search parts or type a description").fill("Brake pad set (front), OEM");
   await page.getByLabel("Quantity").nth(1).fill("1");
   await page.getByLabel("Unit price").nth(1).fill("420");
@@ -132,10 +132,10 @@ export async function stockDay(page: Page, shot: (name: string) => Promise<unkno
   await expect(page.getByRole("combobox", { name: "Vehicle" })).toHaveValue(/.+/);
   await page.getByPlaceholder("e.g. Replace front brake pads").fill("Oil change and front discs");
   await page.getByLabel("Unit price").first().fill("100");
-  await page.getByRole("button", { name: "Part", exact: true }).click();
+  await page.getByRole("button", { name: "+ Part", exact: true }).click();
   await page.getByLabel("Part", { exact: true }).last().fill("oil fil");
   await page.getByRole("option", { name: /OF-1001/ }).click();
-  await page.getByRole("button", { name: "Part", exact: true }).click();
+  await page.getByRole("button", { name: "+ Part", exact: true }).click();
   await page.getByLabel("Part", { exact: true }).last().fill("brake disc");
   await page.getByRole("option", { name: /BD-220/ }).click();
   await page.getByLabel("Quantity").last().fill("2");
