@@ -1,6 +1,6 @@
 import type { FastifyInstance } from "fastify";
 import { applyAdvances } from "../payables/payments";
-import { can, formatPoNumber, poLineNetFils, prefixOf, poSchema, poUpdateSchema, receiveSchema, requestPartSchema, roundFils } from "@ffgp/shared";
+import { can, formatPoNumber, poLineNetFils, poLineTotalFils, prefixOf, poSchema, poUpdateSchema, receiveSchema, requestPartSchema, roundFils } from "@ffgp/shared";
 import { z } from "zod";
 import { requireAction, sessionUser, type SessionUser } from "../auth";
 import { newId, now, type Db } from "../db";
@@ -38,6 +38,11 @@ const EDITABLE_DOCS = `SELECT id FROM documents WHERE NOT ((type = 'jobcard' AND
 export function purchaseRoutes(app: FastifyInstance, db: Db, docs: { full: DocumentOut }, numbers?: NumberSource): void {
   const getPo = (id: string) => db.get<PoRow>("SELECT * FROM purchase_orders WHERE id = ?", [id]);
   const poLines = (poId: string) => db.all<PoLineRow>("SELECT * FROM po_lines WHERE po_id = ? ORDER BY position", [poId]);
+  const deliveriesOf = (poLineId: string) =>
+    db.all<{ qty: number; unitCostFils: number }>("SELECT qty, unit_cost_fils AS unitCostFils FROM goods_receipt_lines WHERE po_line_id = ?", [poLineId]);
+  /** Delivered at what each delivery cost; the rest at the line's price. */
+  const lineTotal = (l: PoLineRow) =>
+    poLineTotalFils({ qty: l.qty, unitCostFils: l.unit_cost_fils, packSize: l.pack_size, packCostFils: l.pack_cost_fils }, deliveriesOf(l.id));
 
   function nextPoNumber(reserved: Reserved | null): { series: string; seq: number; number: string } {
     const { series, seq } = takeNumber(db, "purchase_order", reserved, numbers);
@@ -55,7 +60,7 @@ export function purchaseRoutes(app: FastifyInstance, db: Db, docs: { full: Docum
 
   /** Recomputes the PO total and bumps its version; every change to a PO ends here. */
   function updateNet(poId: string) {
-    const net = poLines(poId).reduce((sum, l) => sum + poLineNet(l), 0);
+    const net = poLines(poId).reduce((sum, l) => sum + lineTotal(l), 0);
     db.run("UPDATE purchase_orders SET net_fils = ?, version = version + 1, updated_at = ? WHERE id = ?", [net, now(), poId]);
   }
 
@@ -162,9 +167,17 @@ export function purchaseRoutes(app: FastifyInstance, db: Db, docs: { full: Docum
         newId(), receiptId, line.id, r.qty, r.unitCostFils, cores[i]!,
       ]);
       line.received_qty = round3(line.received_qty + r.qty);
-      // A different price on the delivery replaces the pack price too (the line is then priced per unit).
-      const packCost = r.unitCostFils === line.unit_cost_fils ? line.pack_cost_fils ?? null : null;
-      db.run("UPDATE po_lines SET received_qty = ?, unit_cost_fils = ?, pack_cost_fils = ?, updated_at = ? WHERE id = ?", [line.received_qty, r.unitCostFils, packCost, t, line.id]);
+      // The line keeps its ordered price for what's still to come (an unpriced line takes the delivery's). Once all
+      // in, it shows what was paid on average; a price other than the pack's leaves it priced per unit.
+      const all = deliveriesOf(line.id);
+      const doneQty = all.reduce((n, d) => n + d.qty, 0);
+      const unitCost = line.received_qty >= line.qty
+        ? Math.round(all.reduce((s, d) => s + d.qty * d.unitCostFils, 0) / doneQty)
+        : line.unit_cost_fils === 0 ? r.unitCostFils : line.unit_cost_fils;
+      const packCost = unitCost === line.unit_cost_fils ? line.pack_cost_fils ?? null : null;
+      line.unit_cost_fils = unitCost;
+      line.pack_cost_fils = packCost;
+      db.run("UPDATE po_lines SET received_qty = ?, unit_cost_fils = ?, pack_cost_fils = ?, updated_at = ? WHERE id = ?", [line.received_qty, unitCost, packCost, t, line.id]);
       const stocked = line.part_id ? db.get<{ stocked: number }>("SELECT stocked FROM parts WHERE id = ?", [line.part_id])?.stocked : 0;
       if (line.part_id && stocked) {
         postMovement(db, { partId: line.part_id, qty: r.qty, reason: "receive", unitCostFils: r.unitCostFils, poLineId: line.id, userId: user.id });
@@ -206,7 +219,7 @@ export function purchaseRoutes(app: FastifyInstance, db: Db, docs: { full: Docum
         id: l.id, partId: l.part_id, partNo: l.part_no, stocked: l.stocked === null ? null : !!l.stocked, description: l.description,
         qty: l.qty, receivedQty: l.received_qty, jobDocumentId: l.job_document_id, jobDocumentNumber: l.job_number,
         packName: l.pack_name ?? null, packSize: l.pack_size ?? null, partTracking: l.part_id && l.stocked ? l.tracking ?? "none" : "none",
-        ...(showCost ? { unitCostFils: l.unit_cost_fils, packCostFils: l.pack_cost_fils ?? null, netFils: poLineNet(l), coreFils: l.core_fils ?? 0 } : {}),
+        ...(showCost ? { unitCostFils: l.unit_cost_fils, packCostFils: l.pack_cost_fils ?? null, netFils: lineTotal(l), coreFils: l.core_fils ?? 0 } : {}),
       })),
       ...(showCost
         ? {

@@ -181,7 +181,8 @@ export function documentCost(db: Db, docId: string): DocumentCost {
     po_line_id: string | null; po_received: number | null; po_cost: number | null; is_kit: number | null; kit_json: string | null;
   }>(
     `SELECT dl.id, dl.kind, dl.qty, dl.supplied_by, dl.part_id, p.stocked, p.avg_cost_fils, p.is_kit, dl.kit_json, dl.po_line_id,
-            pl.received_qty AS po_received, pl.unit_cost_fils AS po_cost
+            pl.received_qty AS po_received,
+            (SELECT SUM(g.qty * g.unit_cost_fils) * 1.0 / SUM(g.qty) FROM goods_receipt_lines g WHERE g.po_line_id = pl.id) AS po_cost
      FROM document_lines dl LEFT JOIN parts p ON p.id = dl.part_id LEFT JOIN po_lines pl ON pl.id = dl.po_line_id
      WHERE dl.document_id = ? ORDER BY dl.position`,
     [docId],
@@ -204,7 +205,7 @@ export function documentCost(db: Db, docId: string): DocumentCost {
       cost = parts.some((c) => c.unit <= 0) ? null : Math.round(parts.reduce((s, c) => s + c.unit * c.qty, 0) * l.qty);
     }
     else if (l.po_line_id && l.po_received && l.po_received > 0) {
-      // Bought for this job: what was actually paid, even if the part is also kept on the shelf.
+      // Bought for this job: what was actually paid (each delivery's price), even if the part is also kept on the shelf.
       cost = Math.round((l.po_cost ?? 0) * l.qty);
     } else if (l.part_id && l.stocked) {
       const unit = perUnit(l.part_id, l.avg_cost_fils ?? 0);

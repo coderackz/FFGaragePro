@@ -108,6 +108,20 @@ export function poLineNetFils(l: { qty: number; unitCostFils: number; packSize?:
   return roundFils(l.qty * l.unitCostFils);
 }
 
+/**
+ * A PO line's total: what each delivery of it cost, plus what's still to come at the line's own price. With no
+ * deliveries it is poLineNetFils of the line.
+ */
+export function poLineTotalFils(
+  l: { qty: number; unitCostFils: number; packSize?: number | null; packCostFils?: number | null },
+  deliveries: { qty: number; unitCostFils: number }[],
+): number {
+  const pack = { packSize: l.packSize, packCostFils: l.packCostFils };
+  const received = deliveries.reduce((sum, d) => sum + poLineNetFils({ ...pack, qty: d.qty, unitCostFils: d.unitCostFils }), 0);
+  const left = Math.max(0, Math.round((l.qty - deliveries.reduce((n, d) => n + d.qty, 0)) * 1000) / 1000);
+  return received + (left > 0 ? poLineNetFils({ ...pack, qty: left, unitCostFils: l.unitCostFils }) : 0);
+}
+
 /** Packs bought → the part's own unit: quantity, and cost per unit to the fil. */
 export function packToBase(packs: number, size: number, costPerPackFils: number): { qty: number; unitCostFils: number } {
   return { qty: Math.round(packs * size * 1000) / 1000, unitCostFils: Math.round(costPerPackFils / size) };

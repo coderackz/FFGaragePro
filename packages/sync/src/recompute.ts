@@ -1,6 +1,6 @@
 import { recomputeInvoiceMoney } from "@ffgp/server";
 import type { Db } from "@ffgp/server";
-import { averageCost, roundFils } from "@ffgp/shared";
+import { averageCost, poLineTotalFils } from "@ffgp/shared";
 
 const round3 = (x: number): number => Math.round(x * 1000) / 1000 + 0;
 
@@ -53,8 +53,15 @@ export function recomputePurchaseOrder(db: Db, poId: string): void {
     `UPDATE po_lines SET received_qty = (SELECT COALESCE(SUM(qty), 0) FROM goods_receipt_lines WHERE po_line_id = po_lines.id) WHERE po_id = ?`,
     [poId],
   );
-  const lines = db.all<{ qty: number; received_qty: number; unit_cost_fils: number }>("SELECT qty, received_qty, unit_cost_fils FROM po_lines WHERE po_id = ?", [poId]);
-  const net = lines.reduce((sum, l) => sum + roundFils(l.qty * l.unit_cost_fils), 0);
+  const lines = db.all<{ id: string; qty: number; received_qty: number; unit_cost_fils: number; pack_size: number | null; pack_cost_fils: number | null }>(
+    "SELECT id, qty, received_qty, unit_cost_fils, pack_size, pack_cost_fils FROM po_lines WHERE po_id = ?",
+    [poId],
+  );
+  // As the server totals it: delivered at each delivery's price, the rest at the line's (packs as packs).
+  const net = lines.reduce((sum, l) => sum + poLineTotalFils(
+    { qty: l.qty, unitCostFils: l.unit_cost_fils, packSize: l.pack_size, packCostFils: l.pack_cost_fils },
+    db.all<{ qty: number; unitCostFils: number }>("SELECT qty, unit_cost_fils AS unitCostFils FROM goods_receipt_lines WHERE po_line_id = ?", [l.id]),
+  ), 0);
   let status = po.status;
   if (status !== "cancelled" && lines.some((l) => round3(l.received_qty) > 0)) {
     status = lines.every((l) => round3(l.received_qty) >= l.qty) ? "received" : "part_received";

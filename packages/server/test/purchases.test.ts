@@ -88,6 +88,43 @@ describe("purchasing", () => {
     expect(await onHand(app, owner, a.id)).toBe(5);
   });
 
+  it("a partial delivery at a different price keeps the ordered price for what's still to come", async () => {
+    const { app, owner, accountant } = await world();
+    const a = await createPart(app, owner);
+    const po = await newPo(app, accountant, [{ partId: a.id, description: "Oil filter", qty: 10, unitCostFils: 5000 }]);
+    const receive = (qty: number, unitCostFils: number) =>
+      call(app, "POST", `/api/purchase-orders/${po.id}/receive`, accountant, { lines: [{ poLineId: po.lines[0].id, qty, unitCostFils }] });
+    const part = (await receive(4, 5500)).body.purchaseOrder;
+    // 4 at 55 delivered + 6 still to come at the ordered 50.
+    expect(part.lines[0]).toMatchObject({ unitCostFils: 5000, netFils: 52000, receivedQty: 4 });
+    expect(part.netFils).toBe(52000);
+    const done = (await receive(6, 5000)).body.purchaseOrder;
+    // All in: what was paid, on average 52 each.
+    expect(done.lines[0]).toMatchObject({ unitCostFils: 5200, netFils: 52000 });
+    expect(done.netFils).toBe(52000);
+  });
+
+  it("an unpriced line takes the delivery's price for the rest", async () => {
+    const { app, owner, accountant } = await world();
+    const a = await createPart(app, owner);
+    const po = await newPo(app, accountant, [{ partId: a.id, description: "Oil filter", qty: 3, unitCostFils: 0 }]);
+    const res = await call(app, "POST", `/api/purchase-orders/${po.id}/receive`, accountant, { lines: [{ poLineId: po.lines[0].id, qty: 1, unitCostFils: 2000 }] });
+    expect(res.body.purchaseOrder.lines[0]).toMatchObject({ unitCostFils: 2000, netFils: 6000 });
+  });
+
+  it("a job's part bought in two deliveries costs what each delivery cost", async () => {
+    const { app, owner, accountant, customer } = await world();
+    const disc = await createPart(app, owner, { partNo: "BD-220", name: "Brake disc", stocked: false });
+    const jc = await jobCard(app, accountant, customer.id, [partLine(disc, 2)]);
+    const poId = (await request(app, accountant, jc.id, { qty: 2 })).body.document.lines[0].purchaseOrderId;
+    const po = (await call(app, "GET", `/api/purchase-orders/${poId}`, accountant)).body.purchaseOrder;
+    const receive = (unitCostFils: number) =>
+      call(app, "POST", `/api/purchase-orders/${poId}/receive`, accountant, { lines: [{ poLineId: po.lines[0].id, qty: 1, unitCostFils }] });
+    await receive(3000);
+    await receive(4001);
+    expect((await call(app, "GET", `/api/documents/${jc.id}`, owner)).body.document.partsCostFils).toBe(7001);
+  });
+
   it("already bought, one step", async () => {
     const { app, owner, accountant, advisor, customer } = await world();
     const disc = await createPart(app, owner, { partNo: "BD-220", name: "Brake disc", stocked: false });
