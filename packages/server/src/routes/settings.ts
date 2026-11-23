@@ -1,4 +1,5 @@
 import type { FastifyInstance } from "fastify";
+import { garageEmirate, recomposeAddress, resolveAddress, saveAddress, sentAddress } from "../address";
 import { garageSchema, SETTINGS_SECTIONS, type SettingsSection } from "@ffgp/shared";
 import { z } from "zod";
 import { audit } from "../audit";
@@ -26,7 +27,7 @@ export function settingsRoutes(app: FastifyInstance, db: Db): void {
   app.get("/api/settings", async (req) => {
     sessionUser(db, req);
     const g = garage(db);
-    return { garage: g ? garageOut(g) : null, settings: getSettings(db) };
+    return { garage: g ? garageOut(db, g) : null, settings: getSettings(db) };
   });
 
   app.patch("/api/settings", async (req) => {
@@ -34,15 +35,18 @@ export function settingsRoutes(app: FastifyInstance, db: Db): void {
     requireAction(user, "settings.manage");
     const input = garageSchema.parse(req.body);
     db.tx(() => {
-      const before = garageOut(garage(db)!);
-      db.run("UPDATE garage SET name = ?, trn = ?, address = ?, phone = ?, email = ?, updated_at = ? WHERE id = 1", [
-        input.name, input.trn, input.address, input.phone, input.email, now(),
+      const row = garage(db)!;
+      const before = garageOut(db, row);
+      const address = resolveAddress(row, sentAddress(req.body, input), garageEmirate(db));
+      db.run("UPDATE garage SET name = ?, trn = ?, phone = ?, email = ?, updated_at = ? WHERE id = 1", [
+        input.name, input.trn, input.phone, input.email, now(),
       ]);
-      const { vatRateBp: _a, ...b } = before;
-      const changed = diff(b, { name: input.name, trn: input.trn, address: input.address, phone: input.phone, email: input.email });
+      saveAddress(db, "garage", 1, address);
+      const { vatRateBp: _a, addressParts: _p, ...b } = before;
+      const changed = diff(b, { name: input.name, trn: input.trn, address: address.address, phone: input.phone, email: input.email });
       if (changed) audit(db, { action: "settings.change", entity: "settings", entityId: "profile", ...changed, userId: user.id });
     });
-    return { garage: garageOut(garage(db)!) };
+    return { garage: garageOut(db, garage(db)!) };
   });
 
   /** The SMTP password: write-only (no route ever returns it). */
@@ -59,7 +63,11 @@ export function settingsRoutes(app: FastifyInstance, db: Db): void {
     requireAction(user, "settings.manage");
     const section = req.params.section as SettingsSection;
     if (!SETTINGS_SECTIONS.includes(section)) throw notFound("Unknown settings section");
-    return { settings: saveSection(db, user.id, section, req.body ?? {}) };
+    return db.tx(() => {
+      const settings = saveSection(db, user.id, section, req.body ?? {});
+      if (section === "garage") recomposeAddress(db, "garage", 1);
+      return { settings };
+    });
   });
 
   app.get("/api/settings/overview", async (req) => {

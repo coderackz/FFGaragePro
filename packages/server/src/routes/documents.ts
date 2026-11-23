@@ -4,6 +4,7 @@ import {
 } from "@ffgp/shared";
 import { z } from "zod";
 import { audit } from "../audit";
+import { phoneHas, phoneSearch } from "../phones";
 import { checkNotLocked } from "../books/journals";
 import { LoginThrottle, requireAction, sessionUser, verifyPassword, type SessionUser } from "../auth";
 import { newId, now, type Db } from "../db";
@@ -382,9 +383,9 @@ export function documentRoutes(
        JOIN customers c ON c.id = d.customer_id LEFT JOIN vehicles v ON v.id = d.vehicle_id
        WHERE (:type IS NULL OR d.type = :type) AND (:status IS NULL OR d.status = :status)
          AND (:customer IS NULL OR d.customer_id = :customer) AND (:vehicle IS NULL OR d.vehicle_id = :vehicle)
-         AND (:q IS NULL OR d.number LIKE :like OR c.name LIKE :like OR v.plate LIKE :like OR c.phone LIKE :like)
+         AND (:q IS NULL OR d.number LIKE :like OR c.name LIKE :like OR v.plate LIKE :like OR c.phone LIKE :like OR ${phoneHas("c.phone")})
        ORDER BY d.created_at DESC, d.seq DESC LIMIT 500`,
-      { type: type ?? null, status: status ?? null, customer: customerId ?? null, vehicle: vehicleId ?? null, q, like: `%${q ?? ""}%` },
+      { type: type ?? null, status: status ?? null, customer: customerId ?? null, vehicle: vehicleId ?? null, q, like: `%${q ?? ""}%`, digits: phoneSearch(q) },
     );
     return {
       documents: rows.map((d) => ({

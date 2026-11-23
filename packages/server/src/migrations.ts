@@ -1537,6 +1537,16 @@ ALTER TABLE documents ADD COLUMN discount_remark TEXT;
 ALTER TABLE documents ADD COLUMN discount_confirmed_pct REAL;
 `,
   },
+  {
+    id: 27,
+    // Addresses in parts beside the printed text (the garage's emirate is in its settings). Nothing is rewritten: an
+    // address without parts shows in Street until one is changed.
+    sql: ["garage", "customers", "suppliers"].flatMap((t) => [
+      ...["addr_unit", "addr_building", "addr_street", "addr_area", "addr_po_box"],
+      ...(t === "garage" ? [] : ["addr_emirate"]),
+      ...(t === "suppliers" ? ["addr_country"] : []),
+    ].map((c) => `ALTER TABLE ${t} ADD COLUMN ${c} TEXT;`)).join("\n"),
+  },
 ];
 
 /** The newest migration this code knows: the garage database's schema version. */

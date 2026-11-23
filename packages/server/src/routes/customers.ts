@@ -4,11 +4,13 @@ import { requireAction, sessionUser, type SessionUser } from "../auth";
 import { customerBalance, customerLedger } from "../ledger";
 import { newId, now, type Db } from "../db";
 import { badRequest, conflict, forbidden, notFound } from "../errors";
+import { resolveAddress, saveAddress, sentAddress, shownAddress, type AddressRow } from "../address";
 import { page, pageLimit } from "../paging";
+import { phoneHas, phoneSearch } from "../phones";
 
-interface CustomerRow {
+interface CustomerRow extends AddressRow {
   id: string; kind: string; name: string; phone: string | null; email: string | null; trn: string | null;
-  address: string | null; notes: string | null; created_at: string; plates?: string | null;
+  notes: string | null; created_at: string; plates?: string | null;
   credit_allowed: number; credit_limit_fils: number; terms_days: number | null; discount_bp: number; lpo_required: number;
   opening_balance_fils: number; opening_balance_date: string | null;
   name_ar: string | null; address_ar: string | null; doc_language: string; message_language: string;
@@ -19,7 +21,7 @@ interface VehicleRow {
 }
 
 export const customerOut = (c: CustomerRow) => ({
-  id: c.id, kind: c.kind, name: c.name, phone: c.phone, email: c.email, trn: c.trn, address: c.address, notes: c.notes,
+  id: c.id, kind: c.kind, name: c.name, phone: c.phone, email: c.email, trn: c.trn, address: c.address, addressParts: shownAddress(c), notes: c.notes,
   createdAt: c.created_at, plates: c.plates ? c.plates.split(",") : undefined,
   creditAllowed: !!c.credit_allowed, creditLimitFils: c.credit_limit_fils, termsDays: c.terms_days, discountPct: c.discount_bp / 100,
   lpoRequired: !!c.lpo_required, openingBalanceFils: c.opening_balance_fils, openingBalanceDate: c.opening_balance_date,
@@ -61,10 +63,10 @@ export function customerRoutes(app: FastifyInstance, db: Db): void {
     const fetched = db.all<CustomerRow>(
       `SELECT c.*, (SELECT group_concat(plate) FROM vehicles WHERE customer_id = c.id) AS plates
        FROM customers c
-       WHERE :q IS NULL OR c.name LIKE :like ESCAPE '\\' OR c.phone LIKE :like ESCAPE '\\' OR c.email LIKE :like ESCAPE '\\'
+       WHERE :q IS NULL OR c.name LIKE :like ESCAPE '\\' OR c.phone LIKE :like ESCAPE '\\' OR ${phoneHas("c.phone")} OR c.email LIKE :like ESCAPE '\\'
           OR EXISTS (SELECT 1 FROM vehicles v WHERE v.customer_id = c.id AND v.plate LIKE :like ESCAPE '\\')
        ORDER BY c.name COLLATE NOCASE LIMIT :limit`,
-      { q: q || null, like: like(q ?? ""), limit: limit + 1 },
+      { q: q || null, like: like(q ?? ""), digits: phoneSearch(q), limit: limit + 1 },
     );
     const { rows, more } = page(fetched, limit);
     return { customers: rows.map((c) => customerWithBalance(db, c)), more };
@@ -85,14 +87,17 @@ export function customerRoutes(app: FastifyInstance, db: Db): void {
     checkCreditChange(user, creditDefaults, input);
     const id = newId();
     const t = now();
-    db.run(
-      `INSERT INTO customers (id, kind, name, phone, email, trn, address, notes, credit_allowed, credit_limit_fils, terms_days, discount_bp,
-         lpo_required, opening_balance_fils, opening_balance_date, name_ar, address_ar, doc_language, message_language, created_at, updated_at)
-         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
-      [id, input.kind, input.name, input.phone, input.email, input.trn, input.address, input.notes, input.creditAllowed ? 1 : 0, input.creditLimitFils,
-        input.termsDays, Math.round(input.discountPct * 100), input.lpoRequired ? 1 : 0, input.openingBalanceFils, input.openingBalanceDate,
-        input.nameAr, input.addressAr, input.docLanguage, input.messageLanguage, t, t],
-    );
+    db.tx(() => {
+      db.run(
+        `INSERT INTO customers (id, kind, name, phone, email, trn, address, notes, credit_allowed, credit_limit_fils, terms_days, discount_bp,
+           lpo_required, opening_balance_fils, opening_balance_date, name_ar, address_ar, doc_language, message_language, created_at, updated_at)
+           VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+        [id, input.kind, input.name, input.phone, input.email, input.trn, input.address, input.notes, input.creditAllowed ? 1 : 0, input.creditLimitFils,
+          input.termsDays, Math.round(input.discountPct * 100), input.lpoRequired ? 1 : 0, input.openingBalanceFils, input.openingBalanceDate,
+          input.nameAr, input.addressAr, input.docLanguage, input.messageLanguage, t, t],
+      );
+      if (input.addressParts) saveAddress(db, "customers", id, resolveAddress(null, input));
+    });
     return { customer: customerWithBalance(db, getCustomer(id)!) };
   });
 
@@ -104,14 +109,18 @@ export function customerRoutes(app: FastifyInstance, db: Db): void {
     const before = customerOut(existing);
     const input = customerSchema.parse({ ...before, ...(req.body as object) });
     checkCreditChange(user, before, input);
-    db.run(
-      `UPDATE customers SET kind = ?, name = ?, phone = ?, email = ?, trn = ?, address = ?, notes = ?, credit_allowed = ?, credit_limit_fils = ?,
-         terms_days = ?, discount_bp = ?, lpo_required = ?, opening_balance_fils = ?, opening_balance_date = ?, name_ar = ?, address_ar = ?,
-         doc_language = ?, message_language = ?, updated_at = ? WHERE id = ?`,
-      [input.kind, input.name, input.phone, input.email, input.trn, input.address, input.notes, input.creditAllowed ? 1 : 0, input.creditLimitFils,
-        input.termsDays, Math.round(input.discountPct * 100), input.lpoRequired ? 1 : 0, input.openingBalanceFils, input.openingBalanceDate,
-        input.nameAr, input.addressAr, input.docLanguage, input.messageLanguage, now(), existing.id],
-    );
+    const address = resolveAddress(existing, sentAddress(req.body, input));
+    db.tx(() => {
+      db.run(
+        `UPDATE customers SET kind = ?, name = ?, phone = ?, email = ?, trn = ?, notes = ?, credit_allowed = ?, credit_limit_fils = ?,
+           terms_days = ?, discount_bp = ?, lpo_required = ?, opening_balance_fils = ?, opening_balance_date = ?, name_ar = ?, address_ar = ?,
+           doc_language = ?, message_language = ?, updated_at = ? WHERE id = ?`,
+        [input.kind, input.name, input.phone, input.email, input.trn, input.notes, input.creditAllowed ? 1 : 0, input.creditLimitFils,
+          input.termsDays, Math.round(input.discountPct * 100), input.lpoRequired ? 1 : 0, input.openingBalanceFils, input.openingBalanceDate,
+          input.nameAr, input.addressAr, input.docLanguage, input.messageLanguage, now(), existing.id],
+      );
+      saveAddress(db, "customers", existing.id, address);
+    });
     return { customer: customerWithBalance(db, getCustomer(existing.id)!) };
   });
 

@@ -1,4 +1,6 @@
 import type { FastifyInstance } from "fastify";
+import { garageEmirate, resolveAddress, saveAddress, shownAddress } from "../address";
+import { saveSection } from "../settings";
 import { loginSchema, setupSchema } from "@ffgp/shared";
 import { createSession, endSession, bearer, hashPassword, LoginThrottle, requireAction, sessionUser, verifyPassword } from "../auth";
 import { newId, now, type Db } from "../db";
@@ -8,16 +10,19 @@ export interface GarageRow {
   name: string;
   trn: string | null;
   address: string | null;
+  addr_unit: string | null; addr_building: string | null; addr_street: string | null; addr_area: string | null; addr_po_box: string | null;
   phone: string | null;
   email: string | null;
   vat_rate_bp: number;
 }
 
 export function garage(db: Db): GarageRow | undefined {
-  return db.get<GarageRow>("SELECT name, trn, address, phone, email, vat_rate_bp FROM garage WHERE id = 1");
+  return db.get<GarageRow>("SELECT * FROM garage WHERE id = 1");
 }
 
-export const garageOut = (g: GarageRow) => ({ name: g.name, trn: g.trn, address: g.address, phone: g.phone, email: g.email, vatRateBp: g.vat_rate_bp });
+export const garageOut = (db: Db, g: GarageRow) => ({
+  name: g.name, trn: g.trn, address: g.address, addressParts: { ...shownAddress(g), emirate: garageEmirate(db) }, phone: g.phone, email: g.email, vatRateBp: g.vat_rate_bp,
+});
 
 export function setupRoutes(app: FastifyInstance, db: Db, clock: () => number = Date.now, throttle = new LoginThrottle()): void {
 
@@ -35,6 +40,9 @@ export function setupRoutes(app: FastifyInstance, db: Db, clock: () => number = 
       db.run("INSERT INTO users (id, name, username, role, password_hash, created_at, updated_at) VALUES (?, ?, ?, 'owner', ?, ?, ?)", [
         id, input.owner.name, input.owner.username, hashPassword(input.owner.password), t, t,
       ]);
+      const emirate = input.garage.emirate ?? null;
+      if (emirate) saveSection(db, id, "garage", { emirate });
+      if (input.garage.addressParts) saveAddress(db, "garage", 1, resolveAddress(null, input.garage, emirate));
       return { id };
     });
     const token = createSession(db, result.id);

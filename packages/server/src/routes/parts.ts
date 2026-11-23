@@ -1,4 +1,5 @@
 import type { FastifyInstance } from "fastify";
+import { resolveAddress, saveAddress, sentAddress, shownAddress, type AddressRow } from "../address";
 import { adjustmentSchema, can, categorySchema, fitmentMatches, kitAvailable, normalizeNumber, parseAED, partSchema, supplierSchema, type PartInput } from "@ffgp/shared";
 import { addFitment, categoryOut, chainFrom, fitmentsOf, getCategory, kitComponentsOf, saveKit, matchedBy, numbersOf, packsOf, saveCatalogue, supersede, type CategoryRow, type VehicleFit } from "../catalogue";
 import { z } from "zod";
@@ -18,8 +19,8 @@ export interface PartRow {
   tracking: "none" | "dot" | "serial"; warranty_months: number; is_kit: number;
   max_level: number; preferred_supplier_id: string | null; lead_time_days: number; core_fils: number;
 }
-interface SupplierRow {
-  id: string; name: string; trn: string | null; phone: string | null; email: string | null; address: string | null;
+interface SupplierRow extends AddressRow {
+  id: string; name: string; trn: string | null; phone: string | null; email: string | null;
   notes: string | null; is_fleetfix: number; terms_days: number; opening_balance_fils: number; opening_balance_date: string | null;
 }
 
@@ -35,7 +36,7 @@ export function partOut(p: PartRow, showCost: boolean) {
   };
 }
 export const supplierOut = (s: SupplierRow) => ({
-  id: s.id, name: s.name, trn: s.trn, phone: s.phone, email: s.email, address: s.address, notes: s.notes, isFleetfix: !!s.is_fleetfix,
+  id: s.id, name: s.name, trn: s.trn, phone: s.phone, email: s.email, address: s.address, addressParts: shownAddress(s), notes: s.notes, isFleetfix: !!s.is_fleetfix,
   termsDays: s.terms_days, openingBalanceFils: s.opening_balance_fils, openingBalanceDate: s.opening_balance_date,
 });
 
@@ -543,11 +544,14 @@ export function partRoutes(app: FastifyInstance, db: Db): void {
     const s = supplierSchema.parse(req.body);
     const id = newId();
     const t = now();
-    db.run(
-      `INSERT INTO suppliers (id, name, trn, phone, email, address, notes, terms_days, opening_balance_fils, opening_balance_date, created_at, updated_at)
-       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
-      [id, s.name, s.trn, s.phone, s.email, s.address, s.notes, s.termsDays, s.openingBalanceFils, s.openingBalanceDate, t, t],
-    );
+    db.tx(() => {
+      db.run(
+        `INSERT INTO suppliers (id, name, trn, phone, email, address, notes, terms_days, opening_balance_fils, opening_balance_date, created_at, updated_at)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+        [id, s.name, s.trn, s.phone, s.email, s.address, s.notes, s.termsDays, s.openingBalanceFils, s.openingBalanceDate, t, t],
+      );
+      if (s.addressParts) saveAddress(db, "suppliers", id, resolveAddress(null, s));
+    });
     return { supplier: supplierOut(getSupplier(id)!) };
   });
 
@@ -562,10 +566,11 @@ export function partRoutes(app: FastifyInstance, db: Db): void {
       if (!existing) throw notFound("Supplier not found");
       if (existing.is_fleetfix && s.name !== existing.name) throw conflict("Fleet Fix's name can't be changed");
       db.run(
-        `UPDATE suppliers SET name = ?, trn = ?, phone = ?, email = ?, address = ?, notes = ?, terms_days = ?, opening_balance_fils = ?,
+        `UPDATE suppliers SET name = ?, trn = ?, phone = ?, email = ?, notes = ?, terms_days = ?, opening_balance_fils = ?,
            opening_balance_date = ?, updated_at = ? WHERE id = ?`,
-        [s.name, s.trn, s.phone, s.email, s.address, s.notes, s.termsDays, s.openingBalanceFils, s.openingBalanceDate, now(), existing.id],
+        [s.name, s.trn, s.phone, s.email, s.notes, s.termsDays, s.openingBalanceFils, s.openingBalanceDate, now(), existing.id],
       );
+      saveAddress(db, "suppliers", existing.id, resolveAddress(existing, sentAddress(req.body, s)));
     });
     return { supplier: supplierOut(getSupplier(req.params.id)!) };
   });
