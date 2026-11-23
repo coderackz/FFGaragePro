@@ -183,3 +183,21 @@ expect(addressPartsFrom("Warehouse 12\nDubai", EMPTY_ADDRESS).street).toBe("Ware
 - [ ] **Step 3:** README: one "Form fields (2026-11-24)" paragraph ending "Migration 27: update the cloud before PCs."; the garage-details help guide says where the address and emirate are.
 - [ ] **Step 4:** `npm run typecheck && npx vitest run`, then every e2e suite → all PASS.
 - [ ] **Step 5: Commit** — `test(e2e): form fields on old records; README and help`
+
+---
+
+### Task 7: A vehicle without leaving the job card
+
+**Files:**
+- Modify: `apps/desktop/src/renderer/pages/DocumentPage.tsx`, `components/forms.tsx` (`VehicleFormModal`), `components/CustomerPicker.tsx`, `packages/server/src/routes/customers.ts` (`saveVehicle`)
+- Test: `apps/desktop/test/fields.spec.ts`, `packages/server/test/customers.test.ts` (or the file that tests "already registered")
+
+**Interfaces:**
+- Consumes: Task 4's `PlateField` (in the vehicle form).
+- Produces: `VehicleFormModal` gains `title?: string` and `skip?: boolean` (Cancel reads "Skip"); `CustomerPicker.onChange(c, plate?: string)` — `plate` when the search text is part of one of that customer's plates (ignoring spaces and case) and of only one of them.
+
+- [ ] **Step 1: Write the failing tests** — server: a clash reads `Plate DXB K 48213 is already registered to Emirates Logistics LLC`. e2e: `"a new customer's vehicle is added without leaving the job card"` (type a line, New customer, Save, the form opens titled "New vehicle for Ahmed", save the plate → Vehicle shows it, Odometer filled, the line's title still there, URL is the job card); `"Skip leaves the job card without a vehicle"`; `"+ New vehicle on a saved job card"` (reload: the vehicle is on it); `"a customer with one vehicle gets it selected"`; `"searching by plate picks that vehicle"` (customer with two vehicles).
+- [ ] **Step 2:** `npm run e2e:fields` and the server test → FAIL.
+- [ ] **Step 3: Implement.** Never replaces a vehicle already chosen or an odometer already typed on the document; a list reload after adding keeps the selection. "+ New vehicle" is an option of the list and only shown when `can("customers.edit")`.
+- [ ] **Step 4:** `npm run typecheck && npm run e2e:fields && npm run e2e && npm run e2e:document` → PASS. Then the full check again (Task 6 Step 4).
+- [ ] **Step 5: Commit** — `feat(documents): add a vehicle from the job card — straight after a new customer, or from the Vehicle list`

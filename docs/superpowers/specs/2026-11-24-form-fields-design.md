@@ -43,3 +43,16 @@ Losing or rewriting any existing address, phone or plate; a save blocked by an o
 ## Left to the builder
 
 Component names and files; exact error words; country list; where the address lines break in print; tests (unit for parse/format/validate and migration, server and sync for older saves, e2e for setup, customer, supplier, vehicle, users).
+
+## Added 2026-11-24 (approved by the user): a vehicle without leaving the job card
+
+**Why:** the user: "when I add a fresh jobcard I have an option to add new customer but a new customer comes with 0 vehicles so if I want to add a vehicle I have to abandon the jobcard and go to the vehicle side bar."
+
+On estimates, job cards and draft invoices (one screen):
+1. **New customer:** the vehicle form opens straight after saving; **Skip** for counter sales.
+2. **Existing customer:** "+ New vehicle" in the Vehicle list at any time, including on a saved job card.
+3. **After saving:** the vehicle is selected and its odometer filled in; the lines stay as they were.
+4. **Fewer clicks:** a customer with one vehicle gets it selected; searching by plate picks that vehicle along with its customer.
+5. **Plate already registered:** the message says whose it is.
+
+No migration; advisors already may add vehicles. Ruled out: typing the vehicle straight into the job card (duplicates the form); customer and vehicle in one long form (slows counter sales).
