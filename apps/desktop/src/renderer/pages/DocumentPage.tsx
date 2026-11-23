@@ -53,6 +53,9 @@ const NEW_VEHICLE = "new";
 /** This PC's copy of unsaved changes, and the version (updatedAt) they were made on top of. */
 interface LocalCopy { draft: Draft; base: string | null }
 
+/** The vehicle to choose with a customer: the one whose plate was searched, or their only one. */
+const vehicleFor = (vehicles: Vehicle[], plate?: string) => (plate ? vehicles.find((v) => v.plate === plate) : vehicles.length === 1 ? vehicles[0] : undefined);
+
 /** A new empty line; labour starts at the garage's labour rate (Settings → Pricing). */
 const blankLine = (kind: LineKind, labourRateFils?: number | null): DocLine => ({
   kind, description: "", qty: 1, unitPriceFils: kind === "labour" ? labourRateFils ?? 0 : 0, discountPct: 0, unit: defaultUnit(kind),
@@ -114,6 +117,8 @@ function DocumentScreen() {
   };
   const [newCustomer, setNewCustomer] = useState<string | null>(null);
   const [addingVehicle, setAddingVehicle] = useState<{ customer: { id: string; name: string }; skip: boolean } | null>(null);
+  // What was there when the document was opened: auto-save storing a half-typed phone doesn't make it right.
+  const driverPhoneBefore = useRef("");
   const picked = useRef<{ customerId: string; plate?: string } | null>(null);
   const [paying, setPaying] = useState(false);
   const [requesting, setRequesting] = useState<{ documentId: string; position: number; line: DocLine } | null>(null);
@@ -138,6 +143,7 @@ function DocumentScreen() {
     if (doc.id === loadedId.current && dirtyRef.current) return;
     const first = doc.id !== loadedId.current;
     loadedId.current = doc.id;
+    if (first) driverPhoneBefore.current = doc.driverPhone ?? "";
     const local = first && doc.editable && !readOnly ? readLocalDraft<LocalCopy>(keyFor(doc.id)) : null;
     if (local && local.draft.base === doc.updatedAt) {
       setDraft(local.draft.draft);
@@ -185,7 +191,7 @@ function DocumentScreen() {
     if (!picked.current || d?.customer.id !== picked.current.customerId) return;
     const { plate } = picked.current;
     picked.current = null;
-    const v = plate ? d.vehicles.find((x) => x.plate === plate) : d.vehicles.length === 1 ? d.vehicles[0] : undefined;
+    const v = vehicleFor(d.vehicles, plate);
     if (v && !draftRef.current.vehicleId) update({ vehicleId: v.id, odometer: draftRef.current.odometer ?? v.odometer });
   }, [customerDetail.data]);
 
@@ -573,6 +579,12 @@ function DocumentScreen() {
                   value={draft.customer}
                   disabled={!isNew}
                   onChange={(c, plate) => {
+                    // The same customer again: nothing to load, and the vehicle stays unless a plate picked another.
+                    if (c && c.id === draft.customer?.id && customerDetail.data?.customer.id === c.id) {
+                      const v = plate || !draft.vehicleId ? vehicleFor(vehicles, plate) : undefined;
+                      if (v && v.id !== draft.vehicleId) update({ vehicleId: v.id, odometer: v.odometer });
+                      return;
+                    }
                     update({ customer: c, vehicleId: null, odometer: null });
                     picked.current = c ? { customerId: c.id, plate } : null;
                   }}
@@ -604,7 +616,7 @@ function DocumentScreen() {
                   <Field label="Driver name" hint="Gets the vehicle received / ready messages">
                     <Input value={draft.driverName} disabled={!editable} onChange={(e) => update({ driverName: e.target.value })} aria-label="Driver name" />
                   </Field>
-                  <PhoneField label="Driver phone" before={doc?.driverPhone} value={draft.driverPhone} disabled={!editable} onChange={(v) => update({ driverPhone: v })} />
+                  <PhoneField label="Driver phone" before={driverPhoneBefore.current} value={draft.driverPhone} disabled={!editable} onChange={(v) => update({ driverPhone: v })} />
                 </>
               )}
               {isInvoice && (doc || isNew) && (
@@ -755,7 +767,7 @@ function DocumentScreen() {
         initialName={newCustomer ?? ""}
         onClose={() => setNewCustomer(null)}
         onSaved={(c) => {
-          update({ customer: c, vehicleId: null });
+          update({ customer: c, vehicleId: null, odometer: null });
           // A new customer has no vehicles: theirs is added here, without leaving the document.
           setAddingVehicle({ customer: c, skip: true });
         }}
@@ -767,7 +779,7 @@ function DocumentScreen() {
         onSaved={(v) => {
           // A reading already typed stays, unless it was another vehicle's.
           const d = draftRef.current;
-          update({ vehicleId: v.id, odometer: d.vehicleId ? v.odometer ?? d.odometer : d.odometer ?? v.odometer });
+          update({ vehicleId: v.id, odometer: d.vehicleId ? v.odometer : d.odometer ?? v.odometer });
           void customerDetail.reload();
         }}
       />

@@ -23,7 +23,9 @@ export const COUNTRIES: readonly { iso: string; name: string; dial: string }[] =
   { iso: "US", name: "United States", dial: "1" }, { iso: "DE", name: "Germany", dial: "49" }, { iso: "FR", name: "France", dial: "33" },
   { iso: "IT", name: "Italy", dial: "39" }, { iso: "CN", name: "China", dial: "86" }, { iso: "JP", name: "Japan", dial: "81" },
   { iso: "KR", name: "South Korea", dial: "82" }, { iso: "ZA", name: "South Africa", dial: "27" }, { iso: "KE", name: "Kenya", dial: "254" },
-  { iso: "NG", name: "Nigeria", dial: "234" },
+  { iso: "NG", name: "Nigeria", dial: "234" }, { iso: "RU", name: "Russia", dial: "7" }, { iso: "SD", name: "Sudan", dial: "249" },
+  { iso: "ET", name: "Ethiopia", dial: "251" }, { iso: "AF", name: "Afghanistan", dial: "93" }, { iso: "MA", name: "Morocco", dial: "212" },
+  { iso: "UG", name: "Uganda", dial: "256" },
 ];
 
 /** `national`: the digits after the country code, without a leading 0. */
@@ -43,7 +45,8 @@ export function parsePhone(text: string): Phone | null {
   }
   const country = [...COUNTRIES].sort((a, b) => b.dial.length - a.dial.length).find((c) => abroad.startsWith(c.dial));
   if (!country) return null;
-  const national = abroad.slice(country.dial.length).replace(/^0/, "");
+  // Italian landlines keep their leading 0 after the code; elsewhere it's dropped.
+  const national = country.iso === "IT" ? abroad.slice(country.dial.length) : abroad.slice(country.dial.length).replace(/^0/, "");
   if (country.iso === "AE") return UAE_NUMBER.test(national) ? { iso: "AE", national } : null;
   return /^\d{6,14}$/.test(national) ? { iso: country.iso, national } : null;
 }
@@ -67,6 +70,9 @@ export const phoneDigits = (q: string): string => (/[a-z]/i.test(q) ? "" : q.rep
 
 export const checkPhone: Check = (v) => {
   if (!v.trim() || parsePhone(v)) return null;
+  // A full number from a country that isn't in the list is kept as typed.
+  const full = /^(?:\+|00)(\d{7,15})$/.exec(v.trim().replace(/[\s\-().]/g, ""))?.[1];
+  if (full && !COUNTRIES.some((c) => full.startsWith(c.dial))) return null;
   return /^(\+971|00971|971|0)?5[\d ]*$/.test(v.trim().replace(/[\-().]/g, "").replace(/^(\+971|00971|971) ?0?/, "0")) ? "A UAE mobile has 10 digits, like 050 123 4567" : "That isn't a phone number";
 };
 

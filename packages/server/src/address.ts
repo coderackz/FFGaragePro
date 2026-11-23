@@ -38,7 +38,11 @@ export function resolveAddress(
     const garageAddress = () => (sameAddress(parts, EMPTY_ADDRESS) ? null : formatAddress({ ...parts, emirate: emirate ?? null }));
     return { address: emirate === undefined ? formatAddress(parts) : garageAddress(), parts };
   }
-  if (body.address !== undefined && (body.address || null) !== row.address) return { address: body.address || null, parts: EMPTY_ADDRESS };
+  if (body.address !== undefined && (body.address || null) !== row.address) {
+    // It goes into Street (not only the text, which is made again when another computer changes a part).
+    const address = body.address || null;
+    return { address, parts: addressPartsFrom(address, EMPTY_ADDRESS) };
+  }
   return kept;
 }
 

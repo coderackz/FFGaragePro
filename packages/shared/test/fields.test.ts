@@ -23,6 +23,18 @@ describe("phones", () => {
     expect(parsePhone("Ali's office")).toBeNull();
     expect(parsePhone("")).toBeNull();
   });
+  it("a full number from a country not in the list is accepted as typed", () => {
+    for (const t of ["+998 90 123 4567", "00998901234567", "+252 61 1234567"]) {
+      expect(parsePhone(t)).toBeNull();
+      expect(checkPhone(t)).toBeNull();
+    }
+    for (const t of ["+7 916 123 4567", "+249 912345678", "+251911223344", "+93701234567"]) expect(checkPhone(t)).toBeNull();
+    expect(checkPhone("+99890")).not.toBeNull();
+    expect(checkPhone("+971 50 123 456")).not.toBeNull();
+  });
+  it("an Italian landline keeps its 0", () => {
+    expect(formatPhone(parsePhone("+39 06 1234 5678")!)).toBe("+39 0612345678");
+  });
   it("says what's wrong", () => {
     expect(checkPhone("")).toBeNull();
     expect(checkPhone("050 123 4567")).toBeNull();

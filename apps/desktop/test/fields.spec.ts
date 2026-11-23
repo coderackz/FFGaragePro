@@ -360,6 +360,109 @@ test.describe.serial("form fields", () => {
     await expect(vehicle).toHaveText("Choose vehicle…");
   });
 
+  test("another car's odometer never goes onto the new vehicle", async ({ page, request }) => {
+    const api = await owner(page, request);
+    const ali = (await api("post", "/api/customers", { name: "Wrong Person" })).customer;
+    await api("post", "/api/vehicles", { customerId: ali.id, plate: "SHJ 1 7777", odometer: 99000 });
+    const dialog = page.getByRole("dialog");
+    // The wrong person first (their car and its km are chosen), then a new customer with their own car.
+    await newJobCard(page);
+    await pickCustomer(page, "Wrong Person");
+    await page.getByText("Wrong Person", { exact: true }).click();
+    await expect(page.getByLabel("Odometer (km)")).toHaveValue("99000");
+    await page.getByText("Wrong Person", { exact: true }).click();
+    await page.getByPlaceholder("Search name, phone or plate…").fill("Sara New");
+    await page.getByText(/New customer “/).click();
+    await page.getByRole("button", { name: "Save customer" }).click();
+    await dialog.getByLabel("Plate number").fill("SHJ 2 8888");
+    await dialog.getByLabel("Odometer (km)").fill("12000");
+    await dialog.getByRole("button", { name: "Save vehicle" }).click();
+    await expect(dialog).toHaveCount(0);
+    await expect(page.getByLabel("Odometer (km)")).toHaveValue("12000");
+    // A new vehicle without a reading, over a chosen one: blank, not the other car's.
+    await page.goto("/#/vehicles");
+    await expect(page.getByRole("heading", { name: "Vehicles" })).toBeVisible();
+    await page.evaluate(() => localStorage.clear());
+    await newJobCard(page, `?customerId=${ali.id}`);
+    await expect(page.getByLabel("Odometer (km)")).toHaveValue("99000");
+    await page.getByRole("combobox", { name: "Vehicle" }).selectOption({ label: "+ New vehicle" });
+    await dialog.getByLabel("Plate number").fill("SHJ 3 9999");
+    await dialog.getByRole("button", { name: "Save vehicle" }).click();
+    await expect(dialog).toHaveCount(0);
+    await expect(page.getByLabel("Odometer (km)")).toHaveValue("");
+    await page.evaluate(() => localStorage.clear());
+  });
+
+  test("choosing the same customer again, by plate or by name", async ({ page, request }) => {
+    const api = await owner(page, request);
+    const fleet = (await api("post", "/api/customers", { name: "Same Fleet" })).customer;
+    await api("post", "/api/vehicles", { customerId: fleet.id, plate: "AJM A 4441" });
+    await api("post", "/api/vehicles", { customerId: fleet.id, plate: "AJM A 5551", odometer: 6100 });
+    const vehicle = page.getByRole("combobox", { name: "Vehicle" }).locator("option:checked");
+    await newJobCard(page, `?customerId=${fleet.id}`);
+    await expect(vehicle).toHaveText("Choose vehicle…");
+    await page.getByText("Same Fleet", { exact: true }).click();
+    await page.getByPlaceholder("Search name, phone or plate…").fill("AJM A 5551");
+    await page.getByText("Same Fleet", { exact: true }).click();
+    await expect(vehicle).toHaveText(/AJM A 5551/);
+    await expect(page.getByLabel("Odometer (km)")).toHaveValue("6100");
+    await page.getByText("Same Fleet", { exact: true }).click();
+    await page.getByPlaceholder("Search name, phone or plate…").fill("Same Fl");
+    await page.getByText("Same Fleet", { exact: true }).click();
+    await expect(vehicle).toHaveText(/AJM A 5551/);
+    await page.evaluate(() => localStorage.clear());
+  });
+
+  test("a driver's phone that's wrong stays marked after auto-save", async ({ page, request }) => {
+    const api = await owner(page, request);
+    const { customer } = await api("post", "/api/customers", { name: "Driver Check" });
+    const { document } = await api("post", "/api/documents", { type: "jobcard", customerId: customer.id, lines: [{ kind: "labour", description: "Service", qty: 1, unitPriceFils: 10000, discountPct: 0 }] });
+    await page.goto(`/#/documents/${document.id}`);
+    await page.getByLabel("Driver phone").fill("05012");
+    await expect(page.getByTestId("save-state")).toHaveText("Saved", { timeout: 15_000 });
+    await page.getByLabel("Driver name").focus();
+    await expect(page.getByText("A UAE mobile has 10 digits, like 050 123 4567")).toBeVisible();
+    await page.getByLabel("Driver phone").fill("+998 90 123 4567");
+    await page.getByLabel("Driver name").focus();
+    await expect(page.getByRole("alert")).toHaveCount(0);
+    await expect(page.getByLabel("Driver phone")).toHaveValue("+998 90 123 4567");
+    await expect(page.getByLabel("Country code")).toHaveCount(0);
+  });
+
+  test("a plate typed key by key with a number code is sorted; a VIN is corrected where the cursor is", async ({ page, request }) => {
+    const api = await owner(page, request);
+    const { customer } = await api("post", "/api/customers", { name: "Typing Plates" });
+    await page.goto(`/#/customers/${customer.id}`);
+    await page.getByRole("button", { name: "Add vehicle" }).click();
+    const form = page.getByRole("dialog");
+    await form.getByLabel("Plate number").pressSequentially("AUH 14 34568");
+    await form.getByLabel("Make").focus();
+    await expect(form.getByLabel("Plate emirate")).toHaveValue("AUH");
+    await expect(form.getByLabel("Plate code")).toHaveValue("14");
+    await expect(form.getByLabel("Plate number")).toHaveValue("34568");
+    const vin = form.getByLabel("VIN / chassis number");
+    await vin.fill("JTMHV05J604012345");
+    await vin.evaluate((el: HTMLInputElement) => el.setSelectionRange(3, 3));
+    await vin.pressSequentially("ab");
+    await vin.blur();
+    await expect(vin).toHaveValue("JTMABHV05J604012345");
+    await vin.fill("jtmhv05j604012345");
+    await vin.press("Enter");
+    await expect(page.getByText("Vehicle added")).toBeVisible();
+    const { vehicles } = await api("get", `/api/customers/${customer.id}`);
+    expect(vehicles[0]).toMatchObject({ plate: "AUH 14 34568", vin: "JTMHV05J604012345" });
+  });
+
+  test("a TRN typed with spaces is kept without them, even when Enter saves it", async ({ page, request }) => {
+    const api = await owner(page, request);
+    const form = await newCustomer(page, "Spaces LLC");
+    await form.getByLabel("Type").selectOption("company");
+    await form.getByLabel("Customer TRN").fill("100 1234 5670 0003");
+    await form.getByLabel("Customer TRN").press("Enter");
+    await expect(page.getByText("Customer added")).toBeVisible();
+    expect((await api("get", "/api/customers?q=Spaces%20LLC")).customers[0].trn).toBe("100123456700003");
+  });
+
   test("screens", async ({ page, request, browser }) => {
     const api = await owner(page, request);
     const { customer } = await api("post", "/api/customers", { kind: "company", name: "Emirates Logistics LLC", trn: "100987654300003", phone: "+971 50 123 4567", addressParts: { unit: "Office 12", building: "Al Noor Tower", street: "Street 6", area: "Al Quoz 3", emirate: "dubai", poBox: "1234", country: null } });

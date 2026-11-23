@@ -24,4 +24,19 @@ describe("addresses across computers", () => {
     const row = () => C.db.get("SELECT addr_building AS b, addr_area AS a, address FROM customers WHERE id = ?", [customer.id]);
     expect(row()).toEqual({ b: "Al Noor", a: "Al Barsha", address: "Al Noor\nStreet 12, Al Barsha" });
   });
+
+  it("an address rewritten by an older screen isn't lost when another place changes one part", async () => {
+    const A = await garageApp(undefined, { numbers: { next: async () => null, offlineSeries: "P1" } });
+    apps.push(A);
+    const token = await setUp(A);
+    const customer = (await call(A, "POST", "/api/customers", token, { name: "Ali", addressParts: { ...EMPTY_ADDRESS, street: "Street 12" } })).body.customer;
+    const C = await garageApp(twin(A.db));
+    apps.push(C);
+    installCapture(A.db, "local");
+    installCapture(C.db, "cloud");
+    await call(A, "PATCH", `/api/customers/${customer.id}`, token, { address: "New place, Shop 9, Deira" });
+    await call(C, "PATCH", `/api/customers/${customer.id}`, token, { addressParts: { ...EMPTY_ADDRESS, street: "Street 12", building: "Al Noor" } });
+    expect(applyAtCloud(C.db, "P1", localChanges(A.db, 0)).issues).toEqual([]);
+    expect(C.db.get("SELECT address FROM customers WHERE id = ?", [customer.id])).toEqual({ address: "Al Noor\nNew place, Shop 9, Deira" });
+  });
 });

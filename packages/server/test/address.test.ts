@@ -48,6 +48,16 @@ describe("addresses in parts", () => {
     expect((await call(app, "PATCH", "/api/settings", owner, { name: "G2", address: "Old way" })).body.garage).toMatchObject({ address: "Old way", addressParts: { unit: null, street: "Old way" } });
   });
 
+  it("a long old address in many lines doesn't block a save that only changes the notes", async () => {
+    const app = await makeApp();
+    const owner = await setUp(app);
+    const address = Array.from({ length: 10 }, (_, i) => `${i}`.repeat(49)).join("\n");
+    const c = (await call(app, "POST", "/api/customers", owner, { name: "Ali", address })).body.customer;
+    const saved = await call(app, "PATCH", `/api/customers/${c.id}`, owner, { notes: "VIP", addressParts: c.addressParts });
+    expect(saved.status).toBe(200);
+    expect(saved.body.customer.address).toBe(address);
+  });
+
   it("setup stores the emirate as the VAT emirate", async () => {
     const app = await makeApp();
     const res = await call(app, "POST", "/api/setup", undefined, { ...SETUP, garage: { name: "Al Quoz Auto", addressParts: parts({ unit: "Warehouse 12", area: "Al Quoz Ind. 3" }), emirate: "dubai" } });

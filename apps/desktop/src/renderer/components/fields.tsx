@@ -75,16 +75,22 @@ function useProblem(before: string | null | undefined, value: string, check: Che
 }
 
 /** One box with a check: shown grouped while it isn't being typed in. */
-function CheckedField({ label, value, onChange, before, hint, className, check, shown, clean = (v) => v, note, ...rest }: BoxProps & {
-  check: Check; shown?: (v: string) => string; clean?: (v: string) => string; note?: (v: string) => string | null;
+function CheckedField({ label, value, onChange, before, hint, className, inputClassName, check, shown, clean, note, ...rest }: BoxProps & {
+  check: Check; shown?: (v: string) => string; note?: (v: string) => string | null; inputClassName?: string;
+  /** Tidied once the box is left or Enter is pressed (tidying while typing would move the cursor). */
+  clean?: (v: string) => string;
 } & Pick<InputHTMLAttributes<HTMLInputElement>, "inputMode" | "autoComplete" | "maxLength" | "spellCheck">) {
   const id = useId();
   const [focused, setFocused] = useState(false);
   const { error, onLeave } = useProblem(before, value, check);
+  const tidy = () => {
+    const v = clean?.(value) ?? value;
+    if (v !== value && value !== before) onChange(v);
+  };
   return (
     <FieldShell id={id} label={label} hint={hint} error={error} note={note?.(value)} className={className}>
-      <Input id={id} value={focused || !shown ? value : shown(value)} onChange={(e) => onChange(clean(e.target.value))} aria-invalid={error ? true : undefined}
-        onFocus={() => setFocused(true)} onBlur={() => { setFocused(false); onLeave(); }} {...rest} />
+      <Input id={id} value={focused || !shown ? value : shown(value)} onChange={(e) => onChange(e.target.value)} aria-invalid={error ? true : undefined} className={inputClassName}
+        onFocus={() => setFocused(true)} onBlur={() => { setFocused(false); tidy(); onLeave(); }} onKeyDown={(e) => { if (e.key === "Enter") tidy(); }} {...rest} />
     </FieldShell>
   );
 }
@@ -95,12 +101,12 @@ const noSpaces = (v: string) => v.replace(/\s/g, "");
 export const EmailField = (p: BoxProps) => <CheckedField {...p} check={checkEmail} inputMode="email" spellCheck={false} autoComplete="off" />;
 export const TrnField = (p: BoxProps) => (
   <CheckedField {...p} check={checkTrn} clean={noSpaces} shown={(v) => (checkTrn(v) ? v : formatTrn(v))} inputMode="numeric"
-    note={(v) => (/^\d{1,14}$/.test(v) && v !== p.before ? `${v.length} of 15 digits` : null)} />
+    note={(v) => (/^\d{1,14}$/.test(noSpaces(v)) && v !== p.before ? `${noSpaces(v).length} of 15 digits` : null)} />
 );
 export const IbanField = (p: BoxProps) => (
   <CheckedField {...p} check={checkIban} shown={(v) => (checkIban(v) ? v : formatIban(v))} spellCheck={false} placeholder={p.placeholder ?? "AE07 0331 2345 6789 0123 456"} />
 );
-export const VinField = (p: BoxProps) => <CheckedField {...p} check={() => null} clean={(v) => v.toUpperCase()} note={vinNote} spellCheck={false} />;
+export const VinField = (p: BoxProps) => <CheckedField {...p} check={() => null} clean={(v) => v.toUpperCase()} inputClassName="uppercase" note={vinNote} spellCheck={false} />;
 export const YearField = (p: BoxProps) => <CheckedField {...p} check={checkYear} inputMode="numeric" maxLength={4} />;
 export const OdometerField = (p: BoxProps) => <CheckedField {...p} check={checkOdometer} inputMode="numeric" />;
 export const EmiratesIdField = (p: BoxProps) => (
@@ -144,6 +150,8 @@ export function PhoneField({ label, value, onChange, before, hint, className, di
     const p = parsePhone(value);
     if (p) setBox({ plain: false, iso: p.iso, text: nationalText(p) });
     else if (!value) setBox((b) => ({ ...b, plain: false, text: "" }));
+    // A full number from a country that isn't in the list: one plain box, as typed.
+    else if (!box.plain && /^(\+|00)/.test(box.text.trim()) && !checkPhone(value)) setBox({ plain: true, iso: "AE", text: value });
   };
   return (
     <FieldShell id={id} label={label} hint={hint} error={error} className={className}>
@@ -186,6 +194,12 @@ export function PlateField({ label, value, onChange, before, hint, className, di
     said.current = v;
     if (v !== value) onChange(v);
   };
+  // "12 34567" typed in the number box: the code goes to its own box once the box is left.
+  const leave = () => {
+    onLeave();
+    const p = box.emirate === OTHER ? null : parsePlate(value);
+    if (p) setBox(p);
+  };
   return (
     <FieldShell id={id} label={label} hint={hint} error={error} className={className}>
       <div className="flex gap-1.5">
@@ -197,7 +211,7 @@ export function PlateField({ label, value, onChange, before, hint, className, di
         {box.emirate !== OTHER && (
           <Input value={box.code} disabled={disabled} maxLength={2} onChange={(e) => say({ ...box, code: e.target.value.toUpperCase() })} onBlur={onLeave} className="w-14! shrink-0 px-1.5! text-center uppercase" placeholder="Code" aria-label="Plate code" />
         )}
-        <Input id={id} value={box.number} disabled={disabled} onChange={(e) => say(parsePlate(e.target.value) ?? { ...box, number: e.target.value })} onBlur={onLeave}
+        <Input id={id} value={box.number} disabled={disabled} onChange={(e) => say(parsePlate(e.target.value) ?? { ...box, number: e.target.value })} onBlur={leave}
           aria-invalid={error ? true : undefined} className="uppercase" placeholder={box.emirate === OTHER ? "As on the plate" : "12345"} {...rest} />
       </div>
     </FieldShell>
@@ -210,7 +224,7 @@ export function AddressFields({ value, onChange, country, emirateHint, className
 }) {
   const box = (k: "unit" | "building" | "street" | "area" | "poBox", label: string, width: string, placeholder?: string) => (
     <Field label={label} className={width}>
-      <Input value={value[k] ?? ""} maxLength={k === "street" ? 500 : 100} placeholder={placeholder} onChange={(e) => onChange({ ...value, [k]: e.target.value || null })} />
+      <Input value={value[k] ?? ""} maxLength={k === "street" ? 1000 : 100} placeholder={placeholder} onChange={(e) => onChange({ ...value, [k]: e.target.value || null })} />
     </Field>
   );
   const home = !value.country || value.country === HOME_COUNTRY;

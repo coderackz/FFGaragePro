@@ -11,6 +11,12 @@ describe("addresses", () => {
   });
   it("an emirate the address already names isn't said twice", () => {
     expect(formatAddress({ ...EMPTY_ADDRESS, street: "Al Quoz 3, Dubai", emirate: "dubai" })).toBe("Al Quoz 3, Dubai");
+    expect(formatAddress({ ...EMPTY_ADDRESS, street: "Warehouse 4 Al Quoz Dubai", emirate: "dubai" })).toBe("Warehouse 4 Al Quoz Dubai");
+    expect(formatAddress({ ...EMPTY_ADDRESS, street: "Al Quoz 3, Dubai, UAE", emirate: "dubai" })).toBe("Al Quoz 3, Dubai, UAE");
+  });
+  it("a place named after an emirate still prints the emirate", () => {
+    expect(formatAddress({ ...EMPTY_ADDRESS, building: "Marina Tower", area: "Dubai Marina", emirate: "dubai" })).toBe("Marina Tower\nDubai Marina\nDubai");
+    expect(formatAddress({ ...EMPTY_ADDRESS, street: "Dubai - Abu Dhabi Road", emirate: "abu_dhabi" })).toBe("Dubai - Abu Dhabi Road\nAbu Dhabi");
   });
   it("an old address shows in Street", () => {
     expect(addressPartsFrom("Warehouse 12\r\nDubai", EMPTY_ADDRESS)).toEqual({ ...EMPTY_ADDRESS, street: "Warehouse 12, Dubai" });

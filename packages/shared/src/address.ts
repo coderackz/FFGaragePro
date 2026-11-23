@@ -6,8 +6,8 @@ const part = (max: number) => z.string().trim().max(max).nullable().optional().t
 
 export const addressPartsSchema = z.object({
   unit: part(100), building: part(100),
-  // An address from before the parts is kept whole in Street.
-  street: part(500), area: part(100),
+  // An address from before the parts (up to 500, its lines joined with ", ") is kept whole in Street.
+  street: part(1000), area: part(100),
   emirate: z.enum(EMIRATES).nullable().optional().transform((v) => v ?? null),
   poBox: part(100),
   /** Suppliers: where they are, when it isn't the UAE. */
@@ -23,7 +23,10 @@ export function formatAddress(p: AddressParts): string | null {
   const join = (...xs: (string | null)[]) => xs.filter(Boolean).join(", ");
   const top = [join(p.unit, p.building), join(p.street, p.area)];
   const emirate = p.emirate ? EMIRATE_NAMES[p.emirate] : null;
-  const named = emirate && top.join("\n").toLowerCase().includes(emirate.toLowerCase());
+  // Already named: a piece of its own, or the last words ("Al Quoz Dubai") — not a place named after it ("Dubai Marina").
+  const pieces = top.join(",").toLowerCase().split(/[,\n]/).map((x) => x.trim().replace(/[ ,-]*\bu\.?a\.?e\.?$/, ""));
+  const name = emirate?.toLowerCase() ?? "";
+  const named = emirate && pieces.some((x) => x === name || x.endsWith(` ${name}`));
   const box = p.poBox ? (/^\d/.test(p.poBox) ? `PO Box ${p.poBox}` : p.poBox) : null;
   return [...top, join(named ? null : emirate, box, p.country === HOME_COUNTRY ? null : p.country)].filter(Boolean).join("\n") || null;
 }
