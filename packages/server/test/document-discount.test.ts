@@ -71,6 +71,40 @@ describe("overall discount", () => {
     expect((await call(g.app, "POST", `/api/documents/${inv.id}/issue`, g.owner, {})).status).toBe(200);
   });
 
+  it("a confirmed amount discount that grows past what was confirmed asks again; under it, it doesn't", async () => {
+    const g = await garage();
+    const inv = await g.doc("invoice", [line(30000), line(20000, "Other"), line(10000, "Wash")]);
+    const ok = await g.discount(inv.id, { kind: "amount", value: 20000, confirmed: true, remark: "Agreed with owner" });
+    expect(ok.body.document.discount).toMatchObject({ pct: 33.33, needsConfirmation: false });
+    // A bigger bill: the confirmation still covers it.
+    const bigger = await call(g.app, "PATCH", `/api/documents/${inv.id}`, g.owner, { lines: [line(30000), line(20000, "Other"), line(11000, "Wash")] });
+    expect(bigger.body.document.discount).toMatchObject({ pct: 32.79, needsConfirmation: false });
+    // Lines removed: 200 off 210 is far more than what was confirmed.
+    const smaller = await call(g.app, "PATCH", `/api/documents/${inv.id}`, g.owner, { lines: [line(21000, "Other")] });
+    expect(smaller.body.document.discount).toMatchObject({ pct: 95.24, needsConfirmation: true });
+    const issue = await call(g.app, "POST", `/api/documents/${inv.id}/issue`, g.owner, {});
+    expect(issue.status).toBe(409);
+    expect(issue.body.error).toMatch(/discount/i);
+  });
+
+  it("what was confirmed goes with the work: the invoice made from it asks again only above that", async () => {
+    const g = await garage();
+    const jc = await g.doc("jobcard", [line(30000), line(20000, "Other")]);
+    await g.discount(jc.id, { kind: "amount", value: 20000, confirmed: true, remark: "Agreed with owner" });
+    const inv = (await call(g.app, "POST", `/api/documents/${jc.id}/convert`, g.owner, {})).body.document;
+    expect(inv.discount).toMatchObject({ pct: 40, needsConfirmation: false });
+    const smaller = await call(g.app, "PATCH", `/api/documents/${inv.id}`, g.owner, { lines: [line(25000, "Other")] });
+    expect(smaller.body.document.discount).toMatchObject({ pct: 80, needsConfirmation: true });
+  });
+
+  it("a percentage is measured as typed: exactly 25% of a small bill needs nothing, however the fils round", async () => {
+    const g = await garage();
+    const est = await g.doc("estimate", [line(4999)]);
+    const res = await g.discount(est.id, { kind: "percent", value: 25 });
+    expect(res.status).toBe(200);
+    expect(res.body.document.discount).toMatchObject({ pct: 25, discountFils: 1250, needsConfirmation: false });
+  });
+
   it("promo or discount, not both", async () => {
     const g = await garage();
     await call(g.app, "POST", "/api/promo-codes", g.owner, { code: "TEN", kind: "percent", value: 10, appliesTo: "all", oncePerCustomer: false, active: true });

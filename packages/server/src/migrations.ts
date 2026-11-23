@@ -1530,6 +1530,13 @@ ALTER TABLE documents ADD COLUMN discount_confirmed_at TEXT;
 ALTER TABLE documents ADD COLUMN discount_remark TEXT;
 `,
   },
+  {
+    id: 26,
+    // What was confirmed: an overall discount that grows past it (lines removed) needs confirming again.
+    sql: `
+ALTER TABLE documents ADD COLUMN discount_confirmed_pct REAL;
+`,
+  },
 ];
 
 /** The newest migration this code knows: the garage database's schema version. */

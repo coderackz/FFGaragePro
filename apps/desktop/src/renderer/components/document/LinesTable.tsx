@@ -4,14 +4,12 @@ import { catalogueLinePrice, defaultUnit, LINE_KINDS, UNIT_SUGGESTIONS, type Doc
 import { PartLink, PartPicker } from "../PartPicker";
 import { UnitChooser } from "../trackedFields";
 import { Badge, Empty, Input, MoneyInput, NumberInput, Select, Textarea } from "../ui";
+import { lineCounts } from "../../lib/documentDraft";
 import { formatAED, formatDate } from "../../lib/format";
 import type { DocLine } from "../../lib/types";
 import { shownLineTotals } from "../../print/templates";
 
 export const KIND_LABELS: Record<LineKind, string> = { labour: "Labour", part: "Part", other: "Other" };
-
-/** A line counts (gets a number and is saved) once it has a title or a price; blank lines are dropped. */
-export const lineCounts = (l: DocLine) => l.description.trim() !== "" || l.unitPriceFils > 0;
 
 export function LinesTable({ type, lines, promoFils, vehicleId, editable, vatRate, includeVat, onChange, onRemove, onRequest, onAdd, showCost }: {
   /** The job's vehicle: the part search puts what fits it first. */
@@ -24,6 +22,11 @@ export function LinesTable({ type, lines, promoFils, vehicleId, editable, vatRat
   onAdd?: (kind: LineKind) => void;
 }) {
   const [describing, setDescribing] = useState<Set<number>>(new Set());
+  // Removing a line moves the ones under it up: their open description boxes move with them.
+  const remove = (i: number) => {
+    setDescribing((d) => new Set([...d].filter((x) => x !== i).map((x) => (x > i ? x - 1 : x))));
+    onRemove(i);
+  };
   // SL No: 1, 2, 3… over the lines that will be saved.
   const numbers = useMemo(() => {
     let n = 0;
@@ -119,7 +122,7 @@ export function LinesTable({ type, lines, promoFils, vehicleId, editable, vatRat
               {editable && (
                 <td className="py-1.5 pr-1">
                   <div className="flex h-8 items-center">
-                    <button type="button" onClick={() => onRemove(i)} className="rounded p-1 text-zinc-400 hover:bg-red-50 hover:text-red-600" aria-label="Remove line">
+                    <button type="button" onClick={() => remove(i)} className="rounded p-1 text-zinc-400 hover:bg-red-50 hover:text-red-600" aria-label="Remove line">
                       <Trash2 className="size-4" />
                     </button>
                   </div>

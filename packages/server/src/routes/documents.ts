@@ -27,7 +27,7 @@ interface DocRow {
   promo_code: string | null; promo_kind: "percent" | "amount" | null; promo_value: number | null; promo_applies: "all" | "labour" | "parts" | null;
   promo_discount_fils: number; promo_override_by: string | null;
   discount_kind: "percent" | "amount" | null; discount_value: number | null; discount_confirmed_by: string | null; discount_confirmed_at: string | null;
-  discount_remark: string | null;
+  discount_remark: string | null; discount_confirmed_pct: number | null;
 }
 interface LineRow {
   id: string; position: number; kind: string; description: string; qty: number; unit_price_fils: number;
@@ -198,7 +198,9 @@ export function documentRoutes(
   function discountShare(d: DocRow, lines: LineInput[], terms: PromoTerms) {
     const charged = lines.map((l) => (l.suppliedBy === "fleetfix" ? { ...l, unitPriceFils: 0, discountPct: 0 } : l));
     const s = promoShares(charged, terms, !!d.prices_include_vat);
-    return { discountFils: s.discountFils, pct: discountPct(s.discountFils, s.baseFils), limit: getSettings(db).pricing.discountConfirmAbovePct };
+    // A percentage is what was typed: rounding to whole fils on a small bill must not push it past the limit.
+    const pct = terms.kind === "percent" ? terms.value : discountPct(s.discountFils, s.baseFils);
+    return { discountFils: s.discountFils, pct, limit: getSettings(db).pricing.discountConfirmAbovePct };
   }
 
   /** The overall discount as the screens see it; not applied while a promo code is on the document. */
@@ -210,7 +212,8 @@ export function documentRoutes(
     return {
       kind: d.discount_kind, value: d.discount_value, discountFils: applied ? discountFils : 0, pct: applied ? pct : 0, applied,
       confirmedBy, confirmedAt: d.discount_confirmed_at, remark: d.discount_remark,
-      needsConfirmation: applied && needsConfirmation(pct, limit) && !d.discount_confirmed_at,
+      // A confirmation covers up to the share that was confirmed.
+      needsConfirmation: applied && needsConfirmation(pct, limit) && !(d.discount_confirmed_at && pct <= (d.discount_confirmed_pct ?? 0)),
     };
   }
 
@@ -518,8 +521,9 @@ export function documentRoutes(
       // The overall discount goes with the work, with its confirmation.
       if (d.discount_kind) {
         db.run(
-          "UPDATE documents SET discount_kind = ?, discount_value = ?, discount_confirmed_by = ?, discount_confirmed_at = ?, discount_remark = ? WHERE id = ?",
-          [d.discount_kind, d.discount_value, d.discount_confirmed_by, d.discount_confirmed_at, d.discount_remark, newDocId],
+          `UPDATE documents SET discount_kind = ?, discount_value = ?, discount_confirmed_by = ?, discount_confirmed_at = ?, discount_remark = ?,
+             discount_confirmed_pct = ? WHERE id = ?`,
+          [d.discount_kind, d.discount_value, d.discount_confirmed_by, d.discount_confirmed_at, d.discount_remark, d.discount_confirmed_pct, newDocId],
         );
         if (!d.promo_code) writeLines(newDocId, lines, user.id);
       }
@@ -814,9 +818,9 @@ export function documentRoutes(
       }
       const t = now();
       db.run(
-        `UPDATE documents SET discount_kind = ?, discount_value = ?, discount_confirmed_by = ?, discount_confirmed_at = ?, discount_remark = ?, updated_at = ?
-         WHERE id = ?`,
-        [input.kind, input.value, above ? user.id : null, above ? t : null, above ? input.remark! : null, t, d.id],
+        `UPDATE documents SET discount_kind = ?, discount_value = ?, discount_confirmed_by = ?, discount_confirmed_at = ?, discount_remark = ?,
+           discount_confirmed_pct = ?, updated_at = ? WHERE id = ?`,
+        [input.kind, input.value, above ? user.id : null, above ? t : null, above ? input.remark! : null, above ? pct : null, t, d.id],
       );
       writeLines(d.id, lines, user.id);
       if (above) audit(db, { action: "discount.confirm", entity: "document", entityId: d.id, after: { document: d.number, pct, remark: input.remark }, userId: user.id });
@@ -833,7 +837,7 @@ export function documentRoutes(
       if (!linesEditable(d)) throw conflict(`${d.number} can no longer be edited`);
       db.run(
         `UPDATE documents SET discount_kind = NULL, discount_value = NULL, discount_confirmed_by = NULL, discount_confirmed_at = NULL, discount_remark = NULL,
-           updated_at = ? WHERE id = ?`,
+           discount_confirmed_pct = NULL, updated_at = ? WHERE id = ?`,
         [now(), d.id],
       );
       writeLines(d.id, currentLines(d.id), user.id);

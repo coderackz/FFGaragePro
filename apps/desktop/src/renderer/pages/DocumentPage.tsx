@@ -1,6 +1,6 @@
 import { ArrowLeft, ArrowRight, Banknote, CircleCheck, FileDown, FileMinus, Printer, Send } from "lucide-react";
 import { useEffect, useMemo, useRef, useState } from "react";
-import { Link, useNavigate, useParams, useSearchParams } from "react-router";
+import { Link, useLocation, useNavigate, useParams, useSearchParams } from "react-router";
 import { toast } from "sonner";
 import {
   type ApprovalInput, CONVERTS_TO, DEFAULT_SETTINGS, defaultUnit, DOC_LABELS, DOC_STATUSES, PAYMENT_METHODS, STATUS_LABELS, docTotals, promoShares, type DocType, type LineKind,
@@ -14,9 +14,10 @@ import { useAuth } from "../lib/auth";
 import { PAYMENT_LABELS, formatAED, formatDate, formatDateTime } from "../lib/format";
 import type { Customer, DocLine, DocumentFull, Vehicle } from "../lib/types";
 import { useApi } from "../lib/useApi";
+import { keepTyped, lineCounts, mergeSavedLines, sentLines } from "../lib/documentDraft";
 import { clearLocalDraft, draftKey, readLocalDraft, readyToCreate, useAutosave, writeLocalDraft } from "../lib/autosave";
 import { CreditNoteDialog } from "../components/CreditNoteDialog";
-import { LinesTable, lineCounts } from "../components/document/LinesTable";
+import { LinesTable } from "../components/document/LinesTable";
 import { DiscountRow, type DiscountRequest } from "../components/document/DiscountRow";
 import { ProgressCard } from "../components/document/ProgressCard";
 import { VehicleCard } from "../components/document/VehicleCard";
@@ -53,7 +54,20 @@ const blankLine = (kind: LineKind, labourRateFils?: number | null): DocLine => (
   kind, description: "", qty: 1, unitPriceFils: kind === "labour" ? labourRateFils ?? 0 : 0, discountPct: 0, unit: defaultUnit(kind),
 });
 
+/**
+ * Each document opened gets a screen of its own, so a save still on its way belongs to the document it was typed in.
+ * A new document that was just created keeps its screen: the person is still typing in it.
+ */
 export function DocumentPage() {
+  const { id, type } = useParams();
+  const { state } = useLocation() as { state: { createdHere?: string } | null };
+  const here = id ?? `new-${type}`;
+  const screen = useRef({ here, n: 0 });
+  if (screen.current.here !== here) screen.current = { here, n: id && state?.createdHere === id ? screen.current.n : screen.current.n + 1 };
+  return <DocumentScreen key={screen.current.n} />;
+}
+
+function DocumentScreen() {
   const params = useParams();
   const [search] = useSearchParams();
   const navigate = useNavigate();
@@ -77,6 +91,11 @@ export function DocumentPage() {
   const loadedId = useRef<string | null>(null);
   const docIdRef = useRef<string | null>(params.id ?? null);
   const updatedAtRef = useRef<string | null>(null);
+  const mounted = useRef(true);
+  useEffect(() => {
+    mounted.current = true;
+    return () => { mounted.current = false; };
+  }, []);
   const draftRef = useRef(draft);
   draftRef.current = draft;
   const garageKey = garage?.trn || garage?.name || "garage";
@@ -120,7 +139,14 @@ export function DocumentPage() {
       bump();
       setRestored(true);
     } else {
-      setDraft(fromDoc(doc));
+      const saved = fromDoc(doc);
+      // The same document saved again: what's being typed keeps its spaces and new lines.
+      const lines = !first && doc.editable ? mergeSavedLines(draftRef.current.lines, doc.lines) : null;
+      const typed = draftRef.current;
+      setDraft(lines ? {
+        ...saved, lines, notes: keepTyped(typed.notes, saved.notes), lpoNumber: keepTyped(typed.lpoNumber, saved.lpoNumber),
+        driverName: keepTyped(typed.driverName, saved.driverName), driverPhone: keepTyped(typed.driverPhone, saved.driverPhone),
+      } : saved);
       markDirty(false);
     }
   }, [doc]);
@@ -219,13 +245,7 @@ export function DocumentPage() {
   const writeDoc = async (withApproval: boolean): Promise<string> => {
     const d = draftRef.current;
     const rev = revisionRef.current;
-    const lines = d.lines.filter(lineCounts).map(({ kind, description, details, unit, qty, unitPriceFils, discountPct, partId, suppliedBy, poLineId, unitIds }) => ({
-      kind, description: description.trim(), qty, unitPriceFils, discountPct,
-      details: kind === "part" ? null : details?.trim() ? details : null, unit: unit?.trim() || null,
-      partId: kind === "part" ? partId ?? null : null, suppliedBy: kind === "part" ? suppliedBy ?? "garage" : "garage", poLineId: poLineId ?? null,
-      // More tyres picked than the quantity (it was lowered): the first ones picked are kept.
-      unitIds: kind === "part" && partId && (suppliedBy ?? "garage") === "garage" ? (unitIds ?? []).slice(0, Math.max(0, Math.floor(qty))) : [],
-    }));
+    const lines = sentLines(d.lines);
     let id = docIdRef.current;
     const body = { vehicleId: d.vehicleId, odometer: d.odometer, notes: d.notes, lines, ...(type === "invoice" && id ? { lpoNumber: d.lpoNumber } : {}),
       ...(type === "jobcard" ? { driverName: d.driverName, driverPhone: d.driverPhone } : {}) };
@@ -246,7 +266,10 @@ export function DocumentPage() {
       updatedAtRef.current = res.document.updatedAt;
       clearLocalDraft(keyFor(null));
       settle(id, res.document.updatedAt);
-      navigate(`/documents/${id}`, { replace: true });
+      // Shown straight away (no spinner between), so the box being typed in keeps the cursor.
+      docQuery.setData({ document: res.document });
+      // Gone to another screen meanwhile: it's saved, and they stay where they are.
+      if (mounted.current) navigate(`/documents/${id}`, { replace: true, state: { createdHere: id } });
       if (res.document.type === "jobcard") message("vehicle_received", res.document);
       return id;
     }
@@ -623,7 +646,7 @@ export function DocumentPage() {
               {/* The overall discount sits between the subtotal before it and the VAT worked out after it. */}
               <Row label="Subtotal" value={formatAED(manualShare ? totals.netFils + manualShareNet : totals.netFils)} />
               {type !== "credit_note" && (
-                <DiscountRow doc={doc} editable={editable && !isNew} baseFils={discountBase} limitPct={settings?.pricing.discountConfirmAbovePct ?? 25}
+                <DiscountRow doc={doc} editable={editable && !isNew} baseFils={discountBase} takesOffFils={manualShareNet} limitPct={settings?.pricing.discountConfirmAbovePct ?? 25}
                   busy={busy === "discount"} onApply={onApplyDiscount} onRemove={onRemoveDiscount} />
               )}
               <Row label={`VAT ${vatRate / 100}%`} value={formatAED(totals.vatFils)} />

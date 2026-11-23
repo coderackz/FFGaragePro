@@ -10,9 +10,10 @@ export interface DiscountRequest { kind: Kind; value: number; confirmed?: boolea
 /**
  * The overall discount in the summary: "+ Add discount", the form (% or AED; above the garage's limit a tick and a
  * remark), or the discount given with who confirmed it. `baseFils`: the bill it applies to (after line discounts).
+ * `takesOffFils`: what it takes off before VAT as the lines stand now, so the summary adds up while they change.
  */
-export function DiscountRow({ doc, editable, baseFils, limitPct, busy, onApply, onRemove }: {
-  doc: DocumentFull | null; editable: boolean; baseFils: number; limitPct: number; busy: boolean;
+export function DiscountRow({ doc, editable, baseFils, takesOffFils, limitPct, busy, onApply, onRemove }: {
+  doc: DocumentFull | null; editable: boolean; baseFils: number; takesOffFils: number; limitPct: number; busy: boolean;
   onApply: (d: DiscountRequest) => Promise<boolean>; onRemove: () => void;
 }) {
   const discount = doc?.discount ?? null;
@@ -81,12 +82,12 @@ export function DiscountRow({ doc, editable, baseFils, limitPct, busy, onApply, 
     );
   }
 
-  const label = `Discount${discount.kind === "percent" ? ` ${discount.value}%` : ""}`;
+  const label = `Discount${discount.kind === "percent" ? ` ${discount.value}%` : ""}${doc?.pricesIncludeVat ? " (before VAT)" : ""}`;
   return (
     <div className="flex flex-col gap-0.5 text-sm" data-testid="discount-row">
       <div className="flex items-baseline justify-between gap-3">
         <dt className="min-w-0 text-zinc-600">{label}</dt>
-        <dd className="whitespace-nowrap tabular">{discount.applied ? `−${formatAED(discount.discountFils)}` : "—"}</dd>
+        <dd className="whitespace-nowrap tabular">{discount.applied ? `−${formatAED(takesOffFils)}` : "—"}</dd>
       </div>
       {editable && (
         <div className="flex gap-3 text-xs">

@@ -41,7 +41,8 @@ export type AutosaveState = "idle" | "saving" | "saved" | "error" | "approval" |
 /**
  * Saves `revision`'s changes a moment after the last one, one save at a time (a change during a save gets one more
  * save after it), and when the screen closes. A failure retries every 5 s; a save that needs the Owner's approval or
- * that someone else's newer change refuses stops and waits for the person.
+ * that someone else's newer change refuses stops and waits for the person. Once the screen is closed a failure isn't
+ * retried: the copy kept on this PC comes back when the document is opened again (retrying too could save it twice).
  */
 export function useAutosave(opts: { dirty: boolean; canSave: boolean; revision: number; save: () => Promise<void>; delayMs?: number }) {
   const { dirty, canSave, revision, delayMs = 1000 } = opts;
@@ -53,6 +54,7 @@ export function useAutosave(opts: { dirty: boolean; canSave: boolean; revision: 
   const again = useRef(false);
   const stopped = useRef(false);
   const timer = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const closed = useRef(false);
   const live = useRef({ dirty, canSave });
   live.current = { dirty, canSave };
 
@@ -82,7 +84,7 @@ export function useAutosave(opts: { dirty: boolean; canSave: boolean; revision: 
           setState("conflict");
         } else {
           setState("error");
-          timer.current = setTimeout(() => void run(), 5000);
+          if (!closed.current) timer.current = setTimeout(() => void run(), 5000);
         }
         setMessage((err as Error).message);
       }
@@ -111,10 +113,13 @@ export function useAutosave(opts: { dirty: boolean; canSave: boolean; revision: 
     const flush = () => {
       if (live.current.dirty && live.current.canSave && !stopped.current) void run();
     };
+    closed.current = false;
     window.addEventListener("beforeunload", flush);
     return () => {
       window.removeEventListener("beforeunload", flush);
+      closed.current = true;
       flush();
+      if (timer.current) clearTimeout(timer.current);
     };
   }, [run]);
 

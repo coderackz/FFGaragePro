@@ -11,7 +11,7 @@ invoice with 5% UAE VAT, tax invoice issuing, payments, print / PDF.
   Settings → Pricing's limit, 25% to start, it needs a tick and a remark, logged), a Progress card, a Vehicle card
   (plate, VIN, odometer) and auto-save (no Save button; new documents are numbered once they have a customer and a
   titled line; unsaved changes are kept on the PC; a save over another computer's newer change is refused).
-  Migration 25: update the cloud before PCs.
+  Migrations 25 and 26: update the cloud before PCs.
 
 **Main-computer mode:** several PCs share one garage. The owner turns on sharing in Settings → Other PCs
 (TCP 47820, discovery on UDP 47821) and gives each new PC a 10-minute pairing code; other PCs choose
