@@ -1,5 +1,6 @@
 import { useState, type FormEvent } from "react";
 import { Button, Field, Input, Modal } from "./ui";
+import { PasswordField } from "./fields";
 
 /** Fleetfix cloud's address (the local development cloud when running from source). */
 export const DEFAULT_CLOUD_URL = import.meta.env.DEV ? "http://localhost:4790" : "https://garagepro.fleetfix.ae";
@@ -52,7 +53,7 @@ export function CloudConnectDialog({ mode, onClose }: { mode: "download" | "uplo
         {mode === "download" ? (
           <div className="grid grid-cols-2 gap-4">
             <Field label="Username"><Input {...f("username")} required autoComplete="username" /></Field>
-            <Field label="Password"><Input {...f("password")} type="password" required autoComplete="current-password" /></Field>
+            <PasswordField label="Password" {...f("password")} required autoComplete="current-password" />
           </div>
         ) : (
           <Field label="Setup code" hint="8 letters and numbers, from the welcome message Fleet Fix sent you.">

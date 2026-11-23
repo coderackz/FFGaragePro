@@ -3,7 +3,8 @@ import { useCallback, useEffect, useRef, useState, type FormEvent } from "react"
 import { createPortal } from "react-dom";
 import { ApiError, post, setToken } from "../lib/api";
 import { useAuth } from "../lib/auth";
-import { Button, Field, Input } from "./ui";
+import { Button } from "./ui";
+import { PasswordField } from "./fields";
 
 const LOCKED_KEY = "ffgp.locked";
 const EVENTS = ["pointerdown", "pointermove", "keydown", "wheel", "touchstart"] as const;
@@ -105,9 +106,7 @@ function LockScreen({ name, username, onUnlock, onSwitch }: { name: string; user
             <div className="text-sm text-zinc-600">{name}</div>
           </div>
         </div>
-        <Field label="Password">
-          <Input type="password" value={password} onChange={(e) => setPassword(e.target.value)} autoFocus autoComplete="current-password" required />
-        </Field>
+        <PasswordField label="Password" value={password} onChange={(e) => setPassword(e.target.value)} autoFocus autoComplete="current-password" required />
         {error && <div className="mt-3 rounded-md bg-red-50 px-3 py-2 text-sm text-red-700">{error}</div>}
         <Button type="submit" variant="primary" busy={busy} className="mt-4 h-10 w-full">Unlock</Button>
         <button type="button" onClick={onSwitch} className="mt-3 w-full text-center text-sm text-zinc-600 underline underline-offset-2 hover:text-zinc-900">

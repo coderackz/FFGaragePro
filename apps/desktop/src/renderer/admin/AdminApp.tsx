@@ -3,6 +3,7 @@ import { useCallback, useEffect, useState, type FormEvent } from "react";
 import { toast } from "sonner";
 import { AuthShell } from "../components/AuthShell";
 import { Badge, Button, Card, Empty, Field, Input, Modal, PageHeader, Spinner, Table, Textarea } from "../components/ui";
+import { PasswordField } from "../components/fields";
 import logo from "../assets/fleetfix-logo.png";
 import { formatDate, formatDateTime } from "../lib/format";
 
@@ -93,7 +94,7 @@ function SignIn({ onDone }: { onDone: () => void }) {
       <p className="mt-1 text-sm text-zinc-500">For Fleet Fix staff.</p>
       <form onSubmit={submit} className="mt-8 flex flex-col gap-4">
         <Field label="Username"><Input value={username} onChange={(e) => setUsername(e.target.value)} autoFocus autoComplete="username" /></Field>
-        <Field label="Password"><Input type="password" value={password} onChange={(e) => setPassword(e.target.value)} autoComplete="current-password" /></Field>
+        <PasswordField label="Password" value={password} onChange={(e) => setPassword(e.target.value)} autoComplete="current-password" />
         {error && <div className="rounded-md bg-red-50 px-3 py-2 text-sm text-red-700">{error}</div>}
         <Button type="submit" variant="primary" busy={busy} disabled={!username || !password} className="mt-2 h-10">Sign in</Button>
       </form>

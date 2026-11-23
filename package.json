@@ -30,7 +30,8 @@
     "e2e:planning": "playwright test -c playwright.planning.config.ts",
     "e2e:returns": "playwright test -c playwright.returns.config.ts",
     "e2e:minors": "playwright test -c playwright.minors.config.ts",
-    "e2e:document": "playwright test -c playwright.document.config.ts"
+    "e2e:document": "playwright test -c playwright.document.config.ts",
+    "e2e:fields": "playwright test -c playwright.fields.config.ts"
   },
   "devDependencies": {
     "@playwright/test": "^1.65.1",

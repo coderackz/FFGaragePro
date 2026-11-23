@@ -2,6 +2,7 @@ import { useState, type FormEvent } from "react";
 import { AuthShell } from "../components/AuthShell";
 import { CloudConnectDialog } from "../components/CloudConnectDialog";
 import { Button, Field, Input, Textarea } from "../components/ui";
+import { PasswordField, passwordsMatch } from "../components/fields";
 import { getGarageCode, isCloud } from "../lib/api";
 import { useAuth } from "../lib/auth";
 
@@ -16,7 +17,7 @@ export function SetupPage() {
 
   const submit = async (e: FormEvent) => {
     e.preventDefault();
-    if (owner.password !== owner.confirm) return setError("The two passwords don't match");
+    if (owner.password !== owner.confirm) return setError("The passwords don't match");
     if (garage.trn && !/^\d{15}$/.test(garage.trn.replace(/\s/g, ""))) return setError("A UAE TRN has 15 digits");
     setBusy(true);
     setError(null);
@@ -95,12 +96,8 @@ export function SetupPage() {
           <Field label="Username" hint="Used to sign in.">
             <Input {...o("username")} required autoComplete="username" />
           </Field>
-          <Field label="Password" hint="At least 8 characters.">
-            <Input {...o("password")} type="password" required autoComplete="new-password" />
-          </Field>
-          <Field label="Confirm password">
-            <Input {...o("confirm")} type="password" required autoComplete="new-password" />
-          </Field>
+          <PasswordField label="Password" hint="At least 8 characters." {...o("password")} required minLength={8} autoComplete="new-password" />
+          <PasswordField label="Confirm password" {...passwordsMatch(owner.password, owner.confirm)} {...o("confirm")} required autoComplete="new-password" />
         </fieldset>
         {error && <div className="rounded-md bg-red-50 px-3 py-2 text-sm text-red-700">{error}</div>}
         <div className="flex justify-end">

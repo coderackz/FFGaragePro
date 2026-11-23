@@ -2,6 +2,7 @@ import { MESSAGE_EVENTS, PLACEHOLDERS, unknownPlaceholders, type MessageEvent, t
 import { useEffect, useState } from "react";
 import { toast } from "sonner";
 import { Button, Card, Field, Input, NumberInput, Select, Textarea } from "../../../components/ui";
+import { PasswordField } from "../../../components/fields";
 import { get, post, put } from "../../../lib/api";
 import { useApi } from "../../../lib/useApi";
 import type { Message } from "../../../lib/types";
@@ -57,7 +58,7 @@ export function MessagesSection() {
             </Field>
           </div>
           <Field label="Username" hint="Usually your email address"><Input value={m.smtpUser ?? ""} onChange={(e) => form.set({ smtpUser: e.target.value || null })} aria-label="Username" autoComplete="off" /></Field>
-          <PasswordField set={overview.data?.messages?.passwordSet ?? false} onChanged={() => void overview.reload()} />
+          <SmtpPassword set={overview.data?.messages?.passwordSet ?? false} onChanged={() => void overview.reload()} />
           <Field label="From name" hint="What customers see, e.g. your garage's name"><Input value={m.fromName ?? ""} onChange={(e) => form.set({ fromName: e.target.value || null })} aria-label="From name" /></Field>
           <Field label="From address"><Input type="email" value={m.fromAddress ?? ""} onChange={(e) => form.set({ fromAddress: e.target.value || null })} aria-label="From address" /></Field>
         </div>
@@ -144,7 +145,7 @@ function EventCard({ event, value: v, onChange }: { event: MessageEvent; value: 
 }
 
 /** The mailbox password: never shown or sent back; "Set" / "Not set" and a way to replace it. */
-function PasswordField({ set, onChanged }: { set: boolean; onChanged: () => void }) {
+function SmtpPassword({ set, onChanged }: { set: boolean; onChanged: () => void }) {
   const [editing, setEditing] = useState(false);
   const [value, setValue] = useState("");
   const [busy, setBusy] = useState(false);
@@ -168,7 +169,7 @@ function PasswordField({ set, onChanged }: { set: boolean; onChanged: () => void
       <span className="text-[13px] font-medium text-zinc-700">Password</span>
       {editing ? (
         <div className="flex gap-2">
-          <Input type="password" value={value} onChange={(e) => setValue(e.target.value)} aria-label="New password" autoComplete="new-password" autoFocus />
+          <PasswordField label="New password" hideLabel className="flex-1" value={value} onChange={(e) => setValue(e.target.value)} autoComplete="new-password" autoFocus />
           <Button variant="primary" busy={busy} disabled={!value} onClick={() => void save()}>Save password</Button>
           <Button onClick={() => { setEditing(false); setValue(""); }}>Cancel</Button>
         </div>

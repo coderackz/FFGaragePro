@@ -4,6 +4,7 @@ import { useEffect, useState } from "react";
 import { toast } from "sonner";
 import { ROLES, ROLE_LABELS, type Role } from "@ffgp/shared";
 import { Badge, Button, Card, Field, Input, Modal, PageHeader, Select, Table } from "../components/ui";
+import { PasswordField, passwordsMatch } from "../components/fields";
 import { patch, post } from "../lib/api";
 import { useAuth } from "../lib/auth";
 import { formatDate } from "../lib/format";
@@ -46,13 +47,16 @@ export function UsersPage({ back }: { back?: ReactNode } = {}) {
 function UserModal({ user, onClose, onSaved }: { user: User | "new" | null; onClose: () => void; onSaved: () => void }) {
   const isNew = user === "new";
   const existing = user && user !== "new" ? user : null;
-  const [form, setForm] = useState({ name: "", username: "", role: "advisor" as Role, password: "", active: true });
+  const [form, setForm] = useState({ name: "", username: "", role: "advisor" as Role, password: "", confirm: "", active: true });
   const [busy, setBusy] = useState(false);
   useEffect(() => {
-    if (user) setForm(existing ? { name: existing.name, username: existing.username, role: existing.role, password: "", active: existing.active ?? true } : { name: "", username: "", role: "advisor", password: "", active: true });
+    if (user) setForm(existing ? { name: existing.name, username: existing.username, role: existing.role, password: "", confirm: "", active: existing.active ?? true } : { name: "", username: "", role: "advisor", password: "", confirm: "", active: true });
   }, [user]); // eslint-disable-line react-hooks/exhaustive-deps
 
   const save = async () => {
+    if ((isNew || form.password) && form.password !== form.confirm) {
+      return void toast.error(form.confirm ? "The passwords don't match" : "Type the password again to confirm it");
+    }
     setBusy(true);
     try {
       if (isNew) await post("/api/users", { name: form.name, username: form.username, role: form.role, password: form.password });
@@ -82,9 +86,12 @@ function UserModal({ user, onClose, onSaved }: { user: User | "new" | null; onCl
             {ROLES.map((r) => <option key={r} value={r}>{ROLE_LABELS[r]}</option>)}
           </Select>
         </Field>
-        <Field label={isNew ? "Password" : "New password"} hint={isNew ? "At least 8 characters." : "Leave blank to keep the current password."}>
-          <Input type="password" value={form.password} onChange={(e) => setForm({ ...form, password: e.target.value })} autoComplete="new-password" />
-        </Field>
+        <PasswordField label={isNew ? "Password" : "New password"} hint={isNew ? "At least 8 characters." : "Leave blank to keep the current password."}
+          value={form.password} onChange={(e) => setForm({ ...form, password: e.target.value })} autoComplete="new-password" />
+        {(isNew || form.password) && (
+          <PasswordField label="Confirm password" {...passwordsMatch(form.password, form.confirm)} value={form.confirm}
+            onChange={(e) => setForm({ ...form, confirm: e.target.value })} autoComplete="new-password" />
+        )}
         {!isNew && (
           <Field label="Access">
             <Select value={form.active ? "1" : "0"} onChange={(e) => setForm({ ...form, active: e.target.value === "1" })}>

@@ -3,6 +3,7 @@ import { useEffect, useState, type ReactNode } from "react";
 import { useSearchParams } from "react-router";
 import { toast } from "sonner";
 import { Badge, Button, Card, Field, Input, Select, Spinner } from "../../../components/ui";
+import { PasswordField } from "../../../components/fields";
 import { get, post, put } from "../../../lib/api";
 import { formatDateTime } from "../../../lib/format";
 import { useApi } from "../../../lib/useApi";
@@ -111,8 +112,8 @@ function WhatsAppCard({ status, onChange }: { status?: Status; onChange: () => v
           <div className="grid grid-cols-2 gap-3 max-md:grid-cols-1">
             <Field label="Phone number ID"><Input value={f.phoneNumberId} onChange={(e) => setF({ ...f, phoneNumberId: e.target.value })} aria-label="Phone number ID" /></Field>
             <Field label="WhatsApp business account ID"><Input value={f.businessAccountId} onChange={(e) => setF({ ...f, businessAccountId: e.target.value })} aria-label="WhatsApp business account ID" /></Field>
-            <Field label="Permanent access token"><Input type="password" value={f.accessToken} onChange={(e) => setF({ ...f, accessToken: e.target.value })} aria-label="Permanent access token" /></Field>
-            <Field label="App secret"><Input type="password" value={f.appSecret} onChange={(e) => setF({ ...f, appSecret: e.target.value })} aria-label="App secret" /></Field>
+            <PasswordField label="Permanent access token" value={f.accessToken} onChange={(e) => setF({ ...f, accessToken: e.target.value })} autoComplete="off" />
+            <PasswordField label="App secret" value={f.appSecret} onChange={(e) => setF({ ...f, appSecret: e.target.value })} autoComplete="off" />
           </div>
           <div className="mt-4 flex justify-end"><Button variant="primary" busy={busy === "connect"} onClick={() => void connect()}>Connect WhatsApp</Button></div>
         </>
@@ -218,7 +219,7 @@ function AccountingCard({ provider, hookBase, status, failures, onChange }: { pr
               <Input type="date" value={f.fromDate} onChange={(e) => setF({ ...f, fromDate: e.target.value })} aria-label="Send earlier documents from" />
             </Field>
             <Field label="Client ID"><Input value={f.clientId} onChange={(e) => setF({ ...f, clientId: e.target.value })} aria-label="Client ID" /></Field>
-            <Field label="Client secret"><Input type="password" value={f.clientSecret} onChange={(e) => setF({ ...f, clientSecret: e.target.value })} aria-label="Client secret" /></Field>
+            <PasswordField label="Client secret" value={f.clientSecret} onChange={(e) => setF({ ...f, clientSecret: e.target.value })} autoComplete="off" />
             {provider === "quickbooks" && (
               <label className="flex items-center gap-2 text-sm"><input type="checkbox" checked={f.sandbox} onChange={(e) => setF({ ...f, sandbox: e.target.checked })} /> Sandbox company (for trying it out)</label>
             )}
