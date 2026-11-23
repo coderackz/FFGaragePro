@@ -46,7 +46,6 @@ test("desktop app: garage day, PDF tax invoice, data kept after restart", async 
     return document.id as string;
   });
   await win.evaluate((id) => { location.hash = `#/documents/${id}`; }, estimateId);
-  await expect(win.getByLabel("Document language")).toHaveValue("en_ar");
   await win.getByRole("button", { name: "PDF", exact: true }).click();
   await expect(win.getByText(arPdf)).toBeVisible({ timeout: 30_000 }); // the toast names the file once it's written
   expect(readFileSync(arPdf).toString("latin1")).toContain("NotoNaskhArabic");

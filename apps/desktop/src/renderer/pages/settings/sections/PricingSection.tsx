@@ -30,6 +30,13 @@ export function PricingSection() {
         </div>
         <p className="mt-3 text-sm text-zinc-600">Above this, the Owner approves with their password. Owners have no limit.</p>
       </Card>
+      <Card title="Overall discount on a document">
+        <div className="grid gap-4 sm:grid-cols-2">
+          <Field label="Confirm discounts above (%)" hint="Above this share of the bill, whoever gives it ticks a confirmation and writes a remark">
+            <NumberInput value={p.discountConfirmAbovePct} min={0} step={1} onChange={(n) => form.set({ discountConfirmAbovePct: pct(n) })} aria-label="Confirm discounts above" />
+          </Field>
+        </div>
+      </Card>
     </SectionShell>
   );
 }

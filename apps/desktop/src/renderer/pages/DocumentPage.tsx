@@ -9,13 +9,16 @@ import { CustomerPicker } from "../components/CustomerPicker";
 import { CustomerFormModal } from "../components/forms";
 import { RequestPartDialog } from "../components/RequestPartDialog";
 import { Badge, Button, Card, Empty, Field, Input, Modal, MoneyInput, PageHeader, Select, Spinner, StatusBadge, Textarea } from "../components/ui";
-import { del, get, patch, post } from "../lib/api";
+import { del, get, patch, post, put } from "../lib/api";
 import { useAuth } from "../lib/auth";
-import { PAYMENT_LABELS, formatAED, formatDate, formatDateTime, formatKm } from "../lib/format";
+import { PAYMENT_LABELS, formatAED, formatDate, formatDateTime } from "../lib/format";
 import type { Customer, DocLine, DocumentFull, Vehicle } from "../lib/types";
 import { useApi } from "../lib/useApi";
 import { CreditNoteDialog } from "../components/CreditNoteDialog";
 import { LinesTable, lineCounts } from "../components/document/LinesTable";
+import { DiscountRow, type DiscountRequest } from "../components/document/DiscountRow";
+import { ProgressCard } from "../components/document/ProgressCard";
+import { VehicleCard } from "../components/document/VehicleCard";
 import { useOwnerApproval } from "../components/OwnerApproval";
 import { printDocument } from "../print/print";
 import { MessageLog } from "../components/MessageLog";
@@ -102,12 +105,25 @@ export function DocumentPage() {
   const includeVat = doc ? doc.pricesIncludeVat : (settings?.tax.pricesIncludeVat ?? false);
   // A promo code on the document: its discount spread over the lines it applies to, before VAT (as the server does).
   const promo = doc?.promo ?? null;
+  // Or the overall discount, spread the same way over every line (not while a promo code is on the document).
+  const shareTerms = useMemo(
+    () => promo ?? (doc?.discount?.applied ? { kind: doc.discount.kind, value: doc.discount.value, appliesTo: "all" as const } : null),
+    [promo, doc?.discount],
+  );
+  const chargedLines = useMemo(() => draft.lines.map((l) => (l.suppliedBy === "fleetfix" ? { ...l, unitPriceFils: 0, discountPct: 0 } : l)), [draft.lines]);
   const promoLines = useMemo(() => {
-    if (!promo || type === "credit_note") return draft.lines;
-    const charged = draft.lines.map((l) => (l.suppliedBy === "fleetfix" ? { ...l, unitPriceFils: 0, discountPct: 0 } : l));
-    const { shares } = promoShares(charged, promo, includeVat);
-    return charged.map((l, i) => ({ ...l, promoFils: shares[i] ?? 0 }));
-  }, [draft.lines, promo, includeVat, type]);
+    if (!shareTerms || type === "credit_note") return draft.lines;
+    const { shares } = promoShares(chargedLines, shareTerms, includeVat);
+    return chargedLines.map((l, i) => ({ ...l, promoFils: shares[i] ?? 0 }));
+  }, [draft.lines, chargedLines, shareTerms, includeVat, type]);
+  // The overall discount (not a promo): what it takes off before VAT, so the subtotal can show the bill before it.
+  const manualShare = !promo && !!doc?.discount?.applied && type !== "credit_note";
+  const manualShareNet = useMemo(
+    () => (manualShare ? docTotals(chargedLines, vatRate, includeVat).netFils - docTotals(promoLines, vatRate, includeVat).netFils : 0),
+    [manualShare, chargedLines, promoLines, vatRate, includeVat],
+  );
+  // The bill an overall discount applies to: every charged line after its own discount.
+  const discountBase = useMemo(() => promoShares(chargedLines, { kind: "amount", value: 0, appliesTo: "all" }, includeVat).baseFils, [chargedLines, includeVat]);
   const promoFils = promo ? promoLines.reduce((s, l) => s + (l.promoFils ?? 0), 0) : 0;
   // A credit note's lines keep the amounts they were credited at (a promo line's discounted ones): the server's totals.
   const totals = useMemo(
@@ -261,6 +277,23 @@ export function DocumentPage() {
     setPromoCode("");
     toast.success(`Promo ${document.promo?.code} applied`);
   });
+  const onApplyDiscount = async (d: DiscountRequest): Promise<boolean> => {
+    let ok = false;
+    await run("discount", async () => {
+      const id = await save();
+      if (!id) return;
+      const { document } = await put<{ document: DocumentFull }>(`/api/documents/${id}/discount`, d);
+      docQuery.setData({ document });
+      ok = true;
+    });
+    return ok;
+  };
+  const onRemoveDiscount = () => run("discount", async () => {
+    const id = await save();
+    if (!id) return;
+    const { document } = await del<{ document: DocumentFull }>(`/api/documents/${id}/discount`);
+    docQuery.setData({ document });
+  });
   const onRemovePromo = () => run("promo", async () => {
     const id = await save();
     if (!id) return;
@@ -409,17 +442,6 @@ export function DocumentPage() {
                   <Input value={draft.lpoNumber} disabled={!editable || isNew} onChange={(e) => update({ lpoNumber: e.target.value })} placeholder={isNew ? "Save first" : ""} aria-label="LPO number" />
                 </Field>
               )}
-              {doc && editable && (
-                <Field label="Document language" hint="Copied from the customer when it was made">
-                  <Select value={draft.language} onChange={(e) => update({ language: e.target.value as Draft["language"] })} aria-label="Document language">
-                    <option value="en">English</option>
-                    <option value="en_ar">English + Arabic</option>
-                  </Select>
-                </Field>
-              )}
-              {doc && !editable && doc.language === "en_ar" && (
-                <div className="flex items-end pb-2"><span data-testid="doc-language"><Badge tone="zinc">English + Arabic</Badge></span></div>
-              )}
               {customerDetail.data && !!customerDetail.data.customer.balanceFils && (
                 <div className="col-span-3 flex items-center gap-2 text-sm text-zinc-700" data-testid="customer-balance">
                   Account balance <b className="tabular">{formatAED(customerDetail.data.customer.balanceFils)}</b>
@@ -432,7 +454,8 @@ export function DocumentPage() {
 
           <Card title={type === "jobcard" ? "Work & parts" : "Items"} padded={false}>
             <LinesTable
-              type={type} vehicleId={draft.vehicleId} lines={draft.lines} promoFils={promo && type !== "credit_note" ? promoLines.map((l) => l.promoFils ?? 0) : undefined} editable={editable} vatRate={vatRate} includeVat={includeVat} onChange={updateLine}
+              type={type} vehicleId={draft.vehicleId} lines={draft.lines} editable={editable} vatRate={vatRate} includeVat={includeVat} onChange={updateLine}
+              promoFils={shareTerms && type !== "credit_note" ? promoLines.map((l) => l.promoFils ?? 0) : undefined}
               onRemove={(i) => update({ lines: draft.lines.filter((_, j) => j !== i) })}
               onAdd={(k) => update({ lines: [...draft.lines, { ...blankLine(k, settings?.pricing.labourRateFils), discountPct: customerDetail.data?.customer.discountPct ?? 0 }] })}
               onRequest={type === "jobcard" && !isNew && editable && can("documents.edit") ? onRequest : undefined}
@@ -464,7 +487,12 @@ export function DocumentPage() {
                   <dd className="whitespace-nowrap tabular">−{formatAED(promoFils)}</dd>
                 </div>
               )}
-              <Row label="Subtotal" value={formatAED(totals.netFils)} />
+              {/* The overall discount sits between the subtotal before it and the VAT worked out after it. */}
+              <Row label="Subtotal" value={formatAED(manualShare ? totals.netFils + manualShareNet : totals.netFils)} />
+              {type !== "credit_note" && (
+                <DiscountRow doc={doc} editable={editable && !isNew} baseFils={discountBase} limitPct={settings?.pricing.discountConfirmAbovePct ?? 25}
+                  busy={busy === "discount"} onApply={onApplyDiscount} onRemove={onRemoveDiscount} />
+              )}
               <Row label={`VAT ${vatRate / 100}%`} value={formatAED(totals.vatFils)} />
               <div className="my-1 border-t border-dashed border-zinc-200" />
               <Row label={type === "credit_note" ? "Total credit" : "Total"} value={formatAED(totals.grossFils)} strong />
@@ -488,7 +516,7 @@ export function DocumentPage() {
                 </>
               )}
             </dl>
-            {editable && !isNew && type !== "credit_note" && !promo && (
+            {editable && !isNew && type !== "credit_note" && !promo && !doc?.discount && (
               <div className="mt-3 flex items-center gap-2 border-t border-zinc-100 pt-3">
                 <Input className="font-mono uppercase" value={promoCode} onChange={(e) => setPromoCode(e.target.value.toUpperCase())}
                   onKeyDown={(e) => { if (e.key === "Enter") onApplyPromo(); }} placeholder="Promo code" aria-label="Promo code" />
@@ -496,13 +524,8 @@ export function DocumentPage() {
               </div>
             )}
           </Card>
-          {doc?.vehicle && (
-            <Card title="Vehicle">
-              <div className="font-mono text-lg font-semibold">{doc.vehicle.plate}</div>
-              <div className="text-sm text-zinc-600">{[doc.vehicle.make, doc.vehicle.model, doc.vehicle.year].filter(Boolean).join(" ")}</div>
-              <div className="mt-2 text-xs text-zinc-500">VIN {doc.vehicle.vin ?? "—"} · last {formatKm(doc.vehicle.odometer)}</div>
-            </Card>
-          )}
+          {doc && <ProgressCard type={doc.type} status={doc.status} />}
+          {doc?.vehicle && <VehicleCard vehicle={doc.vehicle} odometer={draft.odometer} />}
           {isInvoice && doc && doc.status !== "draft" && (
             <Card title="Payments" padded={false}>
               {doc.payments.length === 0 ? (

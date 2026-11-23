@@ -35,7 +35,7 @@ const FIELD_NAMES: Record<string, string> = {
   estimateStart: "Next estimate number", jobcardStart: "Next job card number", invoiceStart: "Next invoice number", purchaseOrderStart: "Next purchase order number",
   pricesIncludeVat: "Prices include VAT", returnPeriod: "VAT return period", firstPeriodStart: "First VAT period starts",
   labourRateFils: "Labour rate", partsMarkupPct: "Parts markup", maxDiscountAccountantPct: "Largest discount (Admin / Accountant)",
-  maxDiscountAdvisorPct: "Largest discount (Service Advisor)", belowZero: "Stock below zero", defaultReorderLevel: "Default reorder level",
+  maxDiscountAdvisorPct: "Largest discount (Service Advisor)", discountConfirmAbovePct: "Confirm discounts above", belowZero: "Stock below zero", defaultReorderLevel: "Default reorder level",
   idleLockMinutes: "Lock screen after (minutes)", defaultTermsDays: "Default payment terms (days)", overLimit: "Over the credit limit",
   establishmentId: "MOHRE establishment ID", employerRoutingCode: "Employer's bank routing code", bonusInWps: "Bonus in WPS",
   gratuityDayRate: "Gratuity day rate", gratuityCap: "Gratuity cap", leaveBasis: "Leave not taken paid on", salaryDayRate: "Salary day rate",
