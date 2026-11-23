@@ -1,10 +1,10 @@
 import {
-  changedProblem, checkEmail, checkEmiratesId, checkIban, checkOdometer, checkPhone, checkPlate, checkTrn, checkYear, COUNTRIES, EMIRATE_NAMES, formatEmiratesId, formatIban, formatPhone,
-  formatPlate, formatTrn, nationalText, parsePhone, parsePlate, PLATE_EMIRATES, vinNote, type Emirate,
+  changedProblem, checkEmail, checkEmiratesId, checkIban, checkOdometer, checkPhone, checkPlate, checkTrn, checkYear, COUNTRIES, EMIRATE_NAMES, EMIRATES, formatEmiratesId, formatIban, formatPhone,
+  formatPlate, formatTrn, HOME_COUNTRY, nationalText, parsePhone, parsePlate, PLATE_EMIRATES, vinNote, type AddressParts, type Emirate,
 } from "@ffgp/shared";
 import clsx from "clsx";
 import { useEffect, useId, useRef, useState, type InputHTMLAttributes, type ReactNode } from "react";
-import { Input, Select } from "./ui";
+import { Field, Input, Select } from "./ui";
 
 // Boxes for what they hold. Each has its label tied to its main box only, so side boxes and buttons keep their own names.
 
@@ -197,5 +197,44 @@ export function PlateField({ label, value, onChange, before, hint, className, di
           aria-invalid={error ? true : undefined} className="uppercase" placeholder={box.emirate === OTHER ? "As on the plate" : "12345"} {...rest} />
       </div>
     </FieldShell>
+  );
+}
+
+/** An address in parts; `country` for suppliers, who may be abroad (then there's no emirate). */
+export function AddressFields({ value, onChange, country, emirateHint, className }: {
+  value: AddressParts; onChange: (p: AddressParts) => void; country?: boolean; emirateHint?: string; className?: string;
+}) {
+  const box = (k: "unit" | "building" | "street" | "area" | "poBox", label: string, width: string, placeholder?: string) => (
+    <Field label={label} className={width}>
+      <Input value={value[k] ?? ""} maxLength={k === "street" ? 500 : 100} placeholder={placeholder} onChange={(e) => onChange({ ...value, [k]: e.target.value || null })} />
+    </Field>
+  );
+  const home = !value.country || value.country === HOME_COUNTRY;
+  const countries = COUNTRIES.map((c) => c.name);
+  return (
+    <fieldset className={clsx("grid grid-cols-6 gap-3", className)}>
+      <legend className="mb-1.5 text-[13px] font-semibold text-zinc-800">Address</legend>
+      {box("unit", "Unit / shop no.", "col-span-2", "e.g. Warehouse 12")}
+      {box("building", "Building", "col-span-4")}
+      {box("street", "Street", "col-span-6")}
+      {box("area", "Area", "col-span-2", "e.g. Al Quoz 3")}
+      {home && (
+        <Field label="Emirate" hint={emirateHint} className="col-span-2">
+          <Select aria-label="Emirate" value={value.emirate ?? ""} onChange={(e) => onChange({ ...value, emirate: (e.target.value || null) as Emirate | null })}>
+            <option value="">Choose…</option>
+            {EMIRATES.map((m) => <option key={m} value={m}>{EMIRATE_NAMES[m]}</option>)}
+          </Select>
+        </Field>
+      )}
+      {box("poBox", "PO Box", "col-span-2")}
+      {country && (
+        <Field label="Country" className="col-span-3">
+          <Select aria-label="Country" value={value.country ?? HOME_COUNTRY} onChange={(e) => onChange({ ...value, ...(e.target.value === HOME_COUNTRY ? { country: null } : { country: e.target.value, emirate: null }) })}>
+            {value.country && !countries.includes(value.country) && <option value={value.country}>{value.country}</option>}
+            {countries.map((c) => <option key={c} value={c}>{c}</option>)}
+          </Select>
+        </Field>
+      )}
+    </fieldset>
   );
 }

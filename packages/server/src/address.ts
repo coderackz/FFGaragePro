@@ -34,7 +34,9 @@ export function resolveAddress(
   if (body.addressParts) {
     const parts = emirate === undefined ? body.addressParts : { ...body.addressParts, emirate: null };
     if (existing && sameAddress(parts, shownAddress(row))) return kept;
-    return { address: formatAddress(emirate === undefined ? parts : { ...parts, emirate }), parts };
+    // The garage's emirate alone isn't an address.
+    const garageAddress = () => (sameAddress(parts, EMPTY_ADDRESS) ? null : formatAddress({ ...parts, emirate: emirate ?? null }));
+    return { address: emirate === undefined ? formatAddress(parts) : garageAddress(), parts };
   }
   if (body.address !== undefined && (body.address || null) !== row.address) return { address: body.address || null, parts: EMPTY_ADDRESS };
   return kept;

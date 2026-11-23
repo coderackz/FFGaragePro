@@ -1,15 +1,15 @@
 import { useEffect, useState, type FormEvent } from "react";
 import { toast } from "sonner";
-import { checkEmail, checkOdometer, checkPhone, checkPlate, checkTrn, checkYear, filsToInput, parseAED } from "@ffgp/shared";
+import { checkEmail, checkOdometer, checkPhone, checkPlate, checkTrn, checkYear, EMPTY_ADDRESS, filsToInput, parseAED } from "@ffgp/shared";
 import { patch, post } from "../lib/api";
 import { useAuth } from "../lib/auth";
 import type { Customer, Vehicle } from "../lib/types";
 import { CustomerPicker } from "./CustomerPicker";
 import { Button, Field, Input, Modal, MoneyInput, Select, Textarea } from "./ui";
-import { EmailField, firstProblem, OdometerField, PhoneField, PlateField, TrnField, VinField, YearField } from "./fields";
+import { AddressFields, EmailField, firstProblem, OdometerField, PhoneField, PlateField, TrnField, VinField, YearField } from "./fields";
 
 const emptyCustomer = {
-  kind: "individual" as Customer["kind"], name: "", phone: "", email: "", trn: "", address: "", notes: "",
+  kind: "individual" as Customer["kind"], name: "", phone: "", email: "", trn: "", addressParts: EMPTY_ADDRESS, notes: "",
   nameAr: "", addressAr: "", docLanguage: "en" as NonNullable<Customer["docLanguage"]>, messageLanguage: "en" as NonNullable<Customer["messageLanguage"]>,
 };
 const emptyCredit = { creditAllowed: false, creditLimitFils: 0, termsDays: "", discountPct: "", lpoRequired: false, openingBalance: "", openingBalanceDate: "" };
@@ -30,7 +30,7 @@ export function CustomerFormModal({ open, customer, initialName, onClose, onSave
     if (!open) return;
     setForm(customer
       ? {
-          kind: customer.kind, name: customer.name, phone: customer.phone ?? "", email: customer.email ?? "", trn: customer.trn ?? "", address: customer.address ?? "",
+          kind: customer.kind, name: customer.name, phone: customer.phone ?? "", email: customer.email ?? "", trn: customer.trn ?? "", addressParts: customer.addressParts ?? EMPTY_ADDRESS,
           notes: customer.notes ?? "", nameAr: customer.nameAr ?? "", addressAr: customer.addressAr ?? "", docLanguage: customer.docLanguage ?? "en", messageLanguage: customer.messageLanguage ?? "en",
         }
       : { ...emptyCustomer, name: initialName ?? "" });
@@ -64,7 +64,7 @@ export function CustomerFormModal({ open, customer, initialName, onClose, onSave
       setBusy(false);
     }
   };
-  const f = (k: keyof typeof form) => ({ value: form[k], onChange: (e: { target: { value: string } }) => setForm({ ...form, [k]: e.target.value }) });
+  const f = (k: Exclude<keyof typeof form, "addressParts">) => ({ value: form[k], onChange: (e: { target: { value: string } }) => setForm({ ...form, [k]: e.target.value }) });
   const box = (k: "phone" | "email" | "trn") => ({ value: form[k], onChange: (v: string) => setForm((x) => ({ ...x, [k]: v })) });
 
   return (
@@ -94,9 +94,7 @@ export function CustomerFormModal({ open, customer, initialName, onClose, onSave
         {form.kind === "company" && (
           <TrnField label="Customer TRN" hint="Shown on tax invoices." className="col-span-2" before={customer?.trn} {...box("trn")} />
         )}
-        <Field label="Address" className="col-span-2">
-          <Textarea {...f("address")} rows={2} className="min-h-0" />
-        </Field>
+        <AddressFields className="col-span-2" value={form.addressParts} onChange={(addressParts) => setForm((x) => ({ ...x, addressParts }))} />
         <Field label="Document language" hint="What their estimates, invoices and statements print in">
           <Select {...f("docLanguage")}>
             <option value="en">English</option>

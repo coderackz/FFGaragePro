@@ -1,15 +1,15 @@
-import type { DocLanguage, DocType, LineKind, MessageLanguage, Role } from "@ffgp/shared";
+import type { AddressParts, DocLanguage, DocType, LineKind, MessageLanguage, Role } from "@ffgp/shared";
 export type { Contact } from "@ffgp/shared";
 
 export interface User { id: string; name: string; username: string; role: Role; active?: boolean; createdAt?: string }
 /** A PC's backup folder and newest backup (filled by the main process). */
 export interface BackupStatus { folder: string; folderOk: boolean; last: string | null; keepDays: number }
 
-export interface Garage { name: string; trn: string | null; address: string | null; phone: string | null; email: string | null; vatRateBp: number }
+export interface Garage { name: string; trn: string | null; address: string | null; addressParts?: AddressParts; phone: string | null; email: string | null; vatRateBp: number }
 
 export interface Customer {
   id: string; kind: "individual" | "company"; name: string; phone: string | null; email: string | null; trn: string | null;
-  address: string | null; notes: string | null; createdAt: string; plates?: string[];
+  address: string | null; addressParts?: AddressParts; notes: string | null; createdAt: string; plates?: string[];
   creditAllowed?: boolean; creditLimitFils?: number; termsDays?: number | null; discountPct?: number; lpoRequired?: boolean;
   openingBalanceFils?: number; openingBalanceDate?: string | null;
   /** Arabic name and address, and what their documents print in (English, or English + Arabic). */
@@ -120,7 +120,7 @@ export interface StockMovement {
   purchaseOrderNumber: string | null; unitCostFils?: number;
 }
 export interface Supplier {
-  id: string; name: string; trn: string | null; phone: string | null; email: string | null; address: string | null; notes: string | null;
+  id: string; name: string; trn: string | null; phone: string | null; email: string | null; address: string | null; addressParts?: AddressParts; notes: string | null;
   isFleetfix: boolean;
   termsDays?: number; openingBalanceFils?: number; openingBalanceDate?: string | null;
   /** For those who pay suppliers: what we owe (negative = an advance), what's overdue, the advance. */

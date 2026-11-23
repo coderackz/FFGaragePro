@@ -174,4 +174,62 @@ test.describe.serial("form fields", () => {
     expect(vehicles.map((v: { plate: string }) => v.plate).sort()).toEqual(["KSA 1234 ABC", "SHJ 3 48213"]);
     expect(vehicles.find((v: { plate: string }) => v.plate === "SHJ 3 48213").vin).toBe("GRJ76-1234567");
   });
+
+  test("setup's address prints as lines and its emirate is the VAT emirate", async ({ page, request }) => {
+    const api = await owner(page, request);
+    const { garage, settings } = await api("get", "/api/settings");
+    expect(garage).toMatchObject({ address: "Warehouse 12\nAl Quoz Industrial 3\nDubai", addressParts: { unit: "Warehouse 12", area: "Al Quoz Industrial 3", emirate: "dubai" } });
+    expect(settings.garage.emirate).toBe("dubai");
+  });
+
+  test("garage details has the address form with one Emirate box, and saves both", async ({ page, request }) => {
+    const api = await owner(page, request);
+    await page.goto("/#/settings/garage");
+    await expect(page.getByLabel("Emirate")).toHaveCount(1);
+    await expect(page.getByLabel("Emirate")).toHaveValue("dubai");
+    await page.getByLabel("Street").fill("Street 6");
+    await page.getByLabel("PO Box").fill("1234");
+    await page.getByLabel("Emirate").selectOption("sharjah");
+    await page.getByRole("button", { name: "Save", exact: true }).click();
+    await expect(page.getByText("Saved")).toBeVisible();
+    await expect.poll(async () => (await api("get", "/api/settings")).garage.address).toBe("Warehouse 12\nStreet 6, Al Quoz Industrial 3\nSharjah, PO Box 1234");
+    expect((await api("get", "/api/settings")).settings.garage.emirate).toBe("sharjah");
+    await page.getByLabel("Emirate").selectOption("dubai");
+    await page.getByRole("button", { name: "Save", exact: true }).click();
+    await expect.poll(async () => (await api("get", "/api/settings")).garage.address).toBe("Warehouse 12\nStreet 6, Al Quoz Industrial 3\nDubai, PO Box 1234");
+  });
+
+  test("a customer's address is saved in parts and printed", async ({ page, request }) => {
+    const api = await owner(page, request);
+    const form = await newCustomer(page, "Address One");
+    await form.getByLabel("Unit / shop no.").fill("Villa 4");
+    await form.getByLabel("Street").fill("Street 12");
+    await form.getByLabel("Area").fill("Al Barsha 1");
+    await form.getByLabel("Emirate").selectOption("dubai");
+    await form.getByRole("button", { name: "Save customer" }).click();
+    await expect(page.getByRole("dialog")).toHaveCount(0);
+    const c = (await api("get", "/api/customers?q=Address%20One")).customers[0];
+    expect(c).toMatchObject({ address: "Villa 4\nStreet 12, Al Barsha 1\nDubai", addressParts: { unit: "Villa 4", emirate: "dubai" } });
+    await page.goto(`/#/customers/${c.id}`);
+    await page.getByRole("button", { name: "Edit" }).first().click();
+    await expect(form.getByLabel("Street")).toHaveValue("Street 12");
+    await expect(form.getByLabel("Arabic address")).toBeVisible();
+  });
+
+  test("a supplier abroad has a country, and no emirate", async ({ page, request }) => {
+    const api = await owner(page, request);
+    await page.goto("/#/suppliers");
+    await page.getByRole("button", { name: "New supplier" }).click();
+    const form = page.getByRole("dialog");
+    await form.getByLabel("Name", { exact: true }).fill("Muscat Parts");
+    await expect(form.getByLabel("Country", { exact: true })).toHaveValue("United Arab Emirates");
+    await expect(form.getByLabel("Emirate")).toBeVisible();
+    await form.getByLabel("Building").fill("Al Noor");
+    await form.getByLabel("Country", { exact: true }).selectOption("Oman");
+    await expect(form.getByLabel("Emirate")).toHaveCount(0);
+    await form.getByRole("button", { name: "Save", exact: true }).click();
+    await expect(page.getByText("Supplier saved")).toBeVisible();
+    const s = (await api("get", "/api/suppliers")).suppliers.find((x: { name: string }) => x.name === "Muscat Parts");
+    expect(s).toMatchObject({ address: "Al Noor\nOman", addressParts: { country: "Oman", emirate: null } });
+  });
 });

@@ -1,20 +1,21 @@
 import { useEffect, useState } from "react";
 import { toast } from "sonner";
-import { checkEmail, checkIban, checkPhone, checkTrn, EMIRATES, EMIRATE_NAMES, type Emirate } from "@ffgp/shared";
+import { checkEmail, checkIban, checkPhone, checkTrn, EMPTY_ADDRESS, type AddressParts } from "@ffgp/shared";
 import { Card, Field, Input, Select, Textarea } from "../../../components/ui";
-import { EmailField, firstProblem, IbanField, PhoneField, TrnField } from "../../../components/fields";
+import { AddressFields, EmailField, firstProblem, IbanField, PhoneField, TrnField } from "../../../components/fields";
 import { patch } from "../../../lib/api";
 import { useAuth } from "../../../lib/auth";
 import { SectionShell } from "../SectionShell";
 import { useSectionForm } from "../useSectionForm";
 
-type Profile = { name: string; trn: string; address: string; phone: string; email: string };
+type Profile = { name: string; trn: string; addressParts: AddressParts; phone: string; email: string };
+type TextKey = Exclude<keyof Profile, "addressParts">;
 
 /** Garage details: the profile printed on every document, plus trade licence and bank details. */
 export function GarageSection() {
   const { garage, settings, refreshGarage } = useAuth();
   const extra = useSectionForm("garage");
-  const fromGarage = (): Profile => ({ name: garage?.name ?? "", trn: garage?.trn ?? "", address: garage?.address ?? "", phone: garage?.phone ?? "", email: garage?.email ?? "" });
+  const fromGarage = (): Profile => ({ name: garage?.name ?? "", trn: garage?.trn ?? "", addressParts: garage?.addressParts ?? EMPTY_ADDRESS, phone: garage?.phone ?? "", email: garage?.email ?? "" });
   const [profile, setProfile] = useState<Profile>(fromGarage);
   const [busy, setBusy] = useState(false);
   useEffect(() => setProfile(fromGarage()), [garage]); // eslint-disable-line react-hooks/exhaustive-deps
@@ -41,8 +42,8 @@ export function GarageSection() {
       setBusy(false);
     }
   };
-  const f = (k: keyof Profile) => ({ value: profile[k], onChange: (e: { target: { value: string } }) => setProfile({ ...profile, [k]: e.target.value }) });
-  const box = (k: keyof Profile) => ({ value: profile[k], onChange: (v: string) => setProfile((x) => ({ ...x, [k]: v })) });
+  const f = (k: TextKey) => ({ value: profile[k], onChange: (e: { target: { value: string } }) => setProfile({ ...profile, [k]: e.target.value }) });
+  const box = (k: TextKey) => ({ value: profile[k], onChange: (v: string) => setProfile((x) => ({ ...x, [k]: v })) });
   const e = extra.value;
 
   return (
@@ -52,15 +53,14 @@ export function GarageSection() {
           <Field label="Garage name" className="sm:col-span-2"><Input {...f("name")} /></Field>
           <TrnField label="VAT TRN" hint="15 digits. Printed on tax invoices." before={garage?.trn} {...box("trn")} />
           <Field label="Trade licence no."><Input value={e.tradeLicence ?? ""} onChange={(ev) => extra.set({ tradeLicence: ev.target.value })} /></Field>
-          <Field label="Emirate" hint="Where the garage is: its row in box 1 of the VAT return.">
-            <Select value={e.emirate ?? ""} onChange={(ev) => extra.set({ emirate: (ev.target.value || null) as Emirate | null })} aria-label="Emirate">
-              <option value="">Choose…</option>
-              {EMIRATES.map((m) => <option key={m} value={m}>{EMIRATE_NAMES[m]}</option>)}
-            </Select>
-          </Field>
           <PhoneField label="Phone" before={garage?.phone} {...box("phone")} />
           <EmailField label="Email" before={garage?.email} {...box("email")} />
-          <Field label="Address" className="sm:col-span-2"><Textarea {...f("address")} rows={3} /></Field>
+          {/* One emirate: the address's and the VAT return's (kept in the settings). */}
+          <AddressFields className="sm:col-span-2" value={{ ...profile.addressParts, emirate: e.emirate ?? null }} emirateHint="Its row in box 1 of the VAT return"
+            onChange={({ emirate, ...parts }) => {
+              if (emirate !== (e.emirate ?? null)) extra.set({ emirate });
+              setProfile((x) => ({ ...x, addressParts: { ...parts, emirate: x.addressParts.emirate } }));
+            }} />
         </div>
       </Card>
       <Card title="Arabic" actions={<span className="text-sm text-zinc-500">Printed on English + Arabic documents</span>}>

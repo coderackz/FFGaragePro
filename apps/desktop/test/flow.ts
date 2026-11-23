@@ -85,7 +85,9 @@ export async function setUpGarage(page: Page, shot: (name: string) => Promise<un
   await page.getByLabel("Garage name").fill("Al Quoz Auto Care");
   await page.getByLabel("VAT TRN").fill("100123456700003");
   await page.getByLabel("Phone").fill("+971 4 321 0000");
-  await page.getByLabel("Address").fill("Warehouse 12, Al Quoz Industrial 3\nDubai, UAE");
+  await page.getByLabel("Unit / shop no.").fill("Warehouse 12");
+  await page.getByLabel("Area").fill("Al Quoz Industrial 3");
+  await page.getByLabel("Emirate").selectOption("dubai");
   await page.getByLabel("Your name").fill(OWNER.name);
   await page.getByLabel("Username").fill(OWNER.username);
   await page.getByLabel("Password", { exact: true }).fill(OWNER.password);

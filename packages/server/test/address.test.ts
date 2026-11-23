@@ -72,6 +72,16 @@ describe("addresses in parts", () => {
   });
 });
 
+describe("the garage's address", () => {
+  it("is blank when only the emirate is known, whatever is cleared or changed first", async () => {
+    const app = await makeApp();
+    const owner = await setUp(app);
+    const settings = (await call(app, "GET", "/api/settings", owner)).body.settings.garage;
+    await call(app, "PUT", "/api/settings/garage", owner, { ...settings, emirate: "dubai" });
+    expect((await call(app, "PATCH", "/api/settings", owner, { name: "G", addressParts: parts({ emirate: "dubai" }) })).body.garage.address).toBeNull();
+  });
+});
+
 describe("searching by phone", () => {
   it("0501234567 finds +971 50 123 4567, and +971501234567 finds 050 123 4567", async () => {
     const app = await makeApp();

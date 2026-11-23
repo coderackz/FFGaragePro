@@ -1,6 +1,6 @@
 import { useEffect, useState, type FormEvent } from "react";
 import { toast } from "sonner";
-import { ADJUSTMENT_REASONS, formatAED, roundFils, checkEmail, checkPhone, checkTrn } from "@ffgp/shared";
+import { ADJUSTMENT_REASONS, formatAED, roundFils, checkEmail, checkPhone, checkTrn, EMPTY_ADDRESS } from "@ffgp/shared";
 import { patch, post } from "../lib/api";
 import { useAuth } from "../lib/auth";
 import type { Part, PartCategory, Supplier } from "../lib/types";
@@ -8,7 +8,7 @@ import { useApi } from "../lib/useApi";
 import { AttributeFields, FitmentRows, NumberRows, PackRows, type Fitments, type Numbers, type Packs } from "./catalogueFields";
 import { TrackingFields, UnitChooser, UnitCodesInput, splitCodes, type KitRow, type Tracking } from "./trackedFields";
 import { Button, Field, Input, Modal, MoneyInput, NumberInput, Select, Textarea } from "./ui";
-import { EmailField, firstProblem, PhoneField, TrnField } from "./fields";
+import { AddressFields, EmailField, firstProblem, PhoneField, TrnField } from "./fields";
 
 const emptyPart = {
   partNo: "", name: "", nameAr: "", brand: "", unit: "each", stocked: true, sellPriceFils: 0, reorderLevel: 0, location: "", fits: "", active: true,
@@ -219,18 +219,18 @@ export function AdjustStockModal({ open, part, onClose, onSaved }: { open: boole
   );
 }
 
-const emptySupplier = { name: "", trn: "", phone: "", email: "", address: "", notes: "", termsDays: "30", opening: "", openingDate: "" };
+const emptySupplier = { name: "", trn: "", phone: "", email: "", addressParts: EMPTY_ADDRESS, notes: "", termsDays: "30", opening: "", openingDate: "" };
 
 export function SupplierFormModal({ open, supplier, onClose, onSaved }: { open: boolean; supplier?: Supplier | null; onClose: () => void; onSaved: (s: Supplier) => void }) {
   const [form, setForm] = useState(emptySupplier);
   const [busy, setBusy] = useState(false);
   useEffect(() => {
     if (open) setForm(supplier ? {
-      name: supplier.name, trn: supplier.trn ?? "", phone: supplier.phone ?? "", email: supplier.email ?? "", address: supplier.address ?? "", notes: supplier.notes ?? "",
+      name: supplier.name, trn: supplier.trn ?? "", phone: supplier.phone ?? "", email: supplier.email ?? "", addressParts: supplier.addressParts ?? EMPTY_ADDRESS, notes: supplier.notes ?? "",
       termsDays: String(supplier.termsDays ?? 30), opening: supplier.openingBalanceFils ? (supplier.openingBalanceFils / 100).toFixed(2) : "", openingDate: supplier.openingBalanceDate ?? "",
     } : emptySupplier);
   }, [open, supplier]);
-  const set = (k: keyof typeof form, v: string) => setForm((f) => ({ ...f, [k]: v }));
+  const set = (k: Exclude<keyof typeof form, "addressParts">, v: string) => setForm((f) => ({ ...f, [k]: v }));
 
   const submit = async (e: FormEvent) => {
     e.preventDefault();
@@ -262,7 +262,7 @@ export function SupplierFormModal({ open, supplier, onClose, onSaved }: { open: 
         <PhoneField label="Phone" before={supplier?.phone} value={form.phone} onChange={(v) => set("phone", v)} />
         <TrnField label="TRN" before={supplier?.trn} value={form.trn} onChange={(v) => set("trn", v)} />
         <EmailField label="Email" className="col-span-2" before={supplier?.email} value={form.email} onChange={(v) => set("email", v)} />
-        <Field label="Address" className="col-span-2"><Textarea value={form.address} onChange={(e) => set("address", e.target.value)} className="min-h-14" /></Field>
+        <AddressFields className="col-span-2" country value={form.addressParts} onChange={(addressParts) => setForm((x) => ({ ...x, addressParts }))} />
         <Field label="Notes" className="col-span-2"><Textarea value={form.notes} onChange={(e) => set("notes", e.target.value)} className="min-h-14" /></Field>
         <Field label="Payment terms (days)" hint="Their bills are due this long after the invoice date"><Input inputMode="numeric" value={form.termsDays} onChange={(e) => set("termsDays", e.target.value)} /></Field>
         <div />

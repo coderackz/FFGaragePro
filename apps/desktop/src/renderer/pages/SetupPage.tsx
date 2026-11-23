@@ -1,9 +1,9 @@
-import { checkEmail, checkPhone, checkTrn } from "@ffgp/shared";
+import { checkEmail, checkPhone, checkTrn, EMPTY_ADDRESS } from "@ffgp/shared";
 import { useState, type FormEvent } from "react";
 import { AuthShell } from "../components/AuthShell";
 import { CloudConnectDialog } from "../components/CloudConnectDialog";
-import { Button, Field, Input, Textarea } from "../components/ui";
-import { EmailField, firstProblem, PasswordField, passwordsMatch, PhoneField, TrnField } from "../components/fields";
+import { Button, Field, Input } from "../components/ui";
+import { AddressFields, EmailField, firstProblem, PasswordField, passwordsMatch, PhoneField, TrnField } from "../components/fields";
 import { getGarageCode, isCloud } from "../lib/api";
 import { useAuth } from "../lib/auth";
 
@@ -11,7 +11,8 @@ export function SetupPage() {
   const { completeSetup, startConnect, changeGarage } = useAuth();
   const [setupCode, setSetupCode] = useState("");
   const [cloudOpen, setCloudOpen] = useState(false);
-  const [garage, setGarage] = useState({ name: "", trn: "", address: "", phone: "", email: "" });
+  const [garage, setGarage] = useState({ name: "", trn: "", phone: "", email: "" });
+  const [address, setAddress] = useState(EMPTY_ADDRESS);
   const [owner, setOwner] = useState({ name: "", username: "", password: "", confirm: "" });
   const [error, setError] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
@@ -25,7 +26,7 @@ export function SetupPage() {
     setError(null);
     try {
       await completeSetup({
-        garage: { ...garage, trn: garage.trn.replace(/\s/g, "") },
+        garage: { ...garage, trn: garage.trn.replace(/\s/g, ""), addressParts: address, emirate: address.emirate },
         owner: { name: owner.name, username: owner.username.trim(), password: owner.password },
       }, isCloud ? setupCode : undefined);
     } catch (err) {
@@ -81,9 +82,7 @@ export function SetupPage() {
           <TrnField label="VAT TRN" hint="15 digits. Leave blank if not VAT registered." {...box("trn")} placeholder="100XXXXXXXXXXX3" />
           <PhoneField label="Phone" {...box("phone")} />
           <EmailField label="Email" className="col-span-2" {...box("email")} />
-          <Field label="Address" className="col-span-2">
-            <Textarea {...g("address")} rows={2} className="min-h-0" />
-          </Field>
+          <AddressFields className="col-span-2" value={address} onChange={setAddress} emirateHint="Also your emirate on the VAT return" />
         </fieldset>
         <fieldset className="grid grid-cols-2 gap-4">
           <legend className="mb-3 text-xs font-semibold tracking-wider text-zinc-500 uppercase">Owner account</legend>
