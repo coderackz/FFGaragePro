@@ -151,10 +151,10 @@ export function PhoneField({ label, value, onChange, before, hint, className, di
         {!box.plain && (
           // Closed it shows the code alone; the list names the countries.
           <div className="relative w-[76px] shrink-0">
-            <Select value={box.iso} disabled={disabled} onChange={(e) => say({ ...box, iso: e.target.value })} className="text-transparent!" aria-label="Country code">
+            <Select value={box.iso} disabled={disabled} onChange={(e) => say({ ...box, iso: e.target.value })} className="appearance-none text-transparent!" aria-label="Country code">
               {COUNTRIES.map((c) => <option key={c.iso} value={c.iso} className="text-zinc-900">+{c.dial} {c.name}</option>)}
             </Select>
-            <span aria-hidden className="pointer-events-none absolute inset-y-0 left-2.5 flex items-center text-sm text-zinc-900 tabular">+{COUNTRIES.find((c) => c.iso === box.iso)!.dial}</span>
+            <span aria-hidden className="pointer-events-none absolute inset-y-0 left-2.5 right-2 flex items-center justify-between text-sm text-zinc-900 tabular">+{COUNTRIES.find((c) => c.iso === box.iso)!.dial}<span className="text-[10px] text-zinc-500">▼</span></span>
           </div>
         )}
         <Input id={id} inputMode="tel" value={box.text} disabled={disabled} onChange={(e) => type(e.target.value)} onBlur={leave} aria-invalid={error ? true : undefined}

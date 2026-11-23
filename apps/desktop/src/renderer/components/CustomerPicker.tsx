@@ -6,8 +6,8 @@ import { get } from "../lib/api";
 import type { Customer } from "../lib/types";
 import { useDebounced } from "../lib/useApi";
 
-/** Searchable customer select (name, phone or plate). */
-export function CustomerPicker({ value, onChange, onCreate, disabled }: { value: { id: string; name: string } | null; onChange: (c: Customer | null) => void; onCreate?: (name: string) => void; disabled?: boolean }) {
+/** Searchable customer select (name, phone or plate); a plate that finds one of their vehicles is passed on. */
+export function CustomerPicker({ value, onChange, onCreate, disabled }: { value: { id: string; name: string } | null; onChange: (c: Customer | null, plate?: string) => void; onCreate?: (name: string) => void; disabled?: boolean }) {
   const [open, setOpen] = useState(false);
   const [q, setQ] = useState("");
   const [results, setResults] = useState<Customer[]>([]);
@@ -33,7 +33,9 @@ export function CustomerPicker({ value, onChange, onCreate, disabled }: { value:
   }, []);
 
   const choose = (c: Customer) => {
-    onChange(c);
+    const key = (s: string) => s.replace(/[\s-]/g, "").toLowerCase();
+    const found = key(q).length >= 2 ? (c.plates ?? []).filter((p) => key(p).includes(key(q))) : [];
+    onChange(c, found.length === 1 ? found[0] : undefined);
     setOpen(false);
     setQ("");
   };

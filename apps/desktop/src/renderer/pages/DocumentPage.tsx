@@ -6,7 +6,7 @@ import {
   type ApprovalInput, CONVERTS_TO, DEFAULT_SETTINGS, defaultUnit, DOC_LABELS, DOC_STATUSES, PAYMENT_METHODS, STATUS_LABELS, docTotals, promoShares, type DocType, type LineKind,
 } from "@ffgp/shared";
 import { CustomerPicker } from "../components/CustomerPicker";
-import { CustomerFormModal } from "../components/forms";
+import { CustomerFormModal, VehicleFormModal } from "../components/forms";
 import { RequestPartDialog } from "../components/RequestPartDialog";
 import { Badge, Button, Card, Empty, Field, Input, Modal, MoneyInput, PageHeader, Select, Spinner, StatusBadge, Textarea } from "../components/ui";
 import { OdometerField, PhoneField } from "../components/fields";
@@ -46,6 +46,9 @@ interface Draft {
   driverName: string;
   driverPhone: string;
 }
+
+/** The Vehicle list's "+ New vehicle". */
+const NEW_VEHICLE = "new";
 
 /** This PC's copy of unsaved changes, and the version (updatedAt) they were made on top of. */
 interface LocalCopy { draft: Draft; base: string | null }
@@ -110,6 +113,8 @@ function DocumentScreen() {
     setRevision(revisionRef.current);
   };
   const [newCustomer, setNewCustomer] = useState<string | null>(null);
+  const [addingVehicle, setAddingVehicle] = useState<{ customer: { id: string; name: string }; skip: boolean } | null>(null);
+  const picked = useRef<{ customerId: string; plate?: string } | null>(null);
   const [paying, setPaying] = useState(false);
   const [requesting, setRequesting] = useState<{ documentId: string; position: number; line: DocLine } | null>(null);
 
@@ -174,6 +179,15 @@ function DocumentScreen() {
   const moneyKey = doc ? `${doc.id}:${doc.status}:${doc.paidFils}:${doc.creditedFils ?? 0}` : "new";
   const customerDetail = useApi<{ customer: Customer; vehicles: Vehicle[] }>(draft.customer ? `/api/customers/${draft.customer.id}?v=${encodeURIComponent(moneyKey)}` : null);
   const vehicles = customerDetail.data?.vehicles ?? [];
+  // A customer just chosen: their vehicle found by its plate, or their only one, is chosen with them.
+  useEffect(() => {
+    const d = customerDetail.data;
+    if (!picked.current || d?.customer.id !== picked.current.customerId) return;
+    const { plate } = picked.current;
+    picked.current = null;
+    const v = plate ? d.vehicles.find((x) => x.plate === plate) : d.vehicles.length === 1 ? d.vehicles[0] : undefined;
+    if (v && !draftRef.current.vehicleId) update({ vehicleId: v.id, odometer: draftRef.current.odometer ?? v.odometer });
+  }, [customerDetail.data]);
 
   const editable = !readOnly && (isNew || (doc?.editable ?? false));
   const vatRate = garage?.vatRateBp ?? 500;
@@ -232,7 +246,9 @@ function DocumentScreen() {
   // A line with a price but no title yet can't be saved: auto-save waits for its title.
   const untitledCharged = draft.lines.some((l) => lineCounts(l) && l.description.trim() === "");
   // Only creating needs a customer and a titled line; a saved document saves any change.
-  const canAutoSave = editable && (!!docIdRef.current || readyToCreate(draft)) && !untitledCharged;
+  // A new document waits while its customer or vehicle is being added, so it's made (and its message sent) with them.
+  const adding = newCustomer !== null || addingVehicle !== null;
+  const canAutoSave = editable && (!!docIdRef.current || (readyToCreate(draft) && !adding)) && !untitledCharged;
 
   /** One save at a time, in order: a change typed while a new document is being created goes to that document. */
   const pending = useRef<Promise<string> | null>(null);
@@ -556,7 +572,10 @@ function DocumentScreen() {
                 <CustomerPicker
                   value={draft.customer}
                   disabled={!isNew}
-                  onChange={(c) => update({ customer: c, vehicleId: null, odometer: null })}
+                  onChange={(c, plate) => {
+                    update({ customer: c, vehicleId: null, odometer: null });
+                    picked.current = c ? { customerId: c.id, plate } : null;
+                  }}
                   onCreate={(name) => setNewCustomer(name)}
                 />
               </Field>
@@ -565,12 +584,14 @@ function DocumentScreen() {
                   value={draft.vehicleId ?? ""}
                   disabled={!editable || !draft.customer}
                   onChange={(e) => {
+                    if (e.target.value === NEW_VEHICLE) return setAddingVehicle({ customer: draft.customer!, skip: false });
                     const v = vehicles.find((x) => x.id === e.target.value);
                     update({ vehicleId: e.target.value || null, odometer: v?.odometer ?? draft.odometer });
                   }}
                 >
                   <option value="">{draft.customer ? (vehicles.length ? "Choose vehicle…" : "No vehicles on file") : "Choose a customer first"}</option>
                   {vehicles.map((v) => <option key={v.id} value={v.id}>{v.plate} — {[v.make, v.model].filter(Boolean).join(" ")}</option>)}
+                  {editable && draft.customer && can("customers.edit") && <option value={NEW_VEHICLE}>+ New vehicle</option>}
                 </Select>
               </Field>
               <OdometerField label="Odometer (km)" disabled={!editable} value={draft.odometer?.toString() ?? ""}
@@ -733,7 +754,22 @@ function DocumentScreen() {
         open={newCustomer !== null}
         initialName={newCustomer ?? ""}
         onClose={() => setNewCustomer(null)}
-        onSaved={(c) => update({ customer: c, vehicleId: null })}
+        onSaved={(c) => {
+          update({ customer: c, vehicleId: null });
+          // A new customer has no vehicles: theirs is added here, without leaving the document.
+          setAddingVehicle({ customer: c, skip: true });
+        }}
+      />
+      <VehicleFormModal
+        open={addingVehicle !== null} customerId={addingVehicle?.customer.id} skip={addingVehicle?.skip}
+        title={addingVehicle ? `New vehicle for ${addingVehicle.customer.name}` : undefined}
+        onClose={() => setAddingVehicle(null)}
+        onSaved={(v) => {
+          // A reading already typed stays, unless it was another vehicle's.
+          const d = draftRef.current;
+          update({ vehicleId: v.id, odometer: d.vehicleId ? v.odometer ?? d.odometer : d.odometer ?? v.odometer });
+          void customerDetail.reload();
+        }}
       />
       <RequestPartDialog request={requesting} onClose={() => setRequesting(null)} onDone={(d) => docQuery.setData({ document: d })} />
       {doc && (

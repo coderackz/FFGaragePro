@@ -18,6 +18,8 @@ invoice with 5% UAE VAT, tax invoice issuing, payments, print / PDF.
   shown, and a new user's is typed twice. Phones (kept as +971 50 123 4567, found however they're typed), plates (kept
   as DXB K 48213; "Other" as typed), email, TRN, IBAN, year, odometer and Emirates ID are checked in the forms — a value
   that was already wrong never blocks a save until it's changed; a short VIN is only noted.
+  On a job card, estimate or draft invoice a new customer's vehicle form opens straight after saving them (Skip for a
+  counter sale), and the Vehicle list has "+ New vehicle"; a plate search picks that vehicle with its customer.
   Migration 27: update the cloud before PCs.
 
 **Main-computer mode:** several PCs share one garage. The owner turns on sharing in Settings → Other PCs

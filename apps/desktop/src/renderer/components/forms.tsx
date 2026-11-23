@@ -153,7 +153,12 @@ export function CustomerFormModal({ open, customer, initialName, onClose, onSave
 
 const emptyVehicle = { plate: "", make: "", model: "", year: "", vin: "", engine: "", colour: "", odometer: "" };
 
-export function VehicleFormModal({ open, vehicle, customerId, onClose, onSaved }: { open: boolean; vehicle?: Vehicle | null; customerId?: string; onClose: () => void; onSaved: (v: Vehicle) => void }) {
+export function VehicleFormModal({ open, vehicle, customerId, title, skip, onClose, onSaved }: {
+  open: boolean; vehicle?: Vehicle | null; customerId?: string; title?: string;
+  /** Opened by itself (straight after a new customer): closing it is "Skip". */
+  skip?: boolean;
+  onClose: () => void; onSaved: (v: Vehicle) => void;
+}) {
   const { settings } = useAuth();
   const [form, setForm] = useState(emptyVehicle);
   const [owner, setOwner] = useState<{ id: string; name: string } | null>(null);
@@ -193,10 +198,10 @@ export function VehicleFormModal({ open, vehicle, customerId, onClose, onSaved }
     <Modal
       open={open}
       onClose={onClose}
-      title={vehicle ? `Edit ${vehicle.plate}` : "New vehicle"}
+      title={title ?? (vehicle ? `Edit ${vehicle.plate}` : "New vehicle")}
       footer={
         <>
-          <Button onClick={onClose}>Cancel</Button>
+          <Button onClick={onClose}>{skip ? "Skip" : "Cancel"}</Button>
           <Button variant="primary" type="submit" form="vehicle-form" busy={busy}>Save vehicle</Button>
         </>
       }

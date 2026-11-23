@@ -160,8 +160,8 @@ export function customerRoutes(app: FastifyInstance, db: Db): void {
   const saveVehicle = (id: string | null, body: unknown) => {
     const input = vehicleSchema.parse(body);
     if (!getCustomer(input.customerId)) throw notFound("Customer not found");
-    const clash = db.get<{ id: string }>("SELECT id FROM vehicles WHERE plate = ?", [input.plate]);
-    if (clash && clash.id !== id) throw conflict(`Plate ${input.plate} is already registered`);
+    const clash = db.get<{ id: string; owner: string }>("SELECT v.id, c.name AS owner FROM vehicles v JOIN customers c ON c.id = v.customer_id WHERE v.plate = ?", [input.plate]);
+    if (clash && clash.id !== id) throw conflict(`Plate ${input.plate} is already registered to ${clash.owner}`);
     const t = now();
     // An older screen that doesn't send the engine leaves it as it was.
     const engine = body && typeof body === "object" && "engine" in body ? input.engine : id ? getVehicle(id)?.engine ?? null : null;

@@ -266,6 +266,100 @@ test.describe.serial("form fields", () => {
     expect((await api("get", `/api/customers/${customer.id}`)).customer).toMatchObject({ trn: "123", phone: "office 04", email: "old@office", address: "Villa 4\nAl Barsha", notes: "Pays monthly" });
   });
 
+  const newJobCard = async (page: Page, query = "") => {
+    await page.goto(`/#/documents/new/jobcard${query}`);
+    await expect(page.getByRole("heading", { name: /New job card/ })).toBeVisible();
+  };
+  const pickCustomer = async (page: Page, text: string) => {
+    await page.getByText("Choose customer…").click();
+    await page.getByPlaceholder("Search name, phone or plate…").fill(text);
+  };
+
+  test("a new customer's vehicle is added without leaving the job card", async ({ page, request }) => {
+    const api = await owner(page, request);
+    await newJobCard(page);
+    await page.getByLabel("Line title").first().fill("Front brakes");
+    await pickCustomer(page, "Ahmed Saleh");
+    await page.getByText(/New customer “/).click();
+    await page.getByRole("button", { name: "Save customer" }).click();
+    const dialog = page.getByRole("dialog");
+    await expect(dialog.getByRole("heading", { name: "New vehicle for Ahmed Saleh" })).toBeVisible();
+    // The job card isn't made (and no "vehicle received" message offered) while its vehicle is being typed.
+    await page.waitForTimeout(1800);
+    expect((await api("get", "/api/documents?type=jobcard")).documents.filter((d: { customerName: string }) => d.customerName === "Ahmed Saleh")).toHaveLength(0);
+    await dialog.getByLabel("Plate number").fill("dxb k 48213");
+    await dialog.getByLabel("Make").fill("Toyota");
+    await dialog.getByLabel("Odometer (km)").fill("84250");
+    await dialog.getByRole("button", { name: "Save vehicle" }).click();
+    await expect(dialog).toHaveCount(0);
+    await expect(page.getByRole("combobox", { name: "Vehicle" }).locator("option:checked")).toHaveText(/DXB K 48213/);
+    await expect(page.getByLabel("Odometer (km)")).toHaveValue("84250");
+    await expect(page.getByLabel("Line title").first()).toHaveValue("Front brakes");
+    await expect(page.getByTestId("save-state")).toHaveText("Saved", { timeout: 15_000 });
+    const doc = (await api("get", "/api/documents?type=jobcard")).documents.find((d: { customerName: string }) => d.customerName === "Ahmed Saleh");
+    expect(doc.plate).toBe("DXB K 48213");
+  });
+
+  test("Skip leaves the job card without a vehicle", async ({ page }) => {
+    await signIn(page);
+    await newJobCard(page);
+    await pickCustomer(page, "Counter Sale");
+    await page.getByText(/New customer “/).click();
+    await page.getByRole("button", { name: "Save customer" }).click();
+    await page.getByRole("dialog").getByRole("button", { name: "Skip" }).click();
+    await expect(page.getByRole("dialog")).toHaveCount(0);
+    await expect(page.getByText("Counter Sale", { exact: true })).toBeVisible();
+    await expect(page.getByRole("combobox", { name: "Vehicle" })).toHaveValue("");
+  });
+
+  test("New vehicle from the list on a saved job card", async ({ page, request }) => {
+    const api = await owner(page, request);
+    const { customer } = await api("post", "/api/customers", { name: "Later Vehicle" });
+    const { document } = await api("post", "/api/documents", { type: "jobcard", customerId: customer.id, lines: [{ kind: "labour", description: "Service", qty: 1, unitPriceFils: 10000, discountPct: 0 }] });
+    await page.goto(`/#/documents/${document.id}`);
+    await page.getByRole("combobox", { name: "Vehicle" }).selectOption({ label: "+ New vehicle" });
+    const dialog = page.getByRole("dialog");
+    await expect(dialog.getByRole("button", { name: "Cancel" })).toBeVisible();
+    await dialog.getByLabel("Plate number").fill("AUH 12 34567");
+    await dialog.getByRole("button", { name: "Save vehicle" }).click();
+    await expect(page.getByRole("combobox", { name: "Vehicle" }).locator("option:checked")).toHaveText(/AUH 12 34567/);
+    await expect.poll(async () => (await api("get", `/api/documents/${document.id}`)).document.vehicle?.plate).toBe("AUH 12 34567");
+    // Closing the form without saving leaves the choice as it was.
+    await page.getByRole("combobox", { name: "Vehicle" }).selectOption({ label: "+ New vehicle" });
+    await page.getByRole("dialog").getByRole("button", { name: "Cancel" }).click();
+    await expect(page.getByRole("combobox", { name: "Vehicle" }).locator("option:checked")).toHaveText(/AUH 12 34567/);
+    await page.reload();
+    await expect(page.getByRole("combobox", { name: "Vehicle" }).locator("option:checked")).toHaveText(/AUH 12 34567/);
+  });
+
+  test("a customer with one vehicle gets it selected; searching by plate picks that vehicle", async ({ page, request }) => {
+    const api = await owner(page, request);
+    const one = (await api("post", "/api/customers", { name: "One Car" })).customer;
+    await api("post", "/api/vehicles", { customerId: one.id, plate: "RAK A 111", odometer: 5000 });
+    const two = (await api("post", "/api/customers", { name: "Two Cars" })).customer;
+    await api("post", "/api/vehicles", { customerId: two.id, plate: "FUJ B 2221" });
+    await api("post", "/api/vehicles", { customerId: two.id, plate: "FUJ B 3331", odometer: 7000 });
+    const vehicle = page.getByRole("combobox", { name: "Vehicle" }).locator("option:checked");
+    await newJobCard(page);
+    await pickCustomer(page, "One Car");
+    await page.getByText("One Car", { exact: true }).click();
+    await expect(vehicle).toHaveText(/RAK A 111/);
+    await expect(page.getByLabel("Odometer (km)")).toHaveValue("5000");
+    await page.goto("/#/vehicles");
+    await page.evaluate(() => localStorage.clear());
+    await newJobCard(page);
+    await pickCustomer(page, "fuj b 3331");
+    await page.getByText("Two Cars", { exact: true }).click();
+    await expect(vehicle).toHaveText(/FUJ B 3331/);
+    await expect(page.getByLabel("Odometer (km)")).toHaveValue("7000");
+    await page.goto("/#/vehicles");
+    await page.evaluate(() => localStorage.clear());
+    await newJobCard(page);
+    await pickCustomer(page, "Two Cars");
+    await page.getByText("Two Cars", { exact: true }).click();
+    await expect(vehicle).toHaveText("Choose vehicle…");
+  });
+
   test("screens", async ({ page, request, browser }) => {
     const api = await owner(page, request);
     const { customer } = await api("post", "/api/customers", { kind: "company", name: "Emirates Logistics LLC", trn: "100987654300003", phone: "+971 50 123 4567", addressParts: { unit: "Office 12", building: "Al Noor Tower", street: "Street 6", area: "Al Quoz 3", emirate: "dubai", poBox: "1234", country: null } });
