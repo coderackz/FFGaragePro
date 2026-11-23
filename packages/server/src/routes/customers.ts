@@ -1,9 +1,9 @@
 import type { FastifyInstance } from "fastify";
-import { can, customerSchema, dubaiDate, vehicleSchema, type CustomerInput } from "@ffgp/shared";
+import { can, customerSchema, dubaiDate, samePlate, similarPlate, vehicleSchema, type CustomerInput } from "@ffgp/shared";
 import { requireAction, sessionUser, type SessionUser } from "../auth";
 import { customerBalance, customerLedger } from "../ledger";
 import { newId, now, type Db } from "../db";
-import { badRequest, conflict, forbidden, notFound } from "../errors";
+import { badRequest, conflict, forbidden, HttpError, notFound } from "../errors";
 import { resolveAddress, saveAddress, sentAddress, shownAddress, type AddressRow } from "../address";
 import { page, pageLimit } from "../paging";
 import { phoneHas, phoneSearch } from "../phones";
@@ -160,8 +160,15 @@ export function customerRoutes(app: FastifyInstance, db: Db): void {
   const saveVehicle = (id: string | null, body: unknown) => {
     const input = vehicleSchema.parse(body);
     if (!getCustomer(input.customerId)) throw notFound("Customer not found");
-    const clash = db.get<{ id: string; owner: string }>("SELECT v.id, c.name AS owner FROM vehicles v JOIN customers c ON c.id = v.customer_id WHERE v.plate = ?", [input.plate]);
-    if (clash && clash.id !== id) throw conflict(`Plate ${input.plate} is already registered to ${clash.owner}`);
+    // A new or changed plate: not one already here, however it's written. One that only looks like it (an old record
+    // without its emirate) is asked about, by forms that can ask.
+    if (!id || getVehicle(id)?.plate !== input.plate) {
+      const others = db.all<{ id: string; plate: string; owner: string }>("SELECT v.id, v.plate, c.name AS owner FROM vehicles v JOIN customers c ON c.id = v.customer_id").filter((v) => v.id !== id);
+      const clash = others.find((v) => v.plate.toUpperCase() === input.plate || samePlate(v.plate, input.plate));
+      if (clash) throw conflict(`Plate ${input.plate} is already registered to ${clash.owner}`);
+      const similar = (body as { checkSimilar?: unknown } | null)?.checkSimilar === true ? others.find((v) => similarPlate(v.plate, input.plate)) : undefined;
+      if (similar) throw new HttpError(409, `Plate ${similar.plate} is already registered to ${similar.owner}`, "plate_similar");
+    }
     const t = now();
     // An older screen that doesn't send the engine leaves it as it was.
     const engine = body && typeof body === "object" && "engine" in body ? input.engine : id ? getVehicle(id)?.engine ?? null : null;

@@ -181,7 +181,13 @@ export function VehicleFormModal({ open, vehicle, customerId, title, skip, onClo
     const body = { customerId: ownerId, plate: form.plate, make: form.make, model: form.model, year: toInt(form.year), vin: form.vin, engine: form.engine, colour: form.colour, odometer: toInt(form.odometer) };
     setBusy(true);
     try {
-      const res = vehicle ? await patch<{ vehicle: Vehicle }>(`/api/vehicles/${vehicle.id}`, body) : await post<{ vehicle: Vehicle }>("/api/vehicles", body);
+      const send = (b: object) => (vehicle ? patch<{ vehicle: Vehicle }>(`/api/vehicles/${vehicle.id}`, b) : post<{ vehicle: Vehicle }>("/api/vehicles", b));
+      // A plate that only looks like one already here (an old record without its emirate): the person says.
+      const res = await send({ ...body, checkSimilar: true }).catch((err: Error & { code?: string }) => {
+        if (err.code !== "plate_similar") throw err;
+        return window.confirm(`${err.message}. Is ${form.plate} a different car?`) ? send(body) : null;
+      });
+      if (!res) return;
       toast.success(vehicle ? "Vehicle updated" : "Vehicle added");
       onSaved(res.vehicle);
       onClose();

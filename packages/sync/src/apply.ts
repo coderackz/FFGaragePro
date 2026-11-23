@@ -1,4 +1,4 @@
-import { legacyPaymentReceipt, newId, recomposeAddress, reconcileDocumentStock, releaseOverpayment, type Db } from "@ffgp/server";
+import { adoptAddressText, legacyPaymentReceipt, newId, recomposeAddress, reconcileDocumentStock, releaseOverpayment, type Db } from "@ffgp/server";
 import { changesSince, columns, ownOrigin, syncedColumns, type ChangeEntry, type Row } from "./capture";
 import { recomputeDocument, recomputePart, recomputePurchaseOrder } from "./recompute";
 import { numState, setState } from "./state";
@@ -35,6 +35,15 @@ const ISSUED_INVOICE_FIELDS = new Set(["status", "issued_at", "updated_at"]);
 const q = (name: string) => `"${name.replace(/"/g, '""')}"`;
 const same = (a: unknown, b: unknown) => (a ?? null) === (b ?? null);
 
+interface TouchedAddress {
+  table: "garage" | "customers" | "suppliers";
+  id: string | number;
+  /** A part changed: with none left, the address is empty (not one from before the parts). */
+  partsChanged?: boolean;
+  /** The newest change is a text from a computer that had no parts yet. */
+  text?: string | null;
+}
+
 interface Ctx {
   db: Db;
   mode: "cloud" | "pc";
@@ -42,7 +51,7 @@ interface Ctx {
   from: string;
   own: string;
   issues: SyncIssue[];
-  touched: { parts: Set<string>; docs: Set<string>; pos: Set<string>; addresses: Map<string, ["garage" | "customers" | "suppliers", string | number]> };
+  touched: { parts: Set<string>; docs: Set<string>; pos: Set<string>; addresses: Map<string, TouchedAddress> };
   /** Work to do once the row is written (logging the cloud's own version of it). */
   afterWrite: (() => void)[];
 }
@@ -256,8 +265,8 @@ const isFrozen = (db: Db, docId: string) =>
 function touch(c: Ctx, table: string, row: Row | null, rowId: string): void {
   const s = c.touched;
   // An address is printed from its parts, and the parts may have come from two places.
-  if (table === "customers" || table === "suppliers") s.addresses.set(`${table}:${rowId}`, [table, rowId]);
-  if (table === "garage" || (table === "settings" && rowId === "garage.emirate")) s.addresses.set("garage", ["garage", 1]);
+  const address = (table === "customers" || table === "suppliers") ? { table, id: rowId } as const : table === "garage" || (table === "settings" && rowId === "garage.emirate") ? { table: "garage", id: 1 } as const : null;
+  if (address && !s.addresses.has(`${address.table}:${address.id}`)) s.addresses.set(`${address.table}:${address.id}`, { ...address });
   if (table === "parts") s.parts.add(rowId);
   if (table === "stock_movements" && row?.part_id) s.parts.add(String(row.part_id));
   if (table === "stock_movements" && row?.document_id) s.docs.add(String(row.document_id));
@@ -390,6 +399,15 @@ function applyEntry(c: Ctx, e: ChangeEntry): boolean {
   if (t.name === "payments" && !current) legacyPaymentReceipt(c.db, data as Parameters<typeof legacyPaymentReceipt>[1]);
   for (const fn of c.afterWrite.splice(0)) fn();
   touch(c, t.name, { ...current, ...data }, e.rowId);
+  const address = c.touched.addresses.get(`${t.name}:${t.name === "garage" ? 1 : e.rowId}`);
+  if (address && current && t.name !== "settings") {
+    // A row logged before migration 27 has no parts in it.
+    if (c.mode === "cloud" && "address" in values && !("addr_street" in data)) address.text = values.address as string | null;
+    else if (Object.keys(values).some((k) => k.startsWith("addr_"))) {
+      address.partsChanged = true;
+      address.text = undefined;
+    }
+  }
   return true;
 }
 
@@ -434,7 +452,10 @@ function applyAll(c: Ctx, entries: ChangeEntry[], attribution: (e: ChangeEntry) 
     for (const id of c.touched.parts) recomputePart(c.db, id);
     for (const id of c.touched.pos) recomputePurchaseOrder(c.db, id);
     for (const id of c.touched.docs) recomputeDocument(c.db, id);
-    for (const [table, id] of c.touched.addresses.values()) recomposeAddress(c.db, table, id);
+    for (const a of c.touched.addresses.values()) {
+      if (a.text !== undefined) adoptAddressText(c.db, a.table, a.id, a.text);
+      else recomposeAddress(c.db, a.table, a.id, a.partsChanged);
+    }
   };
   if (c.mode === "pc") as(c.db, "cloud", null, recompute);
   else {

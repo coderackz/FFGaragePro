@@ -106,6 +106,8 @@ describe("searching by phone", () => {
       for (const q of ["0501234567", "+971501234567", "050 123 4567", "1234567"]) expect(await find(q)).toEqual(["New way"]);
       for (const q of ["+971507654321", "0507654321"]) expect(await find(q)).toEqual(["Old way"]);
     }
+    await call(app, "POST", "/api/customers", owner, { name: "Dotted", phone: "055.111.2222" });
+    expect(await names("0551112222")).toEqual(["Dotted"]);
     expect(await names("way")).toEqual(["New way", "Old way"]);
   });
 });

@@ -21,7 +21,7 @@ export function FieldShell({ id, label, hint, error, note, className, children, 
   );
 }
 
-/** A password (or other secret) that can be shown to check what was typed; hidden again when the form is sent. */
+/** A password (or other secret) that can be shown to check what was typed; hidden again when the form is sent or another button pressed. */
 export function PasswordField({ label, hint, error, note, className, hideLabel, ...rest }: {
   label: string; hint?: string; error?: string | null; note?: string | null; className?: string; hideLabel?: boolean;
 } & Omit<InputHTMLAttributes<HTMLInputElement>, "type" | "id" | "className">) {
@@ -34,6 +34,16 @@ export function PasswordField({ label, hint, error, note, className, hideLabel, 
     form?.addEventListener("submit", hide);
     return () => form?.removeEventListener("submit", hide);
   }, []);
+  // Not every screen has a form to send: any button but another Show hides it too.
+  useEffect(() => {
+    if (!shown) return;
+    const onClick = (e: MouseEvent) => {
+      const button = (e.target as Element | null)?.closest?.("button");
+      if (button && !button.closest('[data-testid="password-field"]')) setShown(false);
+    };
+    document.addEventListener("click", onClick, true);
+    return () => document.removeEventListener("click", onClick, true);
+  }, [shown]);
   return (
     <FieldShell id={id} label={label} hint={hint} error={error} note={note} className={className} hideLabel={hideLabel}>
       <div className="relative" data-testid="password-field">

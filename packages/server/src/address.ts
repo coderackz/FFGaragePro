@@ -64,12 +64,23 @@ export function saveAddress(db: Db, table: AddressTable, id: string | number, a:
   db.run(`UPDATE ${table} SET address = ?, ${cols.map(([c]) => `${c} = ?`).join(", ")} WHERE id = ?`, [a.address, ...cols.map(([, k]) => a.parts[k]), id]);
 }
 
-/** The printed text made again from the parts (they changed somewhere else, or the garage's emirate did). */
-export function recomposeAddress(db: Db, table: AddressTable, id: string | number): void {
+/** An address that arrived as text only, from a computer before it had parts: it replaces them (it goes into Street). */
+export function adoptAddressText(db: Db, table: AddressTable, id: string | number, address: string | null): void {
+  saveAddress(db, table, id, { address, parts: addressPartsFrom(address, EMPTY_ADDRESS) });
+}
+
+/**
+ * The printed text made again from the parts (they changed somewhere else, or the garage's emirate did). With no parts
+ * it's an address from before them, left alone — unless parts were just `cleared`.
+ */
+export function recomposeAddress(db: Db, table: AddressTable, id: string | number, cleared = false): void {
   const row = db.get<AddressRow>(`SELECT * FROM ${table} WHERE id = ?`, [id]);
   if (!row) return;
   const parts = storedParts(row);
-  if (sameAddress(parts, EMPTY_ADDRESS)) return;
+  if (sameAddress(parts, EMPTY_ADDRESS)) {
+    if (cleared && row.address) db.run(`UPDATE ${table} SET address = NULL WHERE id = ?`, [id]);
+    return;
+  }
   const address = formatAddress(table === "garage" ? { ...parts, emirate: garageEmirate(db) } : parts);
   if (address !== row.address) db.run(`UPDATE ${table} SET address = ? WHERE id = ?`, [address, id]);
 }

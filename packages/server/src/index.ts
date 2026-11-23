@@ -102,5 +102,5 @@ export async function startGarageServer(o: {
 }
 export { SCHEMA_VERSION } from "./migrations";
 export { reconcileDocumentStock } from "./stock";
-export { recomposeAddress } from "./address";
+export { adoptAddressText, recomposeAddress } from "./address";
 export { reserveNumber, takeNumber, type NumberKind, type NumberSource, type Reserved } from "./numbering";

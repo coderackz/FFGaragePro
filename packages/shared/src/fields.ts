@@ -104,6 +104,21 @@ export function parsePlate(text: string): Plate | null {
 
 export const formatPlate = (p: Plate): string => [p.emirate, p.code, p.number].filter(Boolean).join(" ");
 
+const bare = (text: string) => text.toUpperCase().replace(/[\s-]/g, "");
+
+/** The same plate, however it's written: DXB-K-48213, Dubai K48213. */
+export function samePlate(a: string, b: string): boolean {
+  const [x, y] = [parsePlate(a), parsePlate(b)];
+  return x && y ? formatPlate(x) === formatPlate(y) : !x && !y && bare(a) === bare(b);
+}
+
+/** Perhaps the same car: the same code and number, one of them without its emirate ("K 48213"). */
+export function similarPlate(a: string, b: string): boolean {
+  const [x, y] = [parsePlate(a), parsePlate(b)];
+  if (!x === !y) return false;
+  return x ? x.code + x.number === bare(b) : y!.code + y!.number === bare(a);
+}
+
 /** A plate that names an emirate is checked; one from elsewhere is as typed. */
 export const checkPlate: Check = (v) => (!plateName(v) || parsePlate(v) ? null : "A UAE plate is a code (like K or 12) and up to 5 digits");
 

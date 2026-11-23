@@ -4,7 +4,7 @@ import { phoneDigits } from "@ffgp/shared";
 
 /** SQL: `column` has the searched digits (`:digits`, from phoneSearch). */
 export const phoneHas = (column: string) =>
-  `(:digits IS NOT NULL AND replace(replace(replace(replace(replace(${column}, ' ', ''), '-', ''), '+', ''), '(', ''), ')', '') LIKE :digits)`;
+  `(:digits IS NOT NULL AND ${[" ", "-", "+", "(", ")", "."].reduce((sql, ch) => `replace(${sql}, '${ch}', '')`, column)} LIKE :digits)`;
 
 /** The `:digits` for a search text (null: too few digits to be a phone). */
 export function phoneSearch(q: string | null | undefined): string | null {

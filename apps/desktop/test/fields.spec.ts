@@ -463,6 +463,38 @@ test.describe.serial("form fields", () => {
     expect((await api("get", "/api/customers?q=Spaces%20LLC")).customers[0].trn).toBe("100123456700003");
   });
 
+  test("a shown password is hidden when the form's button is pressed, even if the save fails", async ({ page }) => {
+    await signIn(page);
+    await page.goto("/#/settings/users");
+    await page.getByRole("button", { name: "Add user" }).click();
+    const form = page.getByRole("dialog");
+    await form.getByLabel("Password", { exact: true }).fill("short");
+    await form.getByRole("button", { name: "Show" }).first().click();
+    await form.getByRole("button", { name: "Show" }).last().click();
+    await expect(form.getByLabel("Password", { exact: true })).toHaveAttribute("type", "text");
+    await form.getByRole("button", { name: "Save" }).click();
+    await expect(form.getByLabel("Password", { exact: true })).toHaveAttribute("type", "password");
+    await expect(form.getByLabel("Confirm password")).toHaveAttribute("type", "password");
+  });
+
+  test("a plate that looks like one already here is asked about", async ({ page, request }) => {
+    const api = await owner(page, request);
+    const { customer } = await api("post", "/api/customers", { name: "Similar Plates" });
+    await api("post", "/api/vehicles", { customerId: customer.id, plate: "Q 6161" });
+    await page.goto(`/#/customers/${customer.id}`);
+    await page.getByRole("button", { name: "Add vehicle" }).click();
+    const form = page.getByRole("dialog");
+    await form.getByLabel("Plate number").fill("DXB Q 6161");
+    let said = "";
+    page.once("dialog", (d) => { said = d.message(); void d.dismiss(); });
+    await form.getByRole("button", { name: "Save vehicle" }).click();
+    await expect.poll(() => said).toBe("Plate Q 6161 is already registered to Similar Plates. Is DXB Q 6161 a different car?");
+    await expect(form).toBeVisible();
+    page.once("dialog", (d) => void d.accept());
+    await form.getByRole("button", { name: "Save vehicle" }).click();
+    await expect(page.getByText("Vehicle added")).toBeVisible();
+  });
+
   test("screens", async ({ page, request, browser }) => {
     const api = await owner(page, request);
     const { customer } = await api("post", "/api/customers", { kind: "company", name: "Emirates Logistics LLC", trn: "100987654300003", phone: "+971 50 123 4567", addressParts: { unit: "Office 12", building: "Al Noor Tower", street: "Street 6", area: "Al Quoz 3", emirate: "dubai", poBox: "1234", country: null } });
