@@ -18,3 +18,5 @@ export * from "./promo";
 export * from "./catalogue";
 export * from "./tracked";
 export * from "./planning";
+export * from "./fields";
+export * from "./address";

@@ -1,7 +1,9 @@
 import { z } from "zod";
+import { addressPartsSchema } from "./address";
 import { TRACKING } from "./tracked";
 import { attributesSchema, fitmentSchema, packSchema, partNumberSchema } from "./catalogue";
 import { DOC_TYPES, ROLES } from "./rules";
+import { EMIRATES } from "./vat";
 
 const text = (max = 200) => z.string().trim().max(max);
 const optionalText = (max = 200) => text(max).optional().nullable().transform((v) => (v ? v : null));
@@ -11,7 +13,10 @@ const patchText = (max = 200) => text(max).optional().nullable().transform((v) =
 export const garageSchema = z.object({
   name: text().min(1, "Garage name is required"),
   trn: optionalText(20),
-  address: optionalText(500),
+  /** As printed; made from the parts when there are any. */
+  address: optionalText(1500),
+  /** Left out by an older screen. */
+  addressParts: addressPartsSchema.optional(),
   phone: optionalText(40),
   email: optionalText(120),
 });
@@ -20,7 +25,8 @@ export type GarageInput = z.infer<typeof garageSchema>;
 export const passwordSchema = z.string().min(8, "Use at least 8 characters").max(200);
 
 export const setupSchema = z.object({
-  garage: garageSchema,
+  /** The emirate is the garage's for the VAT return too (Settings → Garage details). */
+  garage: garageSchema.extend({ emirate: z.enum(EMIRATES).nullable().optional() }),
   owner: z.object({
     name: text().min(1, "Name is required"),
     username: text(60).min(3).regex(/^[a-z0-9._-]+$/i, "Letters, numbers, dot, dash or underscore"),
@@ -56,7 +62,10 @@ export const customerSchema = z.object({
   phone: optionalText(40),
   email: optionalText(120),
   trn: optionalText(20),
-  address: optionalText(500),
+  /** As printed; made from the parts when there are any. */
+  address: optionalText(1500),
+  /** Left out by an older screen. */
+  addressParts: addressPartsSchema.optional(),
   notes: optionalText(2000),
   nameAr: optionalText(200),
   addressAr: optionalText(500),
@@ -245,7 +254,10 @@ export const supplierSchema = z.object({
   trn: optionalText(20),
   phone: optionalText(40),
   email: optionalText(120),
-  address: optionalText(500),
+  /** As printed; made from the parts when there are any. */
+  address: optionalText(1500),
+  /** Left out by an older screen. */
+  addressParts: addressPartsSchema.optional(),
   notes: optionalText(2000),
 });
 export type SupplierInput = z.infer<typeof supplierSchema>;
