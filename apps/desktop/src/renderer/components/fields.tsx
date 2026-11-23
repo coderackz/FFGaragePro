@@ -149,9 +149,13 @@ export function PhoneField({ label, value, onChange, before, hint, className, di
     <FieldShell id={id} label={label} hint={hint} error={error} className={className}>
       <div className="flex gap-1.5">
         {!box.plain && (
-          <Select value={box.iso} disabled={disabled} onChange={(e) => say({ ...box, iso: e.target.value })} className="w-[92px]! shrink-0" aria-label="Country code">
-            {COUNTRIES.map((c) => <option key={c.iso} value={c.iso}>+{c.dial} {c.name}</option>)}
-          </Select>
+          // Closed it shows the code alone; the list names the countries.
+          <div className="relative w-[76px] shrink-0">
+            <Select value={box.iso} disabled={disabled} onChange={(e) => say({ ...box, iso: e.target.value })} className="text-transparent!" aria-label="Country code">
+              {COUNTRIES.map((c) => <option key={c.iso} value={c.iso} className="text-zinc-900">+{c.dial} {c.name}</option>)}
+            </Select>
+            <span aria-hidden className="pointer-events-none absolute inset-y-0 left-2.5 flex items-center text-sm text-zinc-900 tabular">+{COUNTRIES.find((c) => c.iso === box.iso)!.dial}</span>
+          </div>
         )}
         <Input id={id} inputMode="tel" value={box.text} disabled={disabled} onChange={(e) => type(e.target.value)} onBlur={leave} aria-invalid={error ? true : undefined}
           placeholder={box.iso === "AE" && !box.plain ? "50 123 4567" : undefined} {...rest} />

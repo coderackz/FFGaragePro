@@ -12,6 +12,13 @@ invoice with 5% UAE VAT, tax invoice issuing, payments, print / PDF.
   (plate, VIN, odometer) and auto-save (no Save button; new documents are numbered once they have a customer and a
   titled line; unsaved changes are kept on the PC; a save over another computer's newer change is refused).
   Migrations 25 and 26: update the cloud before PCs.
+- **Form fields (2026-11-24):** addresses in parts (unit, building, street, area, emirate, PO box; a country for
+  suppliers) beside `address`, the printed text made from them — an older record's text shows in Street and isn't
+  touched until a part changes; the garage's emirate is the one in its settings (VAT box 1). Every password can be
+  shown, and a new user's is typed twice. Phones (kept as +971 50 123 4567, found however they're typed), plates (kept
+  as DXB K 48213; "Other" as typed), email, TRN, IBAN, year, odometer and Emirates ID are checked in the forms — a value
+  that was already wrong never blocks a save until it's changed; a short VIN is only noted.
+  Migration 27: update the cloud before PCs.
 
 **Main-computer mode:** several PCs share one garage. The owner turns on sharing in Settings → Other PCs
 (TCP 47820, discovery on UDP 47821) and gives each new PC a 10-minute pairing code; other PCs choose
@@ -49,6 +56,7 @@ and margin (Owner and Accountant only). Parts list import from CSV.
     npm run e2e:tracked                             # tyre by DOT received → kit → job card picks oldest DOTs + kit → battery found by serial
     npm run e2e:planning                            # suggested order → draft PO → min/max accepted → ABC, dead stock, valuation
     npm run e2e:returns                             # delivery with cores → parts returned → cores returned/written off → battery claim replaced
+    npm run e2e:fields                              # show a password → phones, plates, TRN checked → addresses in parts → old records untouched
 
 **Fleetfix Cloud — Stage 1 (browser app, development):** `apps/cloud` hosts every garage, each on its own
 SQLite file, running the same garage server; the browser app is the same screens. Fleet Fix staff create a

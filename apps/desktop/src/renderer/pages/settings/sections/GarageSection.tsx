@@ -1,7 +1,7 @@
 import { useEffect, useState } from "react";
 import { toast } from "sonner";
 import { checkEmail, checkIban, checkPhone, checkTrn, EMPTY_ADDRESS, type AddressParts } from "@ffgp/shared";
-import { Card, Field, Input, Select, Textarea } from "../../../components/ui";
+import { Card, Field, Input, Textarea } from "../../../components/ui";
 import { AddressFields, EmailField, firstProblem, IbanField, PhoneField, TrnField } from "../../../components/fields";
 import { patch } from "../../../lib/api";
 import { useAuth } from "../../../lib/auth";
@@ -30,12 +30,11 @@ export function GarageSection() {
     if (!profile.name.trim()) return void toast.error("Garage name is required");
     setBusy(true);
     try {
-      if (profileDirty) {
-        await patch("/api/settings", { ...profile, trn });
-        await refreshGarage();
-      }
-      if (extra.dirty && !(await extra.save())) return;
-      if (profileDirty && !extra.dirty) toast.success("Saved");
+      if (profileDirty) await patch("/api/settings", { ...profile, trn });
+      // Re-read once, at the end: in between it would put back what isn't saved yet.
+      if (extra.dirty) return void (await extra.save());
+      await refreshGarage();
+      toast.success("Saved");
     } catch (err) {
       toast.error((err as Error).message);
     } finally {

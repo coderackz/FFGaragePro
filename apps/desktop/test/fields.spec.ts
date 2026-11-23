@@ -194,9 +194,26 @@ test.describe.serial("form fields", () => {
     await expect(page.getByText("Saved")).toBeVisible();
     await expect.poll(async () => (await api("get", "/api/settings")).garage.address).toBe("Warehouse 12\nStreet 6, Al Quoz Industrial 3\nSharjah, PO Box 1234");
     expect((await api("get", "/api/settings")).settings.garage.emirate).toBe("sharjah");
+    await expect(page.getByRole("button", { name: "Save", exact: true })).toBeDisabled(); // the screen has caught up
     await page.getByLabel("Emirate").selectOption("dubai");
     await page.getByRole("button", { name: "Save", exact: true }).click();
     await expect.poll(async () => (await api("get", "/api/settings")).garage.address).toBe("Warehouse 12\nStreet 6, Al Quoz Industrial 3\nDubai, PO Box 1234");
+  });
+
+  test("garage details: a save that fails halfway keeps what was typed", async ({ page, request }) => {
+    const api = await owner(page, request);
+    await page.goto("/#/settings/garage");
+    await page.route("**/api/settings/garage", (r) => (r.request().method() === "PUT" ? r.abort() : r.continue()));
+    await page.getByLabel("Building").fill("Block B");
+    await page.getByLabel("Emirate").selectOption("ajman");
+    await page.getByRole("button", { name: "Save", exact: true }).click();
+    await expect.poll(async () => (await api("get", "/api/settings")).garage.addressParts.building).toBe("Block B");
+    await page.waitForTimeout(800);
+    await expect(page.getByLabel("Emirate")).toHaveValue("ajman");
+    await expect(page.getByLabel("Building")).toHaveValue("Block B");
+    await page.unrouteAll({ behavior: "ignoreErrors" });
+    await page.getByRole("button", { name: "Save", exact: true }).click();
+    await expect.poll(async () => (await api("get", "/api/settings")).settings.garage.emirate).toBe("ajman");
   });
 
   test("a customer's address is saved in parts and printed", async ({ page, request }) => {
@@ -231,5 +248,55 @@ test.describe.serial("form fields", () => {
     await expect(page.getByText("Supplier saved")).toBeVisible();
     const s = (await api("get", "/api/suppliers")).suppliers.find((x: { name: string }) => x.name === "Muscat Parts");
     expect(s).toMatchObject({ address: "Al Noor\nOman", addressParts: { country: "Oman", emirate: null } });
+  });
+
+  test("an old customer with a bad TRN and an odd phone: changing the notes saves, and both stay", async ({ page, request }) => {
+    const api = await owner(page, request);
+    const { customer } = await api("post", "/api/customers", { kind: "company", name: "Old Record LLC", trn: "123", phone: "office 04", email: "old@office", address: "Villa 4\nAl Barsha" });
+    await page.goto(`/#/customers/${customer.id}`);
+    await page.getByRole("button", { name: "Edit" }).first().click();
+    const form = page.getByRole("dialog");
+    await expect(form.getByLabel("Street")).toHaveValue("Villa 4, Al Barsha");
+    await form.getByLabel("Customer TRN").focus();
+    await form.getByLabel("Email").focus();
+    await form.getByLabel("Notes").fill("Pays monthly");
+    await expect(form.getByRole("alert")).toHaveCount(0);
+    await form.getByRole("button", { name: "Save customer" }).click();
+    await expect(page.getByText("Customer updated")).toBeVisible();
+    expect((await api("get", `/api/customers/${customer.id}`)).customer).toMatchObject({ trn: "123", phone: "office 04", email: "old@office", address: "Villa 4\nAl Barsha", notes: "Pays monthly" });
+  });
+
+  test("screens", async ({ page, request, browser }) => {
+    const api = await owner(page, request);
+    const { customer } = await api("post", "/api/customers", { kind: "company", name: "Emirates Logistics LLC", trn: "100987654300003", phone: "+971 50 123 4567", addressParts: { unit: "Office 12", building: "Al Noor Tower", street: "Street 6", area: "Al Quoz 3", emirate: "dubai", poBox: "1234", country: null } });
+    for (const width of [1440, 1024]) {
+      await page.setViewportSize({ width, height: 900 });
+      const shot = async (name: string) => page.screenshot({ path: `test-results/screens/fields-${name}-${width}.png`, fullPage: true });
+      await page.goto("/#/settings/garage");
+      await expect(page.getByLabel("Street")).toBeVisible();
+      await shot("garage");
+      await page.goto(`/#/customers/${customer.id}`);
+      await page.getByRole("button", { name: "Edit" }).first().click();
+      await shot("customer");
+      await page.getByRole("button", { name: "Cancel" }).click();
+      await page.getByRole("button", { name: "Add vehicle" }).click();
+      await shot("vehicle");
+      await page.getByRole("button", { name: "Cancel" }).click();
+      await page.goto("/#/suppliers");
+      await page.getByRole("button", { name: "New supplier" }).click();
+      await shot("supplier");
+      await page.getByRole("button", { name: "Cancel" }).click();
+      await page.goto("/#/settings/users");
+      await page.getByRole("button", { name: "Add user" }).click();
+      await shot("user");
+      await page.getByRole("button", { name: "Cancel" }).click();
+      // Setup, as a first run sees it.
+      const first = await browser.newPage({ viewport: { width, height: 900 }, colorScheme: "light" });
+      await first.route("**/api/setup/status", (r) => r.fulfill({ json: { configured: false }, headers: { "access-control-allow-origin": "*" } }));
+      await first.goto("/");
+      await expect(first.getByRole("heading", { name: "Set up your garage" })).toBeVisible();
+      await first.screenshot({ path: `test-results/screens/fields-setup-${width}.png`, fullPage: true });
+      await first.close();
+    }
   });
 });

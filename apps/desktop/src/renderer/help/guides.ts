@@ -5,7 +5,7 @@ export const GUIDES: Guide[] = [
   {
     slug: "getting-started", title: "Getting started", area: "Setup",
     body: `## First steps
-- Settings → Garage details: name, TRN, address, emirate, bank details and logo (they print on every document).
+- Settings → Garage details: name, TRN, address, bank details and logo (they print on every document). The emirate in the address is also your emirate on the VAT return.
 - Settings → Users: add your accountant and service advisors. Owners see everything; advisors never see costs, books or salaries.
 - Settings → Tax: whether your prices include VAT, and your VAT return period.
 - Settings → Books: the day your books start. Then Books → Opening balances.
