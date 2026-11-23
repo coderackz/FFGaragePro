@@ -85,17 +85,15 @@ export function DiscountRow({ doc, editable, baseFils, limitPct, busy, onApply, 
   return (
     <div className="flex flex-col gap-0.5 text-sm" data-testid="discount-row">
       <div className="flex items-baseline justify-between gap-3">
-        <dt className="min-w-0 text-zinc-600">
-          {label}
-          {editable && (
-            <>
-              <button type="button" className="ml-2 text-xs text-zinc-500 underline hover:text-zinc-800" onClick={start}>Change</button>
-              <button type="button" className="ml-2 text-xs text-zinc-500 underline hover:text-zinc-800 disabled:opacity-50" disabled={busy} onClick={onRemove}>Remove</button>
-            </>
-          )}
-        </dt>
+        <dt className="min-w-0 text-zinc-600">{label}</dt>
         <dd className="whitespace-nowrap tabular">{discount.applied ? `−${formatAED(discount.discountFils)}` : "—"}</dd>
       </div>
+      {editable && (
+        <div className="flex gap-3 text-xs">
+          <button type="button" className="text-zinc-500 underline hover:text-zinc-800" onClick={start}>Change</button>
+          <button type="button" className="text-zinc-500 underline hover:text-zinc-800 disabled:opacity-50" disabled={busy} onClick={onRemove}>Remove</button>
+        </div>
+      )}
       {!discount.applied && <div className="text-xs text-amber-700">Not applied: this document has a promo code</div>}
       {discount.needsConfirmation && <div className="text-xs text-amber-700">Above the {limitPct}% limit now — confirm it with a remark</div>}
       {discount.confirmedBy && discount.remark && (

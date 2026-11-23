@@ -159,7 +159,8 @@ export function DocumentPage() {
     () => promo ?? (doc?.discount?.applied ? { kind: doc.discount.kind, value: doc.discount.value, appliesTo: "all" as const } : null),
     [promo, doc?.discount],
   );
-  const chargedLines = useMemo(() => draft.lines.map((l) => (l.suppliedBy === "fleetfix" ? { ...l, unitPriceFils: 0, discountPct: 0 } : l)), [draft.lines]);
+  // The lines before any promo or discount share (saved lines arrive with their share already in them).
+  const chargedLines = useMemo(() => draft.lines.map((l) => (l.suppliedBy === "fleetfix" ? { ...l, unitPriceFils: 0, discountPct: 0, promoFils: 0 } : { ...l, promoFils: 0 })), [draft.lines]);
   const promoLines = useMemo(() => {
     if (!shareTerms || type === "credit_note") return draft.lines;
     const { shares } = promoShares(chargedLines, shareTerms, includeVat);

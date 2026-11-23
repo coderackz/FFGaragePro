@@ -6,6 +6,12 @@ Windows desktop app; works with or without internet.
 **Project 1 — Workshop (milestone 1, done):** first-run garage setup, user logins with roles
 (Owner, Admin/Accountant, Service Advisor), customers and vehicles, estimate → job card →
 invoice with 5% UAE VAT, tax invoice issuing, payments, print / PDF.
+- **Document editor (2026-11-23):** numbered lines with a unit each (Pc, Box, Hr…), descriptions on labour and other
+  lines (printed under the title), an overall discount (% or AED, spread over the lines like a promo; above
+  Settings → Pricing's limit, 25% to start, it needs a tick and a remark, logged), a Progress card, a Vehicle card
+  (plate, VIN, odometer) and auto-save (no Save button; new documents are numbered once they have a customer and a
+  titled line; unsaved changes are kept on the PC; a save over another computer's newer change is refused).
+  Migration 25: update the cloud before PCs.
 
 **Main-computer mode:** several PCs share one garage. The owner turns on sharing in Settings → Other PCs
 (TCP 47820, discovery on UDP 47821) and gives each new PC a 10-minute pairing code; other PCs choose
