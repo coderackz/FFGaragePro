@@ -1,7 +1,8 @@
 import { useEffect, useState } from "react";
 import { toast } from "sonner";
-import { EMIRATES, EMIRATE_NAMES, type Emirate } from "@ffgp/shared";
+import { checkEmail, checkIban, checkPhone, checkTrn, EMIRATES, EMIRATE_NAMES, type Emirate } from "@ffgp/shared";
 import { Card, Field, Input, Select, Textarea } from "../../../components/ui";
+import { EmailField, firstProblem, IbanField, PhoneField, TrnField } from "../../../components/fields";
 import { patch } from "../../../lib/api";
 import { useAuth } from "../../../lib/auth";
 import { SectionShell } from "../SectionShell";
@@ -11,7 +12,7 @@ type Profile = { name: string; trn: string; address: string; phone: string; emai
 
 /** Garage details: the profile printed on every document, plus trade licence and bank details. */
 export function GarageSection() {
-  const { garage, refreshGarage } = useAuth();
+  const { garage, settings, refreshGarage } = useAuth();
   const extra = useSectionForm("garage");
   const fromGarage = (): Profile => ({ name: garage?.name ?? "", trn: garage?.trn ?? "", address: garage?.address ?? "", phone: garage?.phone ?? "", email: garage?.email ?? "" });
   const [profile, setProfile] = useState<Profile>(fromGarage);
@@ -21,7 +22,10 @@ export function GarageSection() {
 
   const save = async () => {
     const trn = profile.trn.replace(/\s/g, "");
-    if (trn && !/^\d{15}$/.test(trn)) return void toast.error("A UAE TRN has 15 digits");
+    const problem = firstProblem([
+      [garage?.trn, trn, checkTrn], [garage?.phone, profile.phone, checkPhone], [garage?.email, profile.email, checkEmail], [settings?.garage.iban, extra.value.iban, checkIban],
+    ]);
+    if (problem) return void toast.error(problem);
     if (!profile.name.trim()) return void toast.error("Garage name is required");
     setBusy(true);
     try {
@@ -38,6 +42,7 @@ export function GarageSection() {
     }
   };
   const f = (k: keyof Profile) => ({ value: profile[k], onChange: (e: { target: { value: string } }) => setProfile({ ...profile, [k]: e.target.value }) });
+  const box = (k: keyof Profile) => ({ value: profile[k], onChange: (v: string) => setProfile((x) => ({ ...x, [k]: v })) });
   const e = extra.value;
 
   return (
@@ -45,7 +50,7 @@ export function GarageSection() {
       <Card title="Profile">
         <div className="grid gap-4 sm:grid-cols-2">
           <Field label="Garage name" className="sm:col-span-2"><Input {...f("name")} /></Field>
-          <Field label="VAT TRN" hint="15 digits. Printed on tax invoices."><Input {...f("trn")} inputMode="numeric" /></Field>
+          <TrnField label="VAT TRN" hint="15 digits. Printed on tax invoices." before={garage?.trn} {...box("trn")} />
           <Field label="Trade licence no."><Input value={e.tradeLicence ?? ""} onChange={(ev) => extra.set({ tradeLicence: ev.target.value })} /></Field>
           <Field label="Emirate" hint="Where the garage is: its row in box 1 of the VAT return.">
             <Select value={e.emirate ?? ""} onChange={(ev) => extra.set({ emirate: (ev.target.value || null) as Emirate | null })} aria-label="Emirate">
@@ -53,8 +58,8 @@ export function GarageSection() {
               {EMIRATES.map((m) => <option key={m} value={m}>{EMIRATE_NAMES[m]}</option>)}
             </Select>
           </Field>
-          <Field label="Phone"><Input {...f("phone")} /></Field>
-          <Field label="Email"><Input {...f("email")} type="email" /></Field>
+          <PhoneField label="Phone" before={garage?.phone} {...box("phone")} />
+          <EmailField label="Email" before={garage?.email} {...box("email")} />
           <Field label="Address" className="sm:col-span-2"><Textarea {...f("address")} rows={3} /></Field>
         </div>
       </Card>
@@ -72,9 +77,7 @@ export function GarageSection() {
         <div className="grid gap-4 sm:grid-cols-2">
           <Field label="Bank"><Input value={e.bankName ?? ""} onChange={(ev) => extra.set({ bankName: ev.target.value })} placeholder="e.g. Emirates NBD" /></Field>
           <Field label="Account name"><Input value={e.accountName ?? ""} onChange={(ev) => extra.set({ accountName: ev.target.value })} /></Field>
-          <Field label="IBAN" hint="AE followed by 21 digits" className="sm:col-span-2">
-            <Input value={e.iban ?? ""} onChange={(ev) => extra.set({ iban: ev.target.value })} placeholder="AE07 0260 0010 1234 5678 901" autoCapitalize="characters" />
-          </Field>
+          <IbanField label="IBAN" hint="AE followed by 21 digits" className="sm:col-span-2" before={settings?.garage.iban} value={e.iban ?? ""} onChange={(v) => extra.set({ iban: v })} />
         </div>
       </Card>
     </SectionShell>

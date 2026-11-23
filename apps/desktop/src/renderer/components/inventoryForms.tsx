@@ -1,6 +1,6 @@
 import { useEffect, useState, type FormEvent } from "react";
 import { toast } from "sonner";
-import { ADJUSTMENT_REASONS, formatAED, roundFils } from "@ffgp/shared";
+import { ADJUSTMENT_REASONS, formatAED, roundFils, checkEmail, checkPhone, checkTrn } from "@ffgp/shared";
 import { patch, post } from "../lib/api";
 import { useAuth } from "../lib/auth";
 import type { Part, PartCategory, Supplier } from "../lib/types";
@@ -8,6 +8,7 @@ import { useApi } from "../lib/useApi";
 import { AttributeFields, FitmentRows, NumberRows, PackRows, type Fitments, type Numbers, type Packs } from "./catalogueFields";
 import { TrackingFields, UnitChooser, UnitCodesInput, splitCodes, type KitRow, type Tracking } from "./trackedFields";
 import { Button, Field, Input, Modal, MoneyInput, NumberInput, Select, Textarea } from "./ui";
+import { EmailField, firstProblem, PhoneField, TrnField } from "./fields";
 
 const emptyPart = {
   partNo: "", name: "", nameAr: "", brand: "", unit: "each", stocked: true, sellPriceFils: 0, reorderLevel: 0, location: "", fits: "", active: true,
@@ -233,6 +234,8 @@ export function SupplierFormModal({ open, supplier, onClose, onSaved }: { open: 
 
   const submit = async (e: FormEvent) => {
     e.preventDefault();
+    const problem = firstProblem([[supplier?.phone, form.phone, checkPhone], [supplier?.email, form.email, checkEmail], [supplier?.trn, form.trn, checkTrn]]);
+    if (problem) return void toast.error(problem);
     setBusy(true);
     try {
       const { termsDays, opening, openingDate, ...rest } = form;
@@ -256,9 +259,9 @@ export function SupplierFormModal({ open, supplier, onClose, onSaved }: { open: 
       footer={<><Button onClick={onClose}>Cancel</Button><Button variant="primary" type="submit" form="supplier-form" busy={busy}>Save</Button></>}>
       <form id="supplier-form" onSubmit={submit} className="grid grid-cols-2 gap-3">
         <Field label="Name" className="col-span-2"><Input value={form.name} onChange={(e) => set("name", e.target.value)} required autoFocus disabled={supplier?.isFleetfix} /></Field>
-        <Field label="Phone"><Input value={form.phone} onChange={(e) => set("phone", e.target.value)} /></Field>
-        <Field label="TRN"><Input value={form.trn} onChange={(e) => set("trn", e.target.value)} /></Field>
-        <Field label="Email" className="col-span-2"><Input value={form.email} onChange={(e) => set("email", e.target.value)} /></Field>
+        <PhoneField label="Phone" before={supplier?.phone} value={form.phone} onChange={(v) => set("phone", v)} />
+        <TrnField label="TRN" before={supplier?.trn} value={form.trn} onChange={(v) => set("trn", v)} />
+        <EmailField label="Email" className="col-span-2" before={supplier?.email} value={form.email} onChange={(v) => set("email", v)} />
         <Field label="Address" className="col-span-2"><Textarea value={form.address} onChange={(e) => set("address", e.target.value)} className="min-h-14" /></Field>
         <Field label="Notes" className="col-span-2"><Textarea value={form.notes} onChange={(e) => set("notes", e.target.value)} className="min-h-14" /></Field>
         <Field label="Payment terms (days)" hint="Their bills are due this long after the invoice date"><Input inputMode="numeric" value={form.termsDays} onChange={(e) => set("termsDays", e.target.value)} /></Field>

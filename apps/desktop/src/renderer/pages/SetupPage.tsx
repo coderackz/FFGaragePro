@@ -1,8 +1,9 @@
+import { checkEmail, checkPhone, checkTrn } from "@ffgp/shared";
 import { useState, type FormEvent } from "react";
 import { AuthShell } from "../components/AuthShell";
 import { CloudConnectDialog } from "../components/CloudConnectDialog";
 import { Button, Field, Input, Textarea } from "../components/ui";
-import { PasswordField, passwordsMatch } from "../components/fields";
+import { EmailField, firstProblem, PasswordField, passwordsMatch, PhoneField, TrnField } from "../components/fields";
 import { getGarageCode, isCloud } from "../lib/api";
 import { useAuth } from "../lib/auth";
 
@@ -18,7 +19,8 @@ export function SetupPage() {
   const submit = async (e: FormEvent) => {
     e.preventDefault();
     if (owner.password !== owner.confirm) return setError("The passwords don't match");
-    if (garage.trn && !/^\d{15}$/.test(garage.trn.replace(/\s/g, ""))) return setError("A UAE TRN has 15 digits");
+    const problem = firstProblem([["", garage.trn, checkTrn], ["", garage.phone, checkPhone], ["", garage.email, checkEmail]]);
+    if (problem) return setError(problem);
     setBusy(true);
     setError(null);
     try {
@@ -33,6 +35,7 @@ export function SetupPage() {
   };
 
   const g = (k: keyof typeof garage) => ({ value: garage[k], onChange: (e: { target: { value: string } }) => setGarage({ ...garage, [k]: e.target.value }) });
+  const box = (k: keyof typeof garage) => ({ value: garage[k], onChange: (v: string) => setGarage((x) => ({ ...x, [k]: v })) });
   const o = (k: keyof typeof owner) => ({ value: owner[k], onChange: (e: { target: { value: string } }) => setOwner({ ...owner, [k]: e.target.value }) });
 
   return (
@@ -75,15 +78,9 @@ export function SetupPage() {
           <Field label="Garage name" className="col-span-2">
             <Input {...g("name")} autoFocus required placeholder="e.g. Al Quoz Auto Care" />
           </Field>
-          <Field label="VAT TRN" hint="15 digits. Leave blank if not VAT registered.">
-            <Input {...g("trn")} inputMode="numeric" placeholder="100XXXXXXXXXXX3" />
-          </Field>
-          <Field label="Phone">
-            <Input {...g("phone")} placeholder="+971 4 …" />
-          </Field>
-          <Field label="Email" className="col-span-2">
-            <Input {...g("email")} type="email" />
-          </Field>
+          <TrnField label="VAT TRN" hint="15 digits. Leave blank if not VAT registered." {...box("trn")} placeholder="100XXXXXXXXXXX3" />
+          <PhoneField label="Phone" {...box("phone")} />
+          <EmailField label="Email" className="col-span-2" {...box("email")} />
           <Field label="Address" className="col-span-2">
             <Textarea {...g("address")} rows={2} className="min-h-0" />
           </Field>

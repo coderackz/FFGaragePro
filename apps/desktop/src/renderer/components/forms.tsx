@@ -1,11 +1,12 @@
 import { useEffect, useState, type FormEvent } from "react";
 import { toast } from "sonner";
-import { filsToInput, parseAED } from "@ffgp/shared";
+import { checkEmail, checkOdometer, checkPhone, checkPlate, checkTrn, checkYear, filsToInput, parseAED } from "@ffgp/shared";
 import { patch, post } from "../lib/api";
 import { useAuth } from "../lib/auth";
 import type { Customer, Vehicle } from "../lib/types";
 import { CustomerPicker } from "./CustomerPicker";
 import { Button, Field, Input, Modal, MoneyInput, Select, Textarea } from "./ui";
+import { EmailField, firstProblem, OdometerField, PhoneField, PlateField, TrnField, VinField, YearField } from "./fields";
 
 const emptyCustomer = {
   kind: "individual" as Customer["kind"], name: "", phone: "", email: "", trn: "", address: "", notes: "",
@@ -40,6 +41,10 @@ export function CustomerFormModal({ open, customer, initialName, onClose, onSave
     e.preventDefault();
     const opening = credit.openingBalance.trim() ? parseAED(credit.openingBalance) : 0;
     if (opening === null) return void toast.error("The opening balance isn't a number");
+    const problem = firstProblem([
+      [customer?.phone, form.phone, checkPhone], [customer?.email, form.email, checkEmail], [customer?.trn, form.kind === "company" ? form.trn : customer?.trn, checkTrn],
+    ]);
+    if (problem) return void toast.error(problem);
     const body = canCredit
       ? {
           ...form, creditAllowed: credit.creditAllowed, creditLimitFils: credit.creditLimitFils,
@@ -60,6 +65,7 @@ export function CustomerFormModal({ open, customer, initialName, onClose, onSave
     }
   };
   const f = (k: keyof typeof form) => ({ value: form[k], onChange: (e: { target: { value: string } }) => setForm({ ...form, [k]: e.target.value }) });
+  const box = (k: "phone" | "email" | "trn") => ({ value: form[k], onChange: (v: string) => setForm((x) => ({ ...x, [k]: v })) });
 
   return (
     <Modal
@@ -83,16 +89,10 @@ export function CustomerFormModal({ open, customer, initialName, onClose, onSave
         <Field label={form.kind === "company" ? "Company name" : "Full name"}>
           <Input {...f("name")} required autoFocus />
         </Field>
-        <Field label="Mobile / phone">
-          <Input {...f("phone")} placeholder="05X XXX XXXX" />
-        </Field>
-        <Field label="Email">
-          <Input {...f("email")} type="email" />
-        </Field>
+        <PhoneField label="Mobile / phone" before={customer?.phone} {...box("phone")} />
+        <EmailField label="Email" before={customer?.email} {...box("email")} />
         {form.kind === "company" && (
-          <Field label="Customer TRN" hint="Shown on tax invoices." className="col-span-2">
-            <Input {...f("trn")} inputMode="numeric" />
-          </Field>
+          <TrnField label="Customer TRN" hint="Shown on tax invoices." className="col-span-2" before={customer?.trn} {...box("trn")} />
         )}
         <Field label="Address" className="col-span-2">
           <Textarea {...f("address")} rows={2} className="min-h-0" />
@@ -156,6 +156,7 @@ export function CustomerFormModal({ open, customer, initialName, onClose, onSave
 const emptyVehicle = { plate: "", make: "", model: "", year: "", vin: "", engine: "", colour: "", odometer: "" };
 
 export function VehicleFormModal({ open, vehicle, customerId, onClose, onSaved }: { open: boolean; vehicle?: Vehicle | null; customerId?: string; onClose: () => void; onSaved: (v: Vehicle) => void }) {
+  const { settings } = useAuth();
   const [form, setForm] = useState(emptyVehicle);
   const [owner, setOwner] = useState<{ id: string; name: string } | null>(null);
   const [busy, setBusy] = useState(false);
@@ -169,6 +170,10 @@ export function VehicleFormModal({ open, vehicle, customerId, onClose, onSaved }
   const submit = async (e: FormEvent) => {
     e.preventDefault();
     if (!ownerId) return toast.error("Choose the customer this vehicle belongs to");
+    const problem = firstProblem([
+      [vehicle?.plate, form.plate, checkPlate], [vehicle?.year?.toString(), form.year, checkYear], [vehicle?.odometer?.toString(), form.odometer, checkOdometer],
+    ]);
+    if (problem) return void toast.error(problem);
     const toInt = (s: string) => (s.trim() === "" ? null : Number.parseInt(s.replace(/[,\s]/g, ""), 10));
     const body = { customerId: ownerId, plate: form.plate, make: form.make, model: form.model, year: toInt(form.year), vin: form.vin, engine: form.engine, colour: form.colour, odometer: toInt(form.odometer) };
     setBusy(true);
@@ -184,6 +189,7 @@ export function VehicleFormModal({ open, vehicle, customerId, onClose, onSaved }
     }
   };
   const f = (k: keyof typeof form) => ({ value: form[k], onChange: (e: { target: { value: string } }) => setForm({ ...form, [k]: e.target.value }) });
+  const box = (k: keyof typeof form) => ({ value: form[k], onChange: (v: string) => setForm((x) => ({ ...x, [k]: v })) });
 
   return (
     <Modal
@@ -203,30 +209,22 @@ export function VehicleFormModal({ open, vehicle, customerId, onClose, onSaved }
             <CustomerPicker value={owner} onChange={setOwner} />
           </Field>
         )}
-        <Field label="Plate number" hint="e.g. DXB A 12345">
-          <Input {...f("plate")} required autoFocus className="uppercase" />
-        </Field>
-        <Field label="Odometer (km)">
-          <Input {...f("odometer")} inputMode="numeric" />
-        </Field>
+        <PlateField label="Plate number" className="col-span-2" before={vehicle?.plate} {...box("plate")} required autoFocus defaultEmirate={settings?.garage.emirate} />
+        <OdometerField label="Odometer (km)" before={vehicle?.odometer?.toString()} {...box("odometer")} />
         <Field label="Make">
           <Input {...f("make")} placeholder="Toyota" />
         </Field>
         <Field label="Model">
           <Input {...f("model")} placeholder="Land Cruiser" />
         </Field>
-        <Field label="Year">
-          <Input {...f("year")} inputMode="numeric" />
-        </Field>
+        <YearField label="Year" before={vehicle?.year?.toString()} {...box("year")} />
         <Field label="Colour">
           <Input {...f("colour")} />
         </Field>
         <Field label="Engine" hint="e.g. 1GR-FE or 2.7L: parts that fit it are offered first">
           <Input {...f("engine")} aria-label="Engine" />
         </Field>
-        <Field label="VIN / chassis number" className="col-span-2">
-          <Input {...f("vin")} className="uppercase" />
-        </Field>
+        <VinField label="VIN / chassis number" className="col-span-2" {...box("vin")} />
       </form>
     </Modal>
   );

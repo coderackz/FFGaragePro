@@ -9,6 +9,7 @@ import { CustomerPicker } from "../components/CustomerPicker";
 import { CustomerFormModal } from "../components/forms";
 import { RequestPartDialog } from "../components/RequestPartDialog";
 import { Badge, Button, Card, Empty, Field, Input, Modal, MoneyInput, PageHeader, Select, Spinner, StatusBadge, Textarea } from "../components/ui";
+import { OdometerField, PhoneField } from "../components/fields";
 import { del, get, patch, post, put } from "../lib/api";
 import { useAuth } from "../lib/auth";
 import { PAYMENT_LABELS, formatAED, formatDate, formatDateTime } from "../lib/format";
@@ -572,25 +573,17 @@ function DocumentScreen() {
                   {vehicles.map((v) => <option key={v.id} value={v.id}>{v.plate} — {[v.make, v.model].filter(Boolean).join(" ")}</option>)}
                 </Select>
               </Field>
-              <Field label="Odometer (km)">
-                <Input
-                  inputMode="numeric"
-                  disabled={!editable}
-                  value={draft.odometer?.toString() ?? ""}
-                  onChange={(e) => {
-                    const n = Number.parseInt(e.target.value.replace(/[,\s]/g, ""), 10);
-                    update({ odometer: Number.isFinite(n) ? n : null });
-                  }}
-                />
-              </Field>
+              <OdometerField label="Odometer (km)" disabled={!editable} value={draft.odometer?.toString() ?? ""}
+                onChange={(v) => {
+                  const n = Number.parseInt(v.replace(/[,\s]/g, ""), 10);
+                  update({ odometer: Number.isFinite(n) ? n : null });
+                }} />
               {type === "jobcard" && (
                 <>
                   <Field label="Driver name" hint="Gets the vehicle received / ready messages">
                     <Input value={draft.driverName} disabled={!editable} onChange={(e) => update({ driverName: e.target.value })} aria-label="Driver name" />
                   </Field>
-                  <Field label="Driver phone">
-                    <Input value={draft.driverPhone} disabled={!editable} onChange={(e) => update({ driverPhone: e.target.value })} aria-label="Driver phone" placeholder="050 123 4567" />
-                  </Field>
+                  <PhoneField label="Driver phone" before={doc?.driverPhone} value={draft.driverPhone} disabled={!editable} onChange={(v) => update({ driverPhone: v })} />
                 </>
               )}
               {isInvoice && (doc || isNew) && (

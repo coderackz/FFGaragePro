@@ -1,6 +1,8 @@
+import { checkEmail, checkEmiratesId, checkIban, checkPhone } from "@ffgp/shared";
 import { useEffect, useState } from "react";
 import { toast } from "sonner";
 import { Button, Field, Input, Modal, MoneyInput, Select } from "../../components/ui";
+import { EmailField, EmiratesIdField, firstProblem, IbanField, PhoneField } from "../../components/fields";
 import { patch, post } from "../../lib/api";
 import type { Employee } from "./types";
 
@@ -23,7 +25,12 @@ export function EmployeeForm({ open, employee, onClose, onSaved }: { open: boole
   const text = (key: keyof Draft, label: string, extra: Record<string, unknown> = {}) => (
     <Field label={label}><Input value={(d[key] as string | null) ?? ""} onChange={(e) => set({ [key]: e.target.value || null } as Partial<Draft>)} aria-label={label} {...extra} /></Field>
   );
+  const box = (key: "iban" | "emiratesId" | "phone" | "email") => ({ before: employee?.[key], value: d[key] ?? "", onChange: (v: string) => set({ [key]: v || null }) });
   const save = async () => {
+    const problem = firstProblem([
+      [employee?.iban, d.iban, checkIban], [employee?.emiratesId, d.emiratesId, checkEmiratesId], [employee?.phone, d.phone, checkPhone], [employee?.email, d.email, checkEmail],
+    ]);
+    if (problem) return void toast.error(problem);
     setBusy(true);
     try {
       const body = { ...d, iban: d.iban?.replace(/\s/g, "") || null };
@@ -58,7 +65,7 @@ export function EmployeeForm({ open, employee, onClose, onSaved }: { open: boole
             <option value="bank">Bank account</option><option value="salary_card">Salary card</option>
           </Select>
         </Field>
-        {d.payMethod === "bank" ? text("iban", "IBAN") : text("cardNumber", "Salary card number")}
+        {d.payMethod === "bank" ? <IbanField label="IBAN" {...box("iban")} /> : text("cardNumber", "Salary card number")}
         {text("routingCode", "Bank routing code", { inputMode: "numeric" })}
         {text("personId", "MOHRE person ID", { inputMode: "numeric" })}
       </div>
@@ -66,7 +73,7 @@ export function EmployeeForm({ open, employee, onClose, onSaved }: { open: boole
       <div className="grid grid-cols-4 gap-3 max-md:grid-cols-2">
         {DOCS.map(([key, label]) => (
           <div key={key} className="contents">
-            {text(key, `${label} number`)}
+            {key === "emiratesId" ? <EmiratesIdField label={`${label} number`} {...box(key)} /> : text(key, `${label} number`)}
             <Field label={`${label} expires`}>
               <Input type="date" value={(d[`${key}Expiry`] as string | null) ?? ""} onChange={(e) => set({ [`${key}Expiry`]: e.target.value || null } as Partial<Draft>)} aria-label={`${label} expires`} />
             </Field>
@@ -86,8 +93,8 @@ export function EmployeeForm({ open, employee, onClose, onSaved }: { open: boole
             <option value="en">English</option><option value="en_ar">English + Arabic</option>
           </Select>
         </Field>
-        {text("phone", "Phone")}
-        {text("email", "Email")}
+        <PhoneField label="Phone" {...box("phone")} />
+        <EmailField label="Email" {...box("email")} />
       </div>
     </Modal>
   );

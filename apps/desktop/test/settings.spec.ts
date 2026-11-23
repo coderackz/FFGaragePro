@@ -43,7 +43,7 @@ test.describe.serial("settings", () => {
     await page.getByTestId("tile-garage").click();
     await page.getByLabel("Bank").fill("Emirates NBD");
     await page.getByLabel("Account name").fill("Al Quoz Auto Care LLC");
-    await page.getByLabel("IBAN").fill("ae07 0260 0010 1234 5678 901");
+    await page.getByLabel("IBAN").fill("ae07 0331 2345 6789 0123 456");
     await save(page);
     await page.getByRole("link", { name: "All settings" }).click();
     await expect(page.getByTestId("tile-garage")).toContainText("Complete");

@@ -1,4 +1,4 @@
-import type { ContactInput } from "@ffgp/shared";
+import { checkEmail, checkPhone, type ContactInput } from "@ffgp/shared";
 import { Plus, Users } from "lucide-react";
 import { useEffect, useState } from "react";
 import { toast } from "sonner";
@@ -7,6 +7,7 @@ import { formatDate } from "../lib/format";
 import type { Contact } from "../lib/types";
 import { useApi } from "../lib/useApi";
 import { Button, Empty, Field, Input, Modal, Select, Table } from "./ui";
+import { EmailField, firstProblem, PhoneField } from "./fields";
 
 const GETS: { key: "getsApprovals" | "getsInvoices" | "getsReady" | "getsStatements"; label: string; short: string }[] = [
   { key: "getsApprovals", label: "Approvals (estimates)", short: "Approvals" },
@@ -80,7 +81,11 @@ function ContactModal({ customerId, contact, open, onClose, onSaved }: {
       setBusy(false);
     }
   };
-  const save = () => run(() => (contact ? patch(`/api/contacts/${contact.id}`, v) : post(`/api/customers/${customerId}/contacts`, v)), "Contact saved");
+  const save = () => {
+    const problem = firstProblem([[contact?.phone, v.phone, checkPhone], [contact?.email, v.email, checkEmail]]);
+    if (problem) return void toast.error(problem);
+    return run(() => (contact ? patch(`/api/contacts/${contact.id}`, v) : post(`/api/customers/${customerId}/contacts`, v)), "Contact saved");
+  };
   const remove = () => {
     if (contact && window.confirm(`Remove ${contact.name}?`)) void run(() => del(`/api/contacts/${contact.id}`), "Contact removed");
   };
@@ -96,8 +101,8 @@ function ContactModal({ customerId, contact, open, onClose, onSaved }: {
       }>
       <div className="grid grid-cols-2 gap-4">
         <Field label="Name" className="col-span-2"><Input value={v.name} onChange={(e) => set({ name: e.target.value })} aria-label="Name" autoFocus /></Field>
-        <Field label="Phone" hint="WhatsApp number, e.g. 050 123 4567"><Input value={v.phone ?? ""} onChange={(e) => set({ phone: e.target.value || null })} aria-label="Phone" /></Field>
-        <Field label="Email"><Input type="email" value={v.email ?? ""} onChange={(e) => set({ email: e.target.value || null })} aria-label="Email" /></Field>
+        <PhoneField label="Phone" hint="WhatsApp number, e.g. 050 123 4567" before={contact?.phone} value={v.phone ?? ""} onChange={(x) => set({ phone: x || null })} />
+        <EmailField label="Email" before={contact?.email} value={v.email ?? ""} onChange={(x) => set({ email: x || null })} />
         <Field label="Message language">
           <Select value={v.language} onChange={(e) => set({ language: e.target.value as ContactInput["language"] })} aria-label="Message language">
             <option value="en">English</option>

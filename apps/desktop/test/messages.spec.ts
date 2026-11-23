@@ -106,7 +106,7 @@ test.describe.serial("messages", () => {
     await page.getByLabel("Driver phone").fill("050 123 4567");
     await waitSaved(page);
     const saved = (await (await request.get(`${API}/api/documents/${jc.id}`, { headers })).json()).document;
-    expect(saved).toMatchObject({ driverName: "Ali", driverPhone: "050 123 4567" });
+    expect(saved).toMatchObject({ driverName: "Ali", driverPhone: "+971 50 123 4567" });
   });
 
   /** Signs in and returns API headers. */

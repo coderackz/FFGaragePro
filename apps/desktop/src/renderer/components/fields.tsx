@@ -1,6 +1,10 @@
+import {
+  changedProblem, checkEmail, checkEmiratesId, checkIban, checkOdometer, checkPhone, checkPlate, checkTrn, checkYear, COUNTRIES, EMIRATE_NAMES, formatEmiratesId, formatIban, formatPhone,
+  formatPlate, formatTrn, nationalText, parsePhone, parsePlate, PLATE_EMIRATES, vinNote, type Emirate,
+} from "@ffgp/shared";
 import clsx from "clsx";
 import { useEffect, useId, useRef, useState, type InputHTMLAttributes, type ReactNode } from "react";
-import { Input } from "./ui";
+import { Input, Select } from "./ui";
 
 // Boxes for what they hold. Each has its label tied to its main box only, so side boxes and buttons keep their own names.
 
@@ -45,3 +49,153 @@ export function PasswordField({ label, hint, error, note, className, hideLabel, 
 /** Beside the second box of a new password: whether it's the same as the first. */
 export const passwordsMatch = (password: string, confirm: string): { error?: string; note?: string } =>
   !confirm ? {} : password === confirm ? { note: "Passwords match" } : { error: "The passwords don't match" };
+
+type Check = (v: string) => string | null;
+
+/** The first thing wrong with what's about to be saved; a value that was already there and wrong is left alone. */
+export function firstProblem(list: [before: string | null | undefined, now: string | null | undefined, check: Check][]): string | null {
+  for (const [before, now, check] of list) {
+    const problem = changedProblem(before, now, check);
+    if (problem) return problem;
+  }
+  return null;
+}
+
+interface BoxProps {
+  label: string; value: string; onChange: (v: string) => void;
+  /** What's stored now: not complained about until it's changed. */
+  before?: string | null;
+  hint?: string; disabled?: boolean; required?: boolean; autoFocus?: boolean; placeholder?: string; className?: string;
+}
+
+/** What's wrong, said once the box is left (and then kept up to date while it's put right). */
+function useProblem(before: string | null | undefined, value: string, check: Check) {
+  const [left, setLeft] = useState(false);
+  return { error: left ? changedProblem(before, value, check) : null, onLeave: () => setLeft(true) };
+}
+
+/** One box with a check: shown grouped while it isn't being typed in. */
+function CheckedField({ label, value, onChange, before, hint, className, check, shown, clean = (v) => v, note, ...rest }: BoxProps & {
+  check: Check; shown?: (v: string) => string; clean?: (v: string) => string; note?: (v: string) => string | null;
+} & Pick<InputHTMLAttributes<HTMLInputElement>, "inputMode" | "autoComplete" | "maxLength" | "spellCheck">) {
+  const id = useId();
+  const [focused, setFocused] = useState(false);
+  const { error, onLeave } = useProblem(before, value, check);
+  return (
+    <FieldShell id={id} label={label} hint={hint} error={error} note={note?.(value)} className={className}>
+      <Input id={id} value={focused || !shown ? value : shown(value)} onChange={(e) => onChange(clean(e.target.value))} aria-invalid={error ? true : undefined}
+        onFocus={() => setFocused(true)} onBlur={() => { setFocused(false); onLeave(); }} {...rest} />
+    </FieldShell>
+  );
+}
+
+const noSpaces = (v: string) => v.replace(/\s/g, "");
+
+// A plain text box: the browser's own email check would refuse an old record that nobody touched.
+export const EmailField = (p: BoxProps) => <CheckedField {...p} check={checkEmail} inputMode="email" spellCheck={false} autoComplete="off" />;
+export const TrnField = (p: BoxProps) => (
+  <CheckedField {...p} check={checkTrn} clean={noSpaces} shown={(v) => (checkTrn(v) ? v : formatTrn(v))} inputMode="numeric"
+    note={(v) => (/^\d{1,14}$/.test(v) && v !== p.before ? `${v.length} of 15 digits` : null)} />
+);
+export const IbanField = (p: BoxProps) => (
+  <CheckedField {...p} check={checkIban} shown={(v) => (checkIban(v) ? v : formatIban(v))} spellCheck={false} placeholder={p.placeholder ?? "AE07 0331 2345 6789 0123 456"} />
+);
+export const VinField = (p: BoxProps) => <CheckedField {...p} check={() => null} clean={(v) => v.toUpperCase()} note={vinNote} spellCheck={false} />;
+export const YearField = (p: BoxProps) => <CheckedField {...p} check={checkYear} inputMode="numeric" maxLength={4} />;
+export const OdometerField = (p: BoxProps) => <CheckedField {...p} check={checkOdometer} inputMode="numeric" />;
+export const EmiratesIdField = (p: BoxProps) => (
+  <CheckedField {...p} check={checkEmiratesId} shown={formatEmiratesId} inputMode="numeric" placeholder="784-XXXX-XXXXXXX-X" />
+);
+
+/**
+ * A phone: country code and number, kept as +971 50 123 4567. A whole number typed or pasted in the box is sorted.
+ * A stored phone that isn't exactly one number (two numbers, words) is kept as it is, in one plain box.
+ */
+export function PhoneField({ label, value, onChange, before, hint, className, disabled, ...rest }: BoxProps) {
+  const id = useId();
+  const read = (v: string) => {
+    const p = parsePhone(v);
+    return p ? { plain: false, iso: p.iso, text: nationalText(p) } : { plain: v.trim() !== "", iso: "AE", text: v };
+  };
+  const [box, setBox] = useState(() => read(value));
+  // What this box last said: any other value came from outside (another record, a reload).
+  const said = useRef(value);
+  useEffect(() => {
+    if (value === said.current) return;
+    said.current = value;
+    setBox(read(value));
+  }, [value]);
+  const { error, onLeave } = useProblem(before, value, checkPhone);
+  const say = (next: typeof box) => {
+    const dial = COUNTRIES.find((c) => c.iso === next.iso)!.dial;
+    const whole = next.plain || next.iso === "AE" || !next.text.trim() ? next.text : `+${dial} ${next.text}`;
+    const p = parsePhone(whole);
+    const v = p ? formatPhone(p) : whole.trim();
+    setBox(next);
+    said.current = v;
+    if (v !== value) onChange(v);
+  };
+  const type = (text: string) => {
+    const p = !box.plain && /^\s*(\+|00)/.test(text) ? parsePhone(text) : null;
+    say(p ? { plain: false, iso: p.iso, text: nationalText(p) } : { ...box, text });
+  };
+  const leave = () => {
+    onLeave();
+    const p = parsePhone(value);
+    if (p) setBox({ plain: false, iso: p.iso, text: nationalText(p) });
+    else if (!value) setBox((b) => ({ ...b, plain: false, text: "" }));
+  };
+  return (
+    <FieldShell id={id} label={label} hint={hint} error={error} className={className}>
+      <div className="flex gap-1.5">
+        {!box.plain && (
+          <Select value={box.iso} disabled={disabled} onChange={(e) => say({ ...box, iso: e.target.value })} className="w-[92px]! shrink-0" aria-label="Country code">
+            {COUNTRIES.map((c) => <option key={c.iso} value={c.iso}>+{c.dial} {c.name}</option>)}
+          </Select>
+        )}
+        <Input id={id} inputMode="tel" value={box.text} disabled={disabled} onChange={(e) => type(e.target.value)} onBlur={leave} aria-invalid={error ? true : undefined}
+          placeholder={box.iso === "AE" && !box.plain ? "50 123 4567" : undefined} {...rest} />
+      </div>
+    </FieldShell>
+  );
+}
+
+const OTHER = "other";
+
+/** A plate: emirate, code and number, kept as DXB K 48213. A whole plate typed in the box is sorted; "Other" is as typed. */
+export function PlateField({ label, value, onChange, before, hint, className, disabled, defaultEmirate, ...rest }: BoxProps & { defaultEmirate?: Emirate | null }) {
+  const id = useId();
+  const home = PLATE_EMIRATES.find((e) => e.emirate === defaultEmirate)?.code ?? "DXB";
+  const read = (v: string) => parsePlate(v) ?? (v.trim() ? { emirate: OTHER, code: "", number: v } : { emirate: home, code: "", number: "" });
+  const [box, setBox] = useState(() => read(value));
+  const said = useRef(value);
+  useEffect(() => {
+    if (value === said.current) return;
+    said.current = value;
+    setBox(read(value));
+  }, [value]);
+  const { error, onLeave } = useProblem(before, value, checkPlate);
+  const say = (next: typeof box) => {
+    const number = next.number.trim().toUpperCase();
+    const v = next.emirate === OTHER ? number : number || next.code ? formatPlate({ ...next, code: next.code.trim(), number }) : "";
+    setBox(next);
+    said.current = v;
+    if (v !== value) onChange(v);
+  };
+  return (
+    <FieldShell id={id} label={label} hint={hint} error={error} className={className}>
+      <div className="flex gap-1.5">
+        <Select value={box.emirate} disabled={disabled} onChange={(e) => say({ ...box, emirate: e.target.value, ...(e.target.value === OTHER ? { code: "", number: [box.code, box.number].filter(Boolean).join(" ") } : {}) })}
+          className="w-[132px]! shrink-0" aria-label="Plate emirate">
+          {PLATE_EMIRATES.map((e) => <option key={e.code} value={e.code}>{EMIRATE_NAMES[e.emirate]}</option>)}
+          <option value={OTHER}>Other</option>
+        </Select>
+        {box.emirate !== OTHER && (
+          <Input value={box.code} disabled={disabled} maxLength={2} onChange={(e) => say({ ...box, code: e.target.value.toUpperCase() })} onBlur={onLeave} className="w-14! shrink-0 px-1.5! text-center uppercase" placeholder="Code" aria-label="Plate code" />
+        )}
+        <Input id={id} value={box.number} disabled={disabled} onChange={(e) => say(parsePlate(e.target.value) ?? { ...box, number: e.target.value })} onBlur={onLeave}
+          aria-invalid={error ? true : undefined} className="uppercase" placeholder={box.emirate === OTHER ? "As on the plate" : "12345"} {...rest} />
+      </div>
+    </FieldShell>
+  );
+}
