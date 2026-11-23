@@ -4,6 +4,11 @@ import { expect, type Page } from "@playwright/test";
 export const shooter = (page: Page, prefix = "") => (name: string) =>
   page.screenshot({ path: `test-results/screens/${prefix}${name}.png`, fullPage: true });
 
+/** The document screen saves itself: waits until it says so. */
+export async function waitSaved(page: Page) {
+  await expect(page.getByTestId("save-state")).toHaveText("Saved", { timeout: 15_000 });
+}
+
 export const OWNER = { name: "Rashid Khan", username: "rashid", password: "garage-pass-1" };
 
 /**
@@ -45,7 +50,7 @@ export async function garageDay(page: Page, shot: (name: string) => Promise<unkn
   await page.getByLabel("Quantity").nth(1).fill("1");
   await page.getByLabel("Unit price").nth(1).fill("420");
   await page.getByLabel("Discount percent").nth(1).fill("10");
-  await page.getByRole("button", { name: "Save" }).click();
+  await waitSaved(page);
   await expect(page.getByText("EST-00001")).toBeVisible();
   // 270 + 378 = 648 net, 32.40 VAT, 680.40 total
   await expect(page.getByText("AED 680.40")).toBeVisible();
@@ -139,7 +144,7 @@ export async function stockDay(page: Page, shot: (name: string) => Promise<unkno
   await page.getByLabel("Part", { exact: true }).last().fill("brake disc");
   await page.getByRole("option", { name: /BD-220/ }).click();
   await page.getByLabel("Quantity").last().fill("2");
-  await page.getByRole("button", { name: "Save" }).click();
+  await waitSaved(page);
   await expect(page.getByText("JC-00002", { exact: true })).toBeVisible();
   await expect(page.getByText("OF-1001 · 9 on shelf")).toBeVisible();
   await page.locator("tr", { hasText: "BD-220 · bought per job" }).getByRole("button", { name: "Request part" }).click();

@@ -1,7 +1,7 @@
 import { expect, test, type APIRequestContext, type Page } from "@playwright/test";
 import { PDFDocument, PDFName, PDFNumber, PDFRawStream } from "pdf-lib";
 import { SMTPServer } from "smtp-server";
-import { setUpGarage, shooter } from "./flow";
+import { setUpGarage, shooter, waitSaved } from "./flow";
 
 const API = "http://127.0.0.1:4780";
 const nav = (page: Page, name: string) => page.getByRole("navigation").getByRole("link", { name, exact: true }).click();
@@ -104,8 +104,7 @@ test.describe.serial("messages", () => {
     await page.goto(`/#/documents/${jc.id}`);
     await page.getByLabel("Driver name").fill("Ali");
     await page.getByLabel("Driver phone").fill("050 123 4567");
-    await page.getByRole("button", { name: "Save", exact: true }).click();
-    await expect(page.getByText("Job card saved")).toBeVisible();
+    await waitSaved(page);
     const saved = (await (await request.get(`${API}/api/documents/${jc.id}`, { headers })).json()).document;
     expect(saved).toMatchObject({ driverName: "Ali", driverPhone: "050 123 4567" });
   });

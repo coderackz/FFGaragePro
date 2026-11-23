@@ -20,9 +20,24 @@ Use one PC as the main computer, or link the garage to Fleetfix Cloud: every PC 
 - Approved: convert it to a job card. Parts fitted on the job card come out of stock straight away.
 - Job done: convert the job card to an invoice and issue it. An issued invoice can't change: correct it with a credit note.
 
+## Saving
+- There's no Save button: the document saves itself a moment after you stop typing ("Saving…", then "Saved").
+- A new one gets its number once it has a customer and a line with a title.
+- If the app closes or the network drops, your changes are kept on this computer and come back when you open it again.
+- If someone changed it on another computer meanwhile, nothing is overwritten: reload to see their version.
+
+## Lines
+- Each line is numbered and has a unit (Pc, Box, Hr…): type your own or pick one.
+- Labour and other lines can have a description ("Add description"), printed under the title.
+
+## Discounts
+- A discount on a line comes off before VAT. For a promo code, see "Promo codes".
+- "+ Add discount" in the summary takes a % or an amount off the whole bill, before VAT. Above the limit in
+  Settings → Pricing (25% to start), tick the confirmation and write a remark; your name and the remark show under it.
+- A document has a promo code or a discount, not both.
+
 ## Tips
-- Parts supplied by Fleet Fix print at no charge and touch no stock.
-- A discount on a line comes off before VAT. For a promo code, see "Promo codes".`,
+- Parts supplied by Fleet Fix print at no charge and touch no stock.`,
   },
   {
     slug: "getting-paid", title: "Getting paid", area: "Finance",

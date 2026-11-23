@@ -1,5 +1,5 @@
 import { expect, test, type Page } from "@playwright/test";
-import { setUpGarage, shooter } from "./flow";
+import { setUpGarage, shooter, waitSaved } from "./flow";
 
 const API = "http://127.0.0.1:4780";
 const nav = (page: Page, name: string) => page.getByRole("navigation").getByRole("link", { name, exact: true }).click();
@@ -75,8 +75,7 @@ test("tyres by DOT, batteries by serial, and kits", async ({ page, request }) =>
   await page.getByRole("button", { name: "+ Part", exact: true }).click();
   await page.getByLabel("Part", { exact: true }).last().fill("KIT-MIN");
   await page.getByRole("option", { name: /KIT-MIN/ }).click();
-  await page.getByRole("button", { name: "Save", exact: true }).click();
-  await expect(page.getByText("Unsaved changes")).toHaveCount(0);
+  await waitSaved(page);
   await shot("03-jobcard");
   const saved = (await api("get", `/api/documents/${jc.id}`)).document;
   expect(saved.lines.find((l: { partId: string }) => l.partId === tyre.id).units.map((u: { code: string }) => u.code)).toEqual(["2524", "2524"]);

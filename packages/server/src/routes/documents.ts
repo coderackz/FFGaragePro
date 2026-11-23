@@ -435,6 +435,9 @@ export function documentRoutes(
     db.tx(() => {
       const d = getDoc(req.params.id);
       if (!d) throw notFound("Document not found");
+      if (input.baseUpdatedAt !== undefined && input.baseUpdatedAt !== d.updated_at) {
+        throw conflict("This document was changed on another computer. Reload it to see the changes.");
+      }
       const changesContent = input.lines !== undefined || input.vehicleId !== undefined || input.odometer !== undefined || input.notes !== undefined
         || input.lpoNumber !== undefined || input.language !== undefined || input.driverName !== undefined || input.driverPhone !== undefined;
       if (changesContent && !linesEditable(d)) throw conflict(`${d.number} can no longer be edited`);

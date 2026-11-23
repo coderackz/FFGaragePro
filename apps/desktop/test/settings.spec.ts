@@ -107,7 +107,8 @@ test.describe.serial("settings", () => {
     await expect(page.getByLabel("Unit price").first()).toHaveValue(/180/);
     await page.getByPlaceholder("e.g. Replace front brake pads").fill("Full service");
     await page.getByLabel("Discount percent").first().fill("15");
-    await page.getByRole("button", { name: "Save" }).click();
+    // Auto-save stops at the approval and asks for it in the header.
+    await page.getByRole("button", { name: "Approve and save" }).click();
     const approval = page.getByRole("dialog", { name: "Owner approval" });
     await expect(approval).toContainText("A discount over 10% needs the Owner's approval");
     await approval.getByLabel("Owner's username").fill(OWNER.username);

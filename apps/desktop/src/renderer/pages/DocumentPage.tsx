@@ -1,9 +1,9 @@
-import { ArrowLeft, ArrowRight, Banknote, CircleCheck, FileDown, FileMinus, Printer, Save, Send } from "lucide-react";
-import { useEffect, useMemo, useState } from "react";
+import { ArrowLeft, ArrowRight, Banknote, CircleCheck, FileDown, FileMinus, Printer, Send } from "lucide-react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { Link, useNavigate, useParams, useSearchParams } from "react-router";
 import { toast } from "sonner";
 import {
-  CONVERTS_TO, DEFAULT_SETTINGS, defaultUnit, DOC_LABELS, DOC_STATUSES, PAYMENT_METHODS, STATUS_LABELS, docTotals, promoShares, type DocType, type LineKind,
+  type ApprovalInput, CONVERTS_TO, DEFAULT_SETTINGS, defaultUnit, DOC_LABELS, DOC_STATUSES, PAYMENT_METHODS, STATUS_LABELS, docTotals, promoShares, type DocType, type LineKind,
 } from "@ffgp/shared";
 import { CustomerPicker } from "../components/CustomerPicker";
 import { CustomerFormModal } from "../components/forms";
@@ -14,6 +14,7 @@ import { useAuth } from "../lib/auth";
 import { PAYMENT_LABELS, formatAED, formatDate, formatDateTime } from "../lib/format";
 import type { Customer, DocLine, DocumentFull, Vehicle } from "../lib/types";
 import { useApi } from "../lib/useApi";
+import { clearLocalDraft, draftKey, readLocalDraft, readyToCreate, useAutosave, writeLocalDraft } from "../lib/autosave";
 import { CreditNoteDialog } from "../components/CreditNoteDialog";
 import { LinesTable, lineCounts } from "../components/document/LinesTable";
 import { DiscountRow, type DiscountRequest } from "../components/document/DiscountRow";
@@ -44,6 +45,9 @@ interface Draft {
   driverPhone: string;
 }
 
+/** This PC's copy of unsaved changes, and the version (updatedAt) they were made on top of. */
+interface LocalCopy { draft: Draft; base: string | null }
+
 /** A new empty line; labour starts at the garage's labour rate (Settings → Pricing). */
 const blankLine = (kind: LineKind, labourRateFils?: number | null): DocLine => ({
   kind, description: "", qty: 1, unitPriceFils: kind === "labour" ? labourRateFils ?? 0 : 0, discountPct: 0, unit: defaultUnit(kind),
@@ -65,32 +69,77 @@ export function DocumentPage() {
   const approval = useOwnerApproval();
   const [dirty, setDirty] = useState(false);
   const [busy, setBusy] = useState<string | null>(null);
+  // Auto-save: what's been typed since the last save, the document being saved to, and the version it started from.
+  const [revision, setRevision] = useState(0);
+  const [restored, setRestored] = useState(false);
+  const dirtyRef = useRef(false);
+  const revisionRef = useRef(0);
+  const loadedId = useRef<string | null>(null);
+  const docIdRef = useRef<string | null>(params.id ?? null);
+  const updatedAtRef = useRef<string | null>(null);
+  const draftRef = useRef(draft);
+  draftRef.current = draft;
+  const garageKey = garage?.trn || garage?.name || "garage";
+  const keyFor = (id: string | null) => draftKey(garageKey, id, type);
+  const markDirty = (v: boolean) => {
+    dirtyRef.current = v;
+    setDirty(v);
+  };
+  const bump = () => {
+    revisionRef.current += 1;
+    setRevision(revisionRef.current);
+  };
   const [newCustomer, setNewCustomer] = useState<string | null>(null);
   const [paying, setPaying] = useState(false);
   const [requesting, setRequesting] = useState<{ documentId: string; position: number; line: DocLine } | null>(null);
 
-  // Initialise from the loaded document, or from ?customerId= for a new one.
+  const fromDoc = (d: DocumentFull): Draft => ({
+    customer: { id: d.customer.id, name: d.customer.name },
+    vehicleId: d.vehicle?.id ?? null,
+    odometer: d.odometer,
+    notes: d.notes ?? "",
+    lines: d.lines.length ? d.lines : d.editable ? [blankLine("labour", settings?.pricing.labourRateFils)] : [],
+    lpoNumber: d.lpoNumber ?? "",
+    language: d.language ?? "en",
+    driverName: d.driverName ?? "",
+    driverPhone: d.driverPhone ?? "",
+  });
+  // Initialise from the loaded document — but never over what's being typed — or restore this PC's unsaved copy
+  // when it was made on top of this very version (a crash or power cut, not someone else's change).
   useEffect(() => {
-    if (doc) {
-      setDraft({
-        customer: { id: doc.customer.id, name: doc.customer.name },
-        vehicleId: doc.vehicle?.id ?? null,
-        odometer: doc.odometer,
-        notes: doc.notes ?? "",
-        lines: doc.lines.length ? doc.lines : doc.editable ? [blankLine("labour", settings?.pricing.labourRateFils)] : [],
-        lpoNumber: doc.lpoNumber ?? "",
-        language: doc.language ?? "en",
-        driverName: doc.driverName ?? "",
-        driverPhone: doc.driverPhone ?? "",
-      });
-      setDirty(false);
+    if (!doc) return;
+    updatedAtRef.current = doc.updatedAt;
+    docIdRef.current = doc.id;
+    if (doc.id === loadedId.current && dirtyRef.current) return;
+    const first = doc.id !== loadedId.current;
+    loadedId.current = doc.id;
+    const local = first && doc.editable && !readOnly ? readLocalDraft<LocalCopy>(keyFor(doc.id)) : null;
+    if (local && local.draft.base === doc.updatedAt) {
+      setDraft(local.draft.draft);
+      markDirty(true);
+      bump();
+      setRestored(true);
+    } else {
+      setDraft(fromDoc(doc));
+      markDirty(false);
     }
   }, [doc]);
+  // A new document: this PC's unsaved one of this type, if any.
+  useEffect(() => {
+    if (!isNew || readOnly) return;
+    const local = readLocalDraft<LocalCopy>(keyFor(null));
+    if (local) {
+      setDraft(local.draft.draft);
+      markDirty(true);
+      bump();
+      setRestored(true);
+    }
+  }, [isNew, type]);
   const presetCustomer = useApi<{ customer: Customer; vehicles: Vehicle[] }>(isNew && search.get("customerId") ? `/api/customers/${search.get("customerId")}` : null);
   useEffect(() => {
     if (isNew && presetCustomer.data) {
       const vehicles = presetCustomer.data.vehicles;
-      setDraft((d) => ({ ...d, customer: presetCustomer.data!.customer, vehicleId: vehicles.length === 1 ? vehicles[0]!.id : null, odometer: vehicles.length === 1 ? vehicles[0]!.odometer : null }));
+      setDraft((d) => (d.customer ? d : { ...d, customer: presetCustomer.data!.customer, vehicleId: vehicles.length === 1 ? vehicles[0]!.id : null, odometer: vehicles.length === 1 ? vehicles[0]!.odometer : null }));
     }
   }, [isNew, presetCustomer.data]);
 
@@ -133,8 +182,13 @@ export function DocumentPage() {
   const [promoCode, setPromoCode] = useState("");
 
   const update = (patchDraft: Partial<Draft>) => {
-    setDraft((d) => ({ ...d, ...patchDraft }));
-    setDirty(true);
+    setDraft((d) => {
+      const next = { ...d, ...patchDraft };
+      writeLocalDraft<LocalCopy>(keyFor(docIdRef.current), { draft: next, base: updatedAtRef.current });
+      return next;
+    });
+    markDirty(true);
+    bump();
   };
   const updateLine = (i: number, patchLine: Partial<DocLine>) => update({ lines: draft.lines.map((l, j) => (j === i ? { ...l, ...patchLine } : l)) });
 
@@ -147,38 +201,115 @@ export function DocumentPage() {
     return null;
   };
 
-  /** Saves and returns the document id (creating it if new). */
-  const save = async (): Promise<string | null> => {
-    const problem = validate();
-    if (problem) {
-      toast.error(problem);
-      return null;
-    }
-    const lines = cleanLines().map(({ kind, description, details, unit, qty, unitPriceFils, discountPct, partId, suppliedBy, poLineId, unitIds }) => ({
+  // A line with a price but no title yet can't be saved: auto-save waits for its title.
+  const untitledCharged = draft.lines.some((l) => lineCounts(l) && l.description.trim() === "");
+  // Only creating needs a customer and a titled line; a saved document saves any change.
+  const canAutoSave = editable && (!!docIdRef.current || readyToCreate(draft)) && !untitledCharged;
+
+  /** One save at a time, in order: a change typed while a new document is being created goes to that document. */
+  const pending = useRef<Promise<string> | null>(null);
+  const persist = (withApproval: boolean): Promise<string> => {
+    const next = (pending.current ?? Promise.resolve("")).catch(() => "").then(() => writeDoc(withApproval));
+    pending.current = next;
+    return next;
+  };
+
+  /** Writes what's on screen now; returns the document id (creating it if new). */
+  const writeDoc = async (withApproval: boolean): Promise<string> => {
+    const d = draftRef.current;
+    const rev = revisionRef.current;
+    const lines = d.lines.filter(lineCounts).map(({ kind, description, details, unit, qty, unitPriceFils, discountPct, partId, suppliedBy, poLineId, unitIds }) => ({
       kind, description: description.trim(), qty, unitPriceFils, discountPct,
       details: kind === "part" ? null : details?.trim() ? details : null, unit: unit?.trim() || null,
       partId: kind === "part" ? partId ?? null : null, suppliedBy: kind === "part" ? suppliedBy ?? "garage" : "garage", poLineId: poLineId ?? null,
       // More tyres picked than the quantity (it was lowered): the first ones picked are kept.
       unitIds: kind === "part" && partId && (suppliedBy ?? "garage") === "garage" ? (unitIds ?? []).slice(0, Math.max(0, Math.floor(qty))) : [],
     }));
-    const body = { vehicleId: draft.vehicleId, odometer: draft.odometer, notes: draft.notes, lines, ...(type === "invoice" && !isNew ? { lpoNumber: draft.lpoNumber } : {}),
-      ...(!isNew && draft.language !== doc?.language ? { language: draft.language } : {}),
-      ...(type === "jobcard" ? { driverName: draft.driverName, driverPhone: draft.driverPhone } : {}) };
-    if (isNew) {
-      const res = await approval.withApproval((a) => post<{ document: DocumentFull; warning?: string }>("/api/documents", { type, customerId: draft.customer!.id, ...body, approval: a }));
+    let id = docIdRef.current;
+    const body = { vehicleId: d.vehicleId, odometer: d.odometer, notes: d.notes, lines, ...(type === "invoice" && id ? { lpoNumber: d.lpoNumber } : {}),
+      ...(type === "jobcard" ? { driverName: d.driverName, driverPhone: d.driverPhone } : {}) };
+    // Auto-save never opens the Owner's approval: it stops and the header asks for it.
+    const send = <T,>(fn: (a?: ApprovalInput) => Promise<T>) => (withApproval ? approval.withApproval(fn) : fn(undefined));
+    const settle = (savedId: string, updatedAt: string) => {
+      const changedSince = revisionRef.current !== rev;
+      if (changedSince) writeLocalDraft<LocalCopy>(keyFor(savedId), { draft: draftRef.current, base: updatedAt });
+      else clearLocalDraft(keyFor(savedId));
+      markDirty(changedSince);
+    };
+    if (!id) {
+      const res = await send((a) => post<{ document: DocumentFull; warning?: string }>("/api/documents", { type, customerId: d.customer!.id, ...body, approval: a }));
       if (res.warning) toast.warning(res.warning);
-      setDirty(false);
-      navigate(`/documents/${res.document.id}`, { replace: true });
+      id = res.document.id;
+      docIdRef.current = id;
+      loadedId.current = id;
+      updatedAtRef.current = res.document.updatedAt;
+      clearLocalDraft(keyFor(null));
+      settle(id, res.document.updatedAt);
+      navigate(`/documents/${id}`, { replace: true });
       if (res.document.type === "jobcard") message("vehicle_received", res.document);
-      return res.document.id;
+      return id;
     }
-    if (dirty && editable) {
-      const res = await approval.withApproval((a) => patch<{ document: DocumentFull }>(`/api/documents/${doc!.id}`, { ...body, approval: a }));
-      docQuery.setData(res);
-    }
-    setDirty(false);
-    return doc!.id;
+    const res = await send((a) => patch<{ document: DocumentFull }>(`/api/documents/${id}`, { ...body, approval: a, baseUpdatedAt: updatedAtRef.current ?? undefined }));
+    updatedAtRef.current = res.document.updatedAt;
+    settle(id, res.document.updatedAt);
+    docQuery.setData(res);
+    return id;
   };
+
+  const autosave = useAutosave({ dirty, canSave: canAutoSave, revision, save: async () => { await persist(false); } });
+  useEffect(() => {
+    if (autosave.state === "saved") setRestored(false);
+  }, [autosave.state]);
+
+  /** Before an action that needs the document saved: saves what's waiting (asking for approval if needed). */
+  const saveFirst = async (): Promise<string | null> => {
+    if (!dirtyRef.current && docIdRef.current) {
+      if (pending.current) await pending.current.catch(() => "");
+      return docIdRef.current;
+    }
+    const problem = validate();
+    if (problem) {
+      toast.error(problem);
+      return null;
+    }
+    const id = await persist(true);
+    autosave.resume();
+    return id;
+  };
+
+  /** Someone else changed it: show their version (this PC's copy stays kept, but isn't restored over theirs). */
+  const reloadFromServer = () => {
+    markDirty(false);
+    autosave.resume();
+    docQuery.reload();
+  };
+  const discardLocal = () => {
+    clearLocalDraft(keyFor(docIdRef.current));
+    setRestored(false);
+    markDirty(false);
+    setDraft(doc ? fromDoc(doc) : { ...draftRef.current, lines: [blankLine("labour", settings?.pricing.labourRateFils)], notes: "" });
+  };
+
+  /** The header's word on saving: no Save button, the screen saves itself. */
+  const saveState = (
+    <span className="flex items-center gap-2 text-sm font-normal text-zinc-500" data-testid="save-state">
+      {autosave.state === "approval" ? (
+        <>
+          <span className="text-amber-700">Needs the owner's approval</span>
+          <Button size="sm" busy={busy === "save"} onClick={() => run("save", async () => { await saveFirst(); })}>Approve and save</Button>
+        </>
+      ) : autosave.state === "conflict" ? (
+        <>
+          <span className="text-red-700">{autosave.message}</span>
+          <Button size="sm" onClick={reloadFromServer}>Reload</Button>
+        </>
+      ) : autosave.state === "error" ? (
+        <span className="text-amber-700">Not saved — retrying</span>
+      ) : dirty ? (
+        untitledCharged ? "Not saved — every charged line needs a title" : !canAutoSave ? "Not saved yet — choose a customer and add a line" : "Saving…"
+      ) : isNew ? "Not saved yet" : "Saved"}
+    </span>
+  );
 
   /** The event's message, if it's on (Settings → Messages): sent automatically or the Send dialog opens. */
   const message = (event: MessageEvent, d: DocumentFull) => {
@@ -195,7 +326,7 @@ export function DocumentPage() {
 
   /** Send on the page: the message that fits the document now (an estimate sent before becomes "extra work"). */
   const onSend = () => run("send", async () => {
-    const id = dirty ? await save() : doc?.id;
+    const id = await saveFirst();
     if (!id || !garage) return;
     const { document } = await get<{ document: DocumentFull }>(`/api/documents/${id}`);
     docQuery.setData({ document });
@@ -221,12 +352,8 @@ export function DocumentPage() {
     }
   };
 
-  const onSave = () => run("save", async () => {
-    if (await save()) toast.success(`${label} saved`);
-  });
-
   const onStatus = (status: string) => run("status", async () => {
-    if (!(await save())) return;
+    if (!(await saveFirst())) return;
     const res = await patch<{ document: DocumentFull }>(`/api/documents/${doc!.id}`, { status });
     docQuery.setData(res);
     toast.success(`Marked as ${STATUS_LABELS[status]}`);
@@ -234,7 +361,7 @@ export function DocumentPage() {
   });
 
   const onConvert = () => run("convert", async () => {
-    const id = await save();
+    const id = await saveFirst();
     if (!id) return;
     const res = await approval.withApproval((a) => post<{ document: DocumentFull; warning?: string }>(`/api/documents/${id}/convert`, { approval: a }));
     toast.success(`${res.document.number} created`);
@@ -244,7 +371,7 @@ export function DocumentPage() {
   });
 
   const onIssue = () => run("issue", async () => {
-    const id = await save();
+    const id = await saveFirst();
     if (!id) return;
     if (!window.confirm("Issue this tax invoice? After issuing, it can no longer be edited.")) return;
     // Over the customer's credit limit: a warning, a refusal, or the Owner's approval (Settings → Customers & credit).
@@ -270,7 +397,7 @@ export function DocumentPage() {
   });
 
   const onApplyPromo = () => run("promo", async () => {
-    const id = await save();
+    const id = await saveFirst();
     if (!id || !promoCode.trim()) return;
     const { document } = await post<{ document: DocumentFull }>(`/api/documents/${id}/promo`, { code: promoCode.trim() });
     docQuery.setData({ document });
@@ -280,7 +407,7 @@ export function DocumentPage() {
   const onApplyDiscount = async (d: DiscountRequest): Promise<boolean> => {
     let ok = false;
     await run("discount", async () => {
-      const id = await save();
+      const id = await saveFirst();
       if (!id) return;
       const { document } = await put<{ document: DocumentFull }>(`/api/documents/${id}/discount`, d);
       docQuery.setData({ document });
@@ -289,13 +416,13 @@ export function DocumentPage() {
     return ok;
   };
   const onRemoveDiscount = () => run("discount", async () => {
-    const id = await save();
+    const id = await saveFirst();
     if (!id) return;
     const { document } = await del<{ document: DocumentFull }>(`/api/documents/${id}/discount`);
     docQuery.setData({ document });
   });
   const onRemovePromo = () => run("promo", async () => {
-    const id = await save();
+    const id = await saveFirst();
     if (!id) return;
     const { document } = await del<{ document: DocumentFull }>(`/api/documents/${id}/promo`);
     docQuery.setData({ document });
@@ -314,13 +441,13 @@ export function DocumentPage() {
   const onRequest = (i: number) => run("request", async () => {
     const line = draft.lines[i]!;
     const position = cleanLines().indexOf(line);
-    const id = await save();
+    const id = await saveFirst();
     if (!id || position < 0) return;
     setRequesting({ documentId: id, position, line });
   });
 
   const onPrint = (mode: "pdf" | "print") => run(mode, async () => {
-    const id = dirty ? await save() : doc?.id;
+    const id = await saveFirst();
     if (!id || !garage) return;
     const { document } = await get<{ document: DocumentFull }>(`/api/documents/${id}`);
     docQuery.setData({ document });
@@ -344,7 +471,7 @@ export function DocumentPage() {
           <span className="flex items-center gap-3">
             {doc ? <span className="font-mono">{doc.number}</span> : `New ${label.toLowerCase()}`}
             {doc && <StatusBadge status={doc.status} />}
-            {dirty && <span className="text-sm font-normal text-amber-700">Unsaved changes</span>}
+            {editable && saveState}
           </span>
         }
         subtitle={
@@ -372,7 +499,6 @@ export function DocumentPage() {
                 {MANUAL[type].map((s) => <option key={s} value={s}>{STATUS_LABELS[s]}</option>)}
               </Select>
             )}
-            {editable && <Button icon={<Save className="size-4" />} busy={busy === "save"} onClick={onSave} variant={next || isInvoice ? "secondary" : "primary"}>Save</Button>}
             {doc && next && doc.status !== "converted" && (
               <Button variant="primary" icon={<ArrowRight className="size-4" />} busy={busy === "convert"} onClick={onConvert}>
                 {next === "jobcard" ? "Convert to job card" : "Create invoice"}
@@ -391,6 +517,12 @@ export function DocumentPage() {
         }
       />
 
+      {restored && editable && (
+        <div className="mb-4 flex items-center justify-between gap-3 rounded-md border border-amber-200 bg-amber-50 px-3 py-2 text-sm text-amber-900" data-testid="restored">
+          <span>Unsaved changes restored — they were kept on this computer.</span>
+          <button type="button" onClick={discardLocal} className="font-medium underline hover:text-amber-950">Discard them</button>
+        </div>
+      )}
       <div className="grid gap-5 min-[1440px]:grid-cols-[1fr_300px]">
         <div className="flex min-w-0 flex-col gap-5">
           <Card title="Customer & vehicle">

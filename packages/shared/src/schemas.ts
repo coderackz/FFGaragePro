@@ -146,6 +146,8 @@ export const documentUpdateSchema = z.object({
   /** Job cards: the driver who gets "vehicle received/ready" messages. */
   driverName: patchText(120),
   driverPhone: patchText(40),
+  /** The version (updatedAt) the screen started from: a save over someone else's newer change is refused. */
+  baseUpdatedAt: z.string().max(40).optional(),
 });
 
 /** Issuing an invoice: the customer's LPO number, and the Owner's approval when over the credit limit. */
