@@ -3,6 +3,7 @@ import { addressPartsSchema } from "./address";
 import { TRACKING } from "./tracked";
 import { attributesSchema, fitmentSchema, packSchema, partNumberSchema } from "./catalogue";
 import { DOC_TYPES, ROLES } from "./rules";
+import { LINE_CONDITIONS } from "./used";
 import { EMIRATES } from "./vat";
 
 const text = (max = 200) => z.string().trim().max(max);
@@ -119,7 +120,12 @@ export const lineSchema = z.object({
     .transform((v) => (v === undefined ? undefined : v?.trim() ? v.replace(/\s+$/, "") : null)),
   /** What the quantity counts (Pc, Box, Hr…). Left out = keep what's stored. */
   unit: z.string().trim().max(12).nullable().optional().transform((v) => (v === undefined ? undefined : v || null)),
-}).refine((l) => l.suppliedBy === "garage" || l.kind === "part", { message: "Only parts can be supplied by Fleet Fix", path: ["suppliedBy"] });
+  /** New or used (bought for this job, never stocked). Left out = keep what's stored. */
+  condition: z.enum(LINE_CONDITIONS).optional(),
+}).refine((l) => l.suppliedBy === "garage" || l.kind === "part", { message: "Only parts can be supplied by Fleet Fix", path: ["suppliedBy"] })
+  .refine((l) => l.condition !== "used" || l.kind === "part", { message: "Only parts can be used", path: ["condition"] })
+  .refine((l) => l.condition !== "used" || (!l.partId && !l.unitIds.length), { message: "A used part isn't linked to the parts list", path: ["partId"] })
+  .refine((l) => l.condition !== "used" || l.suppliedBy === "garage", { message: "A used part can't be supplied by Fleet Fix", path: ["suppliedBy"] });
 export type LineInput = z.infer<typeof lineSchema>;
 
 /** The Owner's username and password, typed on the spot to approve something beyond the user's limit. */
@@ -358,6 +364,37 @@ export const warrantyResolveSchema = z.object({
   vatFils: money.optional(),
 }).refine((r) => r.outcome !== "credited" || (r.creditFils ?? 0) > 0, { message: "Enter what the supplier credited", path: ["creditFils"] });
 
+const realDate = (d: string) => {
+  const t = Date.parse(`${d}T00:00:00.000Z`);
+  return !Number.isNaN(t) && new Date(t).toISOString().slice(0, 10) === d;
+};
+/** A day that exists (2026-02-30 doesn't). */
+const day = ymd.refine(realDate, "That isn't a real date");
+
+/** "Buy used part": a used line of an open job card, bought from a saved or a new seller. */
+export const usedPurchaseSchema = z.object({
+  documentId: z.string().uuid(),
+  position: z.number().int().min(0),
+  /** The line's description as the screen sees it; a mismatch means the job card changed meanwhile. */
+  description: text(500),
+  qty: z.number().positive().max(100000),
+  seller: z.union([
+    z.object({ supplierId: z.string().uuid() }),
+    z.object({ name: text().min(1, "Enter the seller's name"), phone: optionalText(40) }),
+  ]),
+  unitCostFils: money,
+  purchasedOn: day,
+  /** The seller's VAT bill; null = none, so no VAT is claimed. */
+  bill: z.object({
+    trn: z.string().transform((v) => v.replace(/\s+/g, "")).pipe(z.string().regex(/^\d{15}$/, "A UAE TRN has 15 digits")),
+    invoiceNo: text(60).min(1, "Enter the invoice number"),
+    vatFils: money,
+  }).nullable(),
+  /** Days from the purchase date; null = no warranty. Always chosen, never assumed. */
+  warrantyDays: z.number().int().min(1).max(365).nullable(),
+});
+export type UsedPurchaseInput = z.infer<typeof usedPurchaseSchema>;
+
 export const requestPartSchema = z.object({
   documentId: z.string().uuid(),
   position: z.number().int().min(0),
@@ -370,6 +407,8 @@ export const requestPartSchema = z.object({
   supplierInvoiceNo: optionalText(60),
   /** Bought now: the VAT on the shop's receipt (none from a shop that isn't VAT-registered); left out = the garage's rate. */
   vatFils: money.optional(),
+  /** Bought now: the day it was bought (left out = today in Dubai). */
+  purchasedOn: day.optional(),
   /** Bought now, a tracked part: each unit's DOT code or serial. */
   units: z.array(text(60).min(1)).max(1000).default([]),
 });
