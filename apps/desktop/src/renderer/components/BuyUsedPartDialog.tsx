@@ -48,8 +48,10 @@ export function BuyUsedPartDialog({ request, onClose, onDone }: { request: UsedP
   useEffect(() => {
     if (!vatTouched) setVatFils(roundFils((net * (garage?.vatRateBp ?? 500)) / 10000));
   }, [net, vatTouched, garage]);
+  // Another seller (or none): the TRN is that seller's, never one left over from a name typed on the way.
+  const savedId = saved?.id;
   const savedTrn = saved?.trn ?? "";
-  useEffect(() => { if (savedTrn) setTrn(savedTrn); }, [savedTrn]);
+  useEffect(() => { setTrn(savedTrn); }, [savedId, savedTrn]);
 
   const days = warranty === "other" ? otherDays : warranty === "none" ? null : warranty;
   const until = typeof days === "number" && on ? warrantyUntil(on, days) : null;

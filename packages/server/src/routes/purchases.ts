@@ -85,6 +85,9 @@ export function purchaseRoutes(app: FastifyInstance, db: Db, docs: { full: Docum
     return id;
   }
 
+  /** A job card's line was linked to a purchase: a screen opened before that can't save over it unseen. */
+  const touchDocument = (id: string) => db.run("UPDATE documents SET updated_at = ? WHERE id = ?", [now(), id]);
+
   /** A purchase's day: as typed (not later than today in Dubai), else today. */
   function purchaseDay(typed: string | undefined): string {
     const today = dubaiDate(now());
@@ -403,6 +406,7 @@ export function purchaseRoutes(app: FastifyInstance, db: Db, docs: { full: Docum
         packName: null, packSize: null, packCostFils: null,
       });
       db.run("UPDATE document_lines SET po_line_id = ? WHERE id = ?", [poLineId, line.id]);
+      touchDocument(doc.id);
       updateNet(poId);
       if (input.alreadyBought) {
         const net = lineNet(input.qty, input.unitCostFils!);
@@ -453,6 +457,7 @@ export function purchaseRoutes(app: FastifyInstance, db: Db, docs: { full: Docum
         packName: null, packSize: null, packCostFils: null,
       }, { warrantyDays: input.warrantyDays });
       db.run("UPDATE document_lines SET po_line_id = ? WHERE id = ?", [poLineId, line.id]);
+      touchDocument(input.documentId);
       updateNet(poId);
       receive(getPo(poId)!, {
         supplierInvoiceNo: input.bill?.invoiceNo ?? null, supplierInvoiceDate: purchasedOn, vatFils: input.bill?.vatFils ?? 0,

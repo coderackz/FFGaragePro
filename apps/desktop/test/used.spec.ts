@@ -198,4 +198,19 @@ test.describe.serial("used parts", () => {
     await dialog.getByLabel("VAT", { exact: true }).fill("5");
     await expect(dialog.getByText("VAT claimed from a supplier with no TRN")).toBeVisible();
   });
+
+  test("a TRN filled in for one saved seller is cleared when the seller typed becomes another", async ({ page, request }) => {
+    await signIn(page);
+    const api = await apiAs(page, request);
+    const customerId = (await api("get", "/api/customers")).customers[0].id;
+    const { document: jc } = await api("post", "/api/documents", job([USED], customerId));
+    await page.goto(`/#/documents/${jc.id}`);
+    await page.getByRole("button", { name: "Buy used part" }).click();
+    const dialog = page.getByRole("dialog");
+    await dialog.getByRole("radio", { name: "Yes", exact: true }).check();
+    await dialog.getByLabel("Seller", { exact: true }).fill("Registered Yard");
+    await expect(dialog.getByLabel("Seller's TRN")).toHaveValue("100123456700003");
+    await dialog.getByLabel("Seller", { exact: true }).fill("Registered Yard Two");
+    await expect(dialog.getByLabel("Seller's TRN")).toHaveValue("");
+  });
 });

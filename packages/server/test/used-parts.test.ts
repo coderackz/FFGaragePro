@@ -327,3 +327,44 @@ describe("a bought part's cost stays on its job", () => {
     expect((await doc(app, owner, inv.id)).partsCostFils).toBe(24000);
   });
 });
+
+describe("review fixes", () => {
+  beforeEach(() => at("2026-11-26T08:00:00Z"));
+  afterEach(() => { vi.useRealTimers(); });
+
+  it("a screen opened before a purchase can't save over it", async () => {
+    const { app, owner, jobCard } = await world();
+    const jc = await jobCard([USED, { ...USED, description: "Coolant", condition: "new" }]);
+    const stale = jc.updatedAt;
+    at("2026-11-26T08:01:00Z");
+    expect((await buy(app, owner, jc.id)).status).toBe(200);
+    const edit = await call(app, "PATCH", `/api/documents/${jc.id}`, owner, { baseUpdatedAt: stale, lines: [{ ...USED, description: "Alternator 12V 90A" }, { ...USED, description: "Coolant", condition: "new" }] });
+    expect(edit.status).toBe(409);
+    const fresh = (await call(app, "GET", `/api/documents/${jc.id}`, owner)).body.document;
+    at("2026-11-26T08:02:00Z");
+    expect((await call(app, "POST", "/api/purchase-requests", owner, { documentId: jc.id, position: 1, supplierId: FLEETFIX_SUPPLIER_ID, qty: 1 })).status).toBe(200);
+    expect((await call(app, "PATCH", `/api/documents/${jc.id}`, owner, { baseUpdatedAt: fresh.updatedAt, notes: "x" })).status).toBe(409);
+  });
+
+  it("a bought used part never moves onto a new part with the same text, nor an ordered part onto a used line", async () => {
+    const { app, owner, jobCard } = await world();
+    const jc = await jobCard([USED]);
+    const bought = (await buy(app, owner, jc.id)).body.document;
+    const swapped = (await call(app, "PUT", `/api/documents/${jc.id}/lines`, owner, { lines: [{ ...USED, condition: "new", unitPriceFils: 50000 }] })).body.document;
+    expect(swapped.lines[0]).toMatchObject({ condition: "new", poLineId: null, unitPriceFils: 50000 });
+    expect(swapped.uncharged).toMatchObject([{ poLineId: bought.lines[0].poLineId, condition: "used" }]);
+
+    const other = await jobCard([{ ...USED, description: "Coolant", condition: "new" }]);
+    await call(app, "POST", "/api/purchase-requests", owner, { documentId: other.id, position: 0, supplierId: FLEETFIX_SUPPLIER_ID, qty: 1 });
+    const ticked = (await call(app, "PUT", `/api/documents/${other.id}/lines`, owner, { lines: [{ ...USED, description: "Coolant" }] })).body.document;
+    expect(ticked.lines[0]).toMatchObject({ condition: "used", poLineId: null });
+  });
+
+  it("more on the line than was bought: only what was bought is a cost, the rest is pending", async () => {
+    const { app, owner, jobCard } = await world();
+    const jc = await jobCard([USED]);
+    const poLineId = (await buy(app, owner, jc.id)).body.document.lines[0].poLineId;
+    const more = (await call(app, "PUT", `/api/documents/${jc.id}/lines`, owner, { lines: [{ ...USED, qty: 3, poLineId }] })).body.document;
+    expect(more).toMatchObject({ partsCostFils: 15000, costPending: true, uncharged: [], lines: [{ costFils: 15000 }] });
+  });
+});

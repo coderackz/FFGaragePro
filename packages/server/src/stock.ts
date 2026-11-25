@@ -231,7 +231,9 @@ export function documentCost(db: Db, docId: string): DocumentCost {
     }
     else if (l.po_line_id && l.po_received && l.po_received > 0) {
       // Bought for this job: what was actually paid (each delivery's price), even if the part is also kept on the shelf.
-      cost = Math.round((l.po_cost ?? 0) * l.qty);
+      // More on the line than was bought: the rest isn't a cost yet.
+      cost = Math.round((l.po_cost ?? 0) * Math.min(l.qty, l.po_received));
+      if (l.qty > l.po_received) pending = true;
     } else if (l.part_id && l.stocked) {
       const unit = perUnit(l.part_id, l.avg_cost_fils ?? 0);
       // Taken at no cost: fitted before any delivery was entered, so the real cost isn't known yet.

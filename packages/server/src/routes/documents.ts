@@ -161,13 +161,16 @@ export function documentRoutes(
         [poLineId, ...jobs],
       );
     const out = lines.map((l) => ({ ...l, poLineId: l.kind === "part" && l.suppliedBy === "garage" && l.poLineId && valid(l.poLineId) ? l.poLineId : null }));
-    const existing = db.all<{ po_line_id: string; part_id: string | null; description: string }>(
-      "SELECT po_line_id, part_id, description FROM document_lines WHERE document_id = ? AND po_line_id IS NOT NULL ORDER BY position",
+    const existing = db.all<{ po_line_id: string; part_id: string | null; description: string; po_condition: string }>(
+      `SELECT dl.po_line_id, dl.part_id, dl.description, pl.condition AS po_condition FROM document_lines dl JOIN po_lines pl ON pl.id = dl.po_line_id
+       WHERE dl.document_id = ? ORDER BY dl.position`,
       [docId],
     );
     for (const old of existing) {
       if (out.some((l) => l.poLineId === old.po_line_id) || !valid(old.po_line_id)) continue;
-      const match = out.find((l) => l.kind === "part" && l.suppliedBy === "garage" && !l.poLineId &&
+      // A used purchase only onto a line that may be used; an ordinary order never onto a line sent as used.
+      const fits = (l: LineInput) => (old.po_condition === "used" ? l.condition !== "new" && !l.partId : l.condition !== "used");
+      const match = out.find((l) => l.kind === "part" && l.suppliedBy === "garage" && !l.poLineId && fits(l) &&
         (old.part_id ? l.partId === old.part_id : l.description.trim() === old.description));
       if (match) match.poLineId = old.po_line_id;
     }
