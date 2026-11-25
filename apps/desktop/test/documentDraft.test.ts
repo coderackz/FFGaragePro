@@ -31,4 +31,17 @@ describe("what's typed and what was saved", () => {
     expect(mergeSavedLines([l()], [l(), l()])).toBeNull();
     expect(mergeSavedLines([l({ details: "a" })], [l({ details: "b" })])).toBeNull();
   });
+
+  it("used parts are sent as used, and never with a part, units or Fleet Fix's supply", () => {
+    const used = l({ kind: "part", condition: "used", description: "Alternator", partId: "p1", unitIds: ["u1"], suppliedBy: "fleetfix", poLineId: "po" });
+    expect(sentLines([used])[0]).toMatchObject({ condition: "used", partId: null, unitIds: [], suppliedBy: "garage", poLineId: "po" });
+    expect(sentLines([l({ kind: "part" })])[0]).toMatchObject({ condition: "new" });
+    expect(sentLines([l({ condition: "used" })])[0]).toMatchObject({ kind: "labour", condition: "new" });
+  });
+
+  it("a used part bought meanwhile: its purchase and warranty come in", () => {
+    const part = l({ kind: "part", description: "Alternator", condition: "used", unit: "Pc" });
+    expect(mergeSavedLines([part], [{ ...part, id: "a", poLineId: "po", orderStatus: "received", warrantyUntil: "2026-12-03" }])?.[0])
+      .toMatchObject({ poLineId: "po", warrantyUntil: "2026-12-03" });
+  });
 });

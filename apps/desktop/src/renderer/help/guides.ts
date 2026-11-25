@@ -54,6 +54,14 @@ Use one PC as the main computer, or link the garage to Fleetfix Cloud: every PC 
     body: `## Buying parts
 - Purchases: raise a purchase order to a supplier, send it, then receive the goods with the supplier's invoice number. Stock goes up at the price paid.
 - Parts bought for one job can be received straight onto its job card.
+- VAT starts at 0 for a supplier with no TRN saved. Save the TRN on the supplier if they give VAT bills.
+
+## Used parts
+- Tick Used on the part line of an estimate or job card. A used part is bought for that job: it isn't in the parts list and never touches stock. "Used part" prints for the customer.
+- It waits in Purchase orders → Used parts to buy. The Owner or Accountant presses Buy used part: the seller, price, day bought, a VAT bill if there was one, and the warranty.
+- The warranty runs from the day it was bought and prints on the invoice. It turns amber on its last two days and red when it has ended.
+- A bought part taken off the job keeps its cost there, under "Bought for this job, not charged". Put it back on the job to charge it.
+- Until you record a payment to the seller, the purchase shows as owed to them.
 
 ## Stock
 - Parts shows what's on hand at average cost. Count stock and post the differences from the part's page.

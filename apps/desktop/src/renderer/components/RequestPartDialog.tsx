@@ -1,11 +1,12 @@
 import { useEffect, useState } from "react";
 import { toast } from "sonner";
-import { FLEETFIX_SUPPLIER_ID, roundFils } from "@ffgp/shared";
+import { defaultPurchaseVat, dubaiDate, FLEETFIX_SUPPLIER_ID, roundFils } from "@ffgp/shared";
 import { post } from "../lib/api";
 import { useAuth } from "../lib/auth";
 import { formatAED } from "../lib/format";
 import type { DocLine, DocumentFull, Supplier } from "../lib/types";
 import { useApi } from "../lib/useApi";
+import { PurchaseVatNote } from "./PurchaseVatNote";
 import { Button, Field, Input, Modal, MoneyInput, NumberInput, Select } from "./ui";
 
 /** Request a part on a job-card line from a supplier, or (Owner/Accountant) record that it was already bought. */
@@ -22,13 +23,16 @@ export function RequestPartDialog({ request, onClose, onDone }: {
   const [vatFils, setVatFils] = useState(0);
   const [vatTouched, setVatTouched] = useState(false);
   const [busy, setBusy] = useState(false);
+  const [on, setOn] = useState("");
+  const today = dubaiDate(new Date().toISOString());
   const net = roundFils(qty * costFils);
-  // The garage's rate until the receipt says otherwise (a shop that isn't VAT-registered charges none).
+  const supplier = suppliers.data?.suppliers.find((s) => s.id === supplierId);
+  // The garage's rate from a supplier with a TRN, none otherwise, until the receipt says something else.
   useEffect(() => {
-    if (!vatTouched) setVatFils(roundFils((net * (garage?.vatRateBp ?? 500)) / 10000));
-  }, [net, vatTouched, garage]);
+    if (!vatTouched) setVatFils(supplier ? defaultPurchaseVat(net, supplier, garage?.vatRateBp ?? 500) : 0);
+  }, [net, vatTouched, garage, supplier]);
   useEffect(() => {
-    if (request) { setSupplierId(FLEETFIX_SUPPLIER_ID); setQty(request.line.qty || 1); setBought(false); setCostFils(0); setInvoiceNo(""); setVatTouched(false); }
+    if (request) { setSupplierId(FLEETFIX_SUPPLIER_ID); setQty(request.line.qty || 1); setBought(false); setCostFils(0); setInvoiceNo(""); setVatTouched(false); setOn(dubaiDate(new Date().toISOString())); }
   }, [request]);
 
   const submit = async () => {
@@ -37,7 +41,7 @@ export function RequestPartDialog({ request, onClose, onDone }: {
     try {
       const res = await post<{ document: DocumentFull }>("/api/purchase-requests", {
         documentId: request.documentId, position: request.position, description: request.line.description.trim(), supplierId, qty,
-        ...(bought ? { alreadyBought: true, unitCostFils: costFils, vatFils, supplierInvoiceNo: invoiceNo || null } : {}),
+        ...(bought ? { alreadyBought: true, unitCostFils: costFils, vatFils, supplierInvoiceNo: invoiceNo || null, purchasedOn: on || undefined } : {}),
       });
       const line = res.document.lines[request.position];
       toast.success(bought ? "Recorded as bought" : `Added to ${line?.purchaseOrderNumber ?? "a purchase order"}`);
@@ -70,8 +74,10 @@ export function RequestPartDialog({ request, onClose, onDone }: {
           <>
             <Field label="Cost each (AED, before VAT)"><MoneyInput fils={costFils} onChange={setCostFils} aria-label="Cost each" /></Field>
             <Field label="Supplier invoice no."><Input value={invoiceNo} onChange={(e) => setInvoiceNo(e.target.value)} /></Field>
+            <Field label="Bought on"><Input type="date" value={on} max={today} onChange={(e) => setOn(e.target.value)} /></Field>
             <Field label="VAT on the receipt (AED)" hint="0 if the shop charged no VAT">
               <MoneyInput fils={vatFils} onChange={(v) => { setVatTouched(true); setVatFils(v); }} aria-label="VAT on the receipt" />
+              <PurchaseVatNote supplier={supplier} vatFils={vatFils} />
             </Field>
             <div className="self-end pb-2 text-right text-sm">
               <div className="text-zinc-500">Net {formatAED(net)}</div>

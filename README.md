@@ -34,6 +34,11 @@ and margin (Owner and Accountant only). Parts list import from CSV.
   a job card (counter sale) takes its parts when issued. Estimates never move stock. Stock may go below zero (warned).
 - **Request part** on a job-card line adds it to that supplier's draft purchase order; "Already bought" records a
   cash purchase in one step. Receiving puts shelf parts on the shelf and charges per-job parts to their job.
+- **Used parts:** "Used" on a part line means bought for that job, never stocked. *Used parts to buy* lists those without a
+  purchase; "Buy used part" records the seller, price, day, VAT bill (none by default) and warranty as a one-line purchase
+  order already received. The warranty runs from the day bought and prints on the invoice. What was bought for a job and
+  isn't on its lines shows as "Bought for this job, not charged" and stays in the job's cost. Purchase VAT starts at 0 for
+  a supplier without a TRN (Fleet Fix excepted).
 - **Supplied by Fleet Fix** marks a part Fleet Fix provides on its own jobs: charged at zero, never touches stock.
 - **Catalogue:** categories with their own details (Settings → Inventory), other numbers (OEM and cross-references,
   all searchable), vehicles each part fits (the job card's picker shows fitting parts first; "Fits this vehicle" adds
@@ -57,6 +62,7 @@ and margin (Owner and Accountant only). Parts list import from CSV.
     npm run e2e:catalogue                           # part with category, numbers, fitment, pack → picker "Fits" → replaced by → PO in packs
     npm run e2e:tracked                             # tyre by DOT received → kit → job card picks oldest DOTs + kit → battery found by serial
     npm run e2e:planning                            # suggested order → draft PO → min/max accepted → ABC, dead stock, valuation
+    npm run e2e:used                                # used part on an estimate → bought → taken off and put back → warranty on the invoice; purchase VAT
     npm run e2e:returns                             # delivery with cores → parts returned → cores returned/written off → battery claim replaced
     npm run e2e:fields                              # show a password → phones, plates, TRN checked → addresses in parts → old records untouched
 

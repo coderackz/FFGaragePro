@@ -5,7 +5,7 @@ import { toast } from "sonner";
 import { DEFAULT_SETTINGS, FLEETFIX_SUPPLIER_ID, poLineNetFils } from "@ffgp/shared";
 import { PartLink, PartPicker } from "../components/PartPicker";
 import { ReceiveDialog } from "../components/ReceiveDialog";
-import { Button, Card, Empty, Field, MoneyInput, NumberInput, PageHeader, Select, Spinner, StatusBadge, Table, Textarea } from "../components/ui";
+import { Badge, Button, Card, Empty, Field, MoneyInput, NumberInput, PageHeader, Select, Spinner, StatusBadge, Table, Textarea } from "../components/ui";
 import { get, patch, post } from "../lib/api";
 import { useAuth } from "../lib/auth";
 import { formatAED, formatDate, formatDateTime } from "../lib/format";
@@ -99,7 +99,7 @@ export function PurchaseOrderPage() {
     <>
       <PageHeader
         back={<Link to="/purchase-orders" className="mb-1 inline-flex items-center gap-1 text-sm text-zinc-500 hover:text-zinc-800"><ArrowLeft className="size-3.5" /> Purchase orders</Link>}
-        title={<span className="flex items-center gap-3">{po ? <span className="font-mono">{po.number}</span> : "New purchase order"}{po && <StatusBadge status={po.status} />}{dirty && <span className="text-sm font-normal text-amber-700">Unsaved changes</span>}</span>}
+        title={<span className="flex items-center gap-3">{po ? <span className="font-mono">{po.number}</span> : "New purchase order"}{po && <StatusBadge status={po.status} />}{po?.usedPart && <Badge>Used part</Badge>}{dirty && <span className="text-sm font-normal text-amber-700">Unsaved changes</span>}</span>}
         subtitle={po && `${po.supplier.name} · created ${formatDateTime(po.createdAt)}${po.createdBy ? ` by ${po.createdBy}` : ""}`}
         actions={
           <>

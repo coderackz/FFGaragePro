@@ -1,11 +1,12 @@
 import { useEffect, useMemo, useState } from "react";
 import { splitCodes, UnitCodesInput } from "./trackedFields";
 import { toast } from "sonner";
-import { poLineNetFils, roundFils } from "@ffgp/shared";
+import { defaultPurchaseVat, dubaiDate, poLineNetFils, roundFils } from "@ffgp/shared";
 import { post } from "../lib/api";
 import { useAuth } from "../lib/auth";
 import { formatAED } from "../lib/format";
 import type { PurchaseOrder } from "../lib/types";
+import { PurchaseVatNote } from "./PurchaseVatNote";
 import { Button, Field, Input, Modal, MoneyInput, NumberInput } from "./ui";
 
 interface Row {
@@ -32,14 +33,14 @@ export function ReceiveDialog({ po, open, onClose, onDone }: { po: PurchaseOrder
       const remaining = Math.round((l.qty - (l.receivedQty ?? 0)) * 1000) / 1000;
       return { poLineId: l.id!, description: l.description, remaining, qty: remaining, unitCostFils: l.unitCostFils ?? 0, packSize: l.packSize ?? null, packCostFils: l.packCostFils ?? null, tracking: l.partTracking ?? "none", codes: "", coreFils: l.coreFils ?? 0 };
     }));
-    setInvoiceNo(""); setInvoiceDate(new Date().toISOString().slice(0, 10)); setVatTouched(false);
+    setInvoiceNo(""); setInvoiceDate(dubaiDate(new Date().toISOString())); setVatTouched(false);
   }, [open, po]);
 
   // Whole packs at the PO's price: packs × the pack price, as the server works it out.
   const net = useMemo(() => rows.reduce((s, r) => s + poLineNetFils(r) + roundFils(r.qty * r.coreFils), 0), [rows]);
   useEffect(() => {
-    if (!vatTouched) setVatFils(roundFils((net * (garage?.vatRateBp ?? 500)) / 10000));
-  }, [net, vatTouched, garage]);
+    if (!vatTouched) setVatFils(defaultPurchaseVat(net, po.supplier, garage?.vatRateBp ?? 500));
+  }, [net, vatTouched, garage, po.supplier]);
   const setRow = (i: number, patch: Partial<Row>) => setRows((rs) => rs.map((r, j) => (j === i ? { ...r, ...patch } : r)));
   const over = rows.some((r) => r.qty > r.remaining);
 
@@ -88,7 +89,7 @@ export function ReceiveDialog({ po, open, onClose, onDone }: { po: PurchaseOrder
       <div className="grid grid-cols-4 gap-3">
         <Field label="Supplier invoice no."><Input value={invoiceNo} onChange={(e) => setInvoiceNo(e.target.value)} /></Field>
         <Field label="Invoice date"><Input type="date" value={invoiceDate} onChange={(e) => setInvoiceDate(e.target.value)} /></Field>
-        <Field label="VAT on invoice (AED)"><MoneyInput fils={vatFils} onChange={(v) => { setVatTouched(true); setVatFils(v); }} aria-label="VAT" /></Field>
+        <Field label="VAT on invoice (AED)"><MoneyInput fils={vatFils} onChange={(v) => { setVatTouched(true); setVatFils(v); }} aria-label="VAT" /><PurchaseVatNote supplier={po.supplier} vatFils={vatFils} /></Field>
         <div className="flex flex-col justify-end pb-2 text-right text-sm">
           <div className="text-zinc-500">Net {formatAED(net)}</div>
           <div className="font-semibold">Total {formatAED(net + vatFils)}</div>

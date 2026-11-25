@@ -3,17 +3,18 @@ import { useEffect, useMemo, useRef, useState } from "react";
 import { Link, useLocation, useNavigate, useParams, useSearchParams } from "react-router";
 import { toast } from "sonner";
 import {
-  type ApprovalInput, CONVERTS_TO, DEFAULT_SETTINGS, defaultUnit, DOC_LABELS, DOC_STATUSES, PAYMENT_METHODS, STATUS_LABELS, docTotals, promoShares, type DocType, type LineKind,
+  type ApprovalInput, CONVERTS_TO, DEFAULT_SETTINGS, defaultUnit, DOC_LABELS, DOC_STATUSES, PAYMENT_METHODS, STATUS_LABELS, docTotals, promoShares, type DocType, type LineKind, dubaiDate, formatDay, warrantyState,
 } from "@ffgp/shared";
 import { CustomerPicker } from "../components/CustomerPicker";
 import { CustomerFormModal, VehicleFormModal } from "../components/forms";
+import { BuyUsedPartDialog, type UsedPartRequest } from "../components/BuyUsedPartDialog";
 import { RequestPartDialog } from "../components/RequestPartDialog";
 import { Badge, Button, Card, Empty, Field, Input, Modal, MoneyInput, PageHeader, Select, Spinner, StatusBadge, Textarea } from "../components/ui";
 import { OdometerField, PhoneField } from "../components/fields";
 import { del, get, patch, post, put } from "../lib/api";
 import { useAuth } from "../lib/auth";
 import { PAYMENT_LABELS, formatAED, formatDate, formatDateTime } from "../lib/format";
-import type { Customer, DocLine, DocumentFull, Vehicle } from "../lib/types";
+import type { Customer, DocLine, DocumentFull, UnchargedPurchase, Vehicle } from "../lib/types";
 import { useApi } from "../lib/useApi";
 import { keepTyped, lineCounts, mergeSavedLines, sentLines } from "../lib/documentDraft";
 import { clearLocalDraft, draftKey, readLocalDraft, readyToCreate, useAutosave, writeLocalDraft } from "../lib/autosave";
@@ -121,6 +122,7 @@ function DocumentScreen() {
   const driverPhoneBefore = useRef("");
   const picked = useRef<{ customerId: string; plate?: string } | null>(null);
   const [paying, setPaying] = useState(false);
+  const [buyingUsed, setBuyingUsed] = useState<UsedPartRequest | null>(null);
   const [requesting, setRequesting] = useState<{ documentId: string; position: number; line: DocLine } | null>(null);
 
   const fromDoc = (d: DocumentFull): Draft => ({
@@ -410,6 +412,8 @@ function DocumentScreen() {
   const onConvert = () => run("convert", async () => {
     const id = await saveFirst();
     if (!id) return;
+    const unbought = type === "jobcard" ? draftRef.current.lines.find((l) => lineCounts(l) && l.kind === "part" && l.condition === "used" && !l.poLineId) : undefined;
+    if (unbought && !window.confirm(`${unbought.description.trim()} is marked used but its purchase isn't recorded. Convert anyway?`)) return;
     const res = await approval.withApproval((a) => post<{ document: DocumentFull; warning?: string }>(`/api/documents/${id}/convert`, { approval: a }));
     toast.success(`${res.document.number} created`);
     if (res.warning) toast.warning(res.warning);
@@ -420,6 +424,10 @@ function DocumentScreen() {
   const onIssue = () => run("issue", async () => {
     const id = await saveFirst();
     if (!id) return;
+    const ended = draftRef.current.lines.filter((l) => l.condition === "used" && warrantyState(l.warrantyUntil ?? null, dubaiDate(new Date().toISOString())) === "ended");
+    for (const l of ended) {
+      if (!window.confirm(`Warranty on ${l.description.trim()} ended on ${formatDay(l.warrantyUntil!)}. The invoice will print no warranty remaining.`)) return;
+    }
     if (!window.confirm("Issue this tax invoice? After issuing, it can no longer be edited.")) return;
     // Over the customer's credit limit: a warning, a refusal, or the Owner's approval (Settings → Customers & credit).
     const issue = (a: unknown, promoOverride?: boolean) => post<{ document: DocumentFull; warning?: string }>(`/api/documents/${id}/issue`, { approval: a, promoOverride });
@@ -492,6 +500,33 @@ function DocumentScreen() {
     if (!id || position < 0) return;
     setRequesting({ documentId: id, position, line });
   });
+
+  /** The same for "Buy used part". */
+  const onBuyUsed = (i: number) => run("buy-used", async () => {
+    const line = draft.lines[i]!;
+    const position = cleanLines().indexOf(line);
+    const id = await saveFirst();
+    if (!id || position < 0) return;
+    setBuyingUsed({ documentId: id, position, line: { description: line.description, qty: line.qty } });
+  });
+
+  /** A part bought for this job and not shelf stock: taking it off doesn't undo its purchase. */
+  const onRemoveLine = (i: number) => {
+    const line = draft.lines[i]!;
+    if (line.orderStatus === "received" && !line.partStocked && !window.confirm("This part was bought for this job. Its cost stays on the job.")) return false;
+    update({ lines: draft.lines.filter((_, j) => j !== i) });
+    return true;
+  };
+
+  /** What was bought and isn't charged: back on its line (more of it), or on a line of its own at no price yet. */
+  const onPutBack = (u: UnchargedPurchase) => {
+    const at = draft.lines.findIndex((l) => l.poLineId === u.poLineId);
+    update({
+      lines: at >= 0
+        ? draft.lines.map((l, j) => (j === at ? { ...l, qty: Math.round((l.qty + u.qty) * 1000) / 1000 } : l))
+        : [...draft.lines, { ...blankLine("part"), description: u.description, qty: u.qty, unitPriceFils: 0, poLineId: u.poLineId, partId: u.partId, condition: u.condition }],
+    });
+  };
 
   const onPrint = (mode: "pdf" | "print") => run(mode, async () => {
     const id = await saveFirst();
@@ -638,12 +673,29 @@ function DocumentScreen() {
             <LinesTable
               type={type} vehicleId={draft.vehicleId} lines={draft.lines} editable={editable} vatRate={vatRate} includeVat={includeVat} onChange={updateLine}
               promoFils={shareTerms && type !== "credit_note" ? promoLines.map((l) => l.promoFils ?? 0) : undefined}
-              onRemove={(i) => update({ lines: draft.lines.filter((_, j) => j !== i) })}
+              onRemove={onRemoveLine}
               onAdd={(k) => update({ lines: [...draft.lines, { ...blankLine(k, settings?.pricing.labourRateFils), discountPct: customerDetail.data?.customer.discountPct ?? 0 }] })}
               onRequest={type === "jobcard" && !isNew && editable && can("documents.edit") ? onRequest : undefined}
+              onBuyUsed={type === "jobcard" && !isNew && editable && can("purchases.manage") ? onBuyUsed : undefined}
               showCost={can("costs.view")}
             />
           </Card>
+
+          {!!doc?.uncharged?.length && (
+            <div data-testid="uncharged">
+              <Card title="Bought for this job, not charged">
+                <ul className="flex flex-col gap-2 text-sm">
+                  {doc.uncharged.map((u) => (
+                    <li key={u.poLineId} className="flex flex-wrap items-center gap-x-3 gap-y-1">
+                      <span className="min-w-0 flex-1">{u.description}{u.qty !== 1 && ` × ${u.qty}`}{u.condition === "used" && <span className="ml-2"><Badge>Used</Badge></span>}</span>
+                      {u.costFils !== undefined && <span className="tabular text-zinc-600">{formatAED(u.costFils)}</span>}
+                      {editable && <Button size="sm" disabled={dirty} onClick={() => onPutBack(u)}>Put back on the job</Button>}
+                    </li>
+                  ))}
+                </ul>
+              </Card>
+            </div>
+          )}
 
           {(editable || draft.notes) && <Card title="Notes">
             <Textarea
@@ -783,6 +835,7 @@ function DocumentScreen() {
           void customerDetail.reload();
         }}
       />
+      <BuyUsedPartDialog request={buyingUsed} onClose={() => setBuyingUsed(null)} onDone={(d) => docQuery.setData({ document: d })} />
       <RequestPartDialog request={requesting} onClose={() => setRequesting(null)} onDone={(d) => docQuery.setData({ document: d })} />
       {doc && (
         <Card title="Messages" className="mt-5" padded={false}>

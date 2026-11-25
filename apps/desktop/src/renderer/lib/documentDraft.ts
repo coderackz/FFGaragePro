@@ -5,8 +5,12 @@ export const lineCounts = (l: DocLine) => l.description.trim() !== "" || l.unitP
 
 /** The lines as they're sent to the server: blank ones dropped, text tidied. */
 export const sentLines = (lines: DocLine[]) =>
-  lines.filter(lineCounts).map(({ kind, description, details, unit, qty, unitPriceFils, discountPct, partId, suppliedBy, poLineId, unitIds }) => ({
-    kind, description: description.trim(), qty, unitPriceFils, discountPct,
+  lines.filter(lineCounts).map((l) => {
+    // A used part is bought for the job: never from the parts list, never Fleet Fix's.
+    const used = l.kind === "part" && l.condition === "used";
+    return { ...l, condition: used ? "used" as const : "new" as const, ...(used ? { partId: null, suppliedBy: "garage" as const } : {}) };
+  }).map(({ kind, description, details, unit, qty, unitPriceFils, discountPct, partId, suppliedBy, poLineId, unitIds, condition }) => ({
+    kind, description: description.trim(), qty, unitPriceFils, discountPct, condition,
     details: kind === "part" || !details?.trim() ? null : details.replace(/\s+$/, ""), unit: unit?.trim() || null,
     partId: kind === "part" ? partId ?? null : null, suppliedBy: kind === "part" ? suppliedBy ?? "garage" as const : "garage" as const, poLineId: poLineId ?? null,
     // More tyres picked than the quantity (it was lowered): the first ones picked are kept.
