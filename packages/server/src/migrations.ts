@@ -1546,6 +1546,14 @@ ALTER TABLE documents ADD COLUMN discount_confirmed_pct REAL;
       ...(t === "garage" ? [] : ["addr_emirate"]),
       ...(t === "suppliers" ? ["addr_country"] : []),
     ].map((c) => `ALTER TABLE ${t} ADD COLUMN ${c} TEXT;`)).join("\n"),
+  },  {
+    id: 28,
+    // Used parts: bought for a job, with the seller's warranty in days from the purchase. Everything before is new.
+    sql: `
+ALTER TABLE document_lines ADD COLUMN condition TEXT NOT NULL DEFAULT 'new' CHECK (condition IN ('new', 'used'));
+ALTER TABLE po_lines ADD COLUMN condition TEXT NOT NULL DEFAULT 'new' CHECK (condition IN ('new', 'used'));
+ALTER TABLE po_lines ADD COLUMN warranty_days INTEGER;
+`,
   },
 ];
 

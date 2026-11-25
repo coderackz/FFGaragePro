@@ -1,6 +1,6 @@
 import type { FastifyInstance } from "fastify";
 import {
-  type ApprovalInput, approvalSchema, can, CONVERTS_TO, creditNoteSchema, DOC_STATUSES, DOC_TYPES, docTotals, type DocType, documentCreateSchema, documentUpdateSchema, dubaiDate, dueDate, formatAED, formatDocNumber, formatNumberOf, issueSchema, type LineInput, lineSchema, lineTotals, paymentSchema, prefixOf, promoShares, type PromoTerms, discountSchema, discountPct, needsConfirmation,
+  type ApprovalInput, approvalSchema, can, CONVERTS_TO, creditNoteSchema, DOC_STATUSES, DOC_TYPES, docTotals, type DocType, documentCreateSchema, documentUpdateSchema, dubaiDate, dueDate, formatAED, formatDocNumber, formatNumberOf, issueSchema, type LineCondition, type LineInput, lineSchema, lineTotals, paymentSchema, prefixOf, promoShares, type PromoTerms, discountSchema, discountPct, needsConfirmation, warrantyUntil,
 } from "@ffgp/shared";
 import { z } from "zod";
 import { audit } from "../audit";
@@ -33,7 +33,8 @@ interface DocRow {
 interface LineRow {
   id: string; position: number; kind: string; description: string; qty: number; unit_price_fils: number;
   discount_pct: number; net_fils: number; vat_fils: number; gross_fils: number; part_id: string | null; supplied_by: string; part_name_ar?: string | null;
-  promo_fils?: number; details?: string | null; unit?: string | null;
+  promo_fils?: number; details?: string | null; unit?: string | null; condition: LineCondition;
+  po_condition?: LineCondition | null; po_warranty_days?: number | null; po_purchased_on?: string | null;
   po_line_id: string | null; part_no?: string | null; part_stocked?: number | null; part_on_hand?: number | null; part_unit?: string | null; po_qty?: number | null; po_received?: number | null; po_number?: string | null;
   po_id?: string | null; po_status?: string | null; unit_ids_json?: string; part_tracking?: string | null; part_is_kit?: number | null; kit_json?: string | null;
 }
@@ -175,16 +176,23 @@ export function documentRoutes(
 
   /**
    * A line's description and unit as they'll be stored: what was sent, or (left out by an older screen) what the
-   * line at the same position had, if it is the same line (kind and title). Part lines have no description.
+   * line at the same position had, if it is the same line (kind and title). Part lines have no description. Its
+   * condition the same way; a line linked to a used purchase is always used (and so has no part of its own).
    */
-  function keepDetails<T extends LineInput>(docId: string, lines: T[]): T[] {
-    const old = db.all<{ position: number; kind: string; description: string; details: string | null; unit: string | null }>(
-      "SELECT position, kind, description, details, unit FROM document_lines WHERE document_id = ?", [docId],
+  function keepDetails<T extends LineInput>(docId: string, lines: T[]): (T & { condition: LineCondition })[] {
+    const old = db.all<{ position: number; kind: string; description: string; details: string | null; unit: string | null; condition: LineCondition }>(
+      "SELECT position, kind, description, details, unit, condition FROM document_lines WHERE document_id = ?", [docId],
     );
     return lines.map((l, i) => {
       const was = old.find((o) => o.position === i && o.kind === l.kind && o.description.trim() === l.description.trim());
       const details = l.details !== undefined ? l.details : was?.details ?? null;
-      return { ...l, details: l.kind === "part" ? null : details, unit: l.unit !== undefined ? l.unit : was?.unit ?? null };
+      const bought = !!l.poLineId && db.get<{ condition: string }>("SELECT condition FROM po_lines WHERE id = ?", [l.poLineId])?.condition === "used";
+      const kept = l.condition ?? (l.partId || l.suppliedBy !== "garage" ? "new" : was?.condition ?? "new");
+      const condition: LineCondition = l.kind === "part" && (bought || kept === "used") ? "used" : "new";
+      return {
+        ...l, details: l.kind === "part" ? null : details, unit: l.unit !== undefined ? l.unit : was?.unit ?? null, condition,
+        ...(condition === "used" ? { partId: null, unitIds: [] } : {}),
+      };
     });
   }
 
@@ -251,12 +259,12 @@ export function documentRoutes(
       net += t.netFils; vat += t.vatFils; gross += t.grossFils;
       db.run(
         `INSERT INTO document_lines (id, document_id, position, kind, description, qty, unit_price_fils, discount_pct, net_fils, vat_fils, gross_fils,
-           part_id, supplied_by, po_line_id, promo_fils, unit_ids_json, kit_json, details, unit)
-         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+           part_id, supplied_by, po_line_id, promo_fils, unit_ids_json, kit_json, details, unit, condition)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
         [
           newId(), docId, i, line.kind, line.description, line.qty, line.unitPriceFils, line.discountPct, t.netFils, t.vatFils, t.grossFils,
-          line.partId ?? null, line.suppliedBy, line.poLineId ?? null, line.promoFils, JSON.stringify(line.unitIds ?? []), kitJsons[i] ?? null,
-          line.details ?? null, line.unit ?? null,
+          line.partId ?? null, line.suppliedBy, line.poLineId ?? null, line.promoFils, JSON.stringify(line.unitIds ?? []),
+          line.condition === "used" ? null : kitJsons[i] ?? null, line.details ?? null, line.unit ?? null, line.condition,
         ],
       );
     });
@@ -299,11 +307,20 @@ export function documentRoutes(
     return id;
   }
 
+  /** A bought used line's purchase date and warranty (no seller, no cost: every role sees these). */
+  function usedWarranty(l: LineRow) {
+    const purchasedOn = l.condition === "used" && l.po_condition === "used" ? l.po_purchased_on ?? null : null;
+    const warrantyDays = purchasedOn === null ? null : l.po_warranty_days ?? null;
+    return { purchasedOn, warrantyDays, warrantyUntil: purchasedOn === null ? null : warrantyUntil(purchasedOn, warrantyDays) };
+  }
+
   function full(id: string, user: SessionUser) {
     const d = getDoc(id);
     if (!d) throw notFound("Document not found");
     const lines = db.all<LineRow>(
-      `SELECT dl.*, p.part_no, p.name_ar AS part_name_ar, p.stocked AS part_stocked, p.tracking AS part_tracking, p.is_kit AS part_is_kit, p.on_hand AS part_on_hand, p.unit AS part_unit, pl.qty AS po_qty, pl.received_qty AS po_received, po.number AS po_number, po.id AS po_id, po.status AS po_status
+      `SELECT dl.*, p.part_no, p.name_ar AS part_name_ar, p.stocked AS part_stocked, p.tracking AS part_tracking, p.is_kit AS part_is_kit, p.on_hand AS part_on_hand, p.unit AS part_unit, pl.qty AS po_qty, pl.received_qty AS po_received, po.number AS po_number, po.id AS po_id, po.status AS po_status,
+         pl.condition AS po_condition, pl.warranty_days AS po_warranty_days,
+         (SELECT MAX(g.supplier_invoice_date) FROM goods_receipt_lines gl JOIN goods_receipts g ON g.id = gl.receipt_id WHERE gl.po_line_id = pl.id) AS po_purchased_on
        FROM document_lines dl
        LEFT JOIN parts p ON p.id = dl.part_id
        LEFT JOIN po_lines pl ON pl.id = dl.po_line_id
@@ -348,7 +365,7 @@ export function documentRoutes(
       printCount: db.get<{ n: number }>("SELECT COUNT(*) AS n FROM document_prints WHERE document_id = ?", [id])!.n,
       customer, vehicle, source, derived, creditNotes,
       lines: lines.map((l) => ({
-        id: l.id, kind: l.kind, description: l.description, details: l.details ?? null, unit: l.unit ?? null, qty: l.qty, unitPriceFils: l.unit_price_fils,
+        id: l.id, kind: l.kind, condition: l.condition, ...usedWarranty(l), description: l.description, details: l.details ?? null, unit: l.unit ?? null, qty: l.qty, unitPriceFils: l.unit_price_fils,
         discountPct: l.discount_pct, netFils: l.net_fils, vatFils: l.vat_fils, grossFils: l.gross_fils, promoFils: l.promo_fils ?? 0,
         partId: l.part_id, partNo: l.part_no ?? null, partNameAr: l.part_name_ar ?? null,
         partStocked: l.part_id ? !!l.part_stocked : null, partOnHand: l.part_id ? l.part_on_hand ?? null : null, partUnit: l.part_unit ?? null, suppliedBy: l.supplied_by, poLineId: l.po_line_id,
@@ -516,7 +533,7 @@ export function documentRoutes(
       const lines = db.all<LineRow>("SELECT * FROM document_lines WHERE document_id = ? ORDER BY position", [d.id]).map((l) => ({
         kind: l.kind as LineInput["kind"], description: l.description, qty: l.qty, unitPriceFils: l.unit_price_fils, discountPct: l.discount_pct,
         partId: l.part_id, suppliedBy: l.supplied_by as LineInput["suppliedBy"], poLineId: l.po_line_id, unitIds: unitIdsOf(l), kitJson: l.kit_json ?? null,
-        details: l.details ?? null, unit: l.unit ?? null,
+        details: l.details ?? null, unit: l.unit ?? null, condition: l.condition,
       }));
       const newDocId = insertDoc(user, { type: target, customerId: d.customer_id, vehicleId: d.vehicle_id, odometer: d.odometer, notes: d.notes, sourceId: d.id, pricesIncludeVat: !!d.prices_include_vat }, lines, target === convertsTo ? reserved : null);
       // The overall discount goes with the work, with its confirmation.
@@ -589,7 +606,7 @@ export function documentRoutes(
   type SourceLine = {
     id: string; position: number; kind: string; description: string; qty: number; unit_price_fils: number; discount_pct: number; part_id: string | null; supplied_by: string;
     part_stocked: number | null; net_fils: number; vat_fils: number; promo_fils: number; unit_ids_json?: string; kit_json?: string | null; part_is_kit?: number | null;
-    details: string | null; unit: string | null;
+    details: string | null; unit: string | null; condition: LineCondition;
   };
 
   /**
@@ -674,10 +691,10 @@ export function documentRoutes(
         if (unitIds.length && !back.length) throw badRequest("Only parts going back on the shelf take units");
         db.run(
           `INSERT INTO document_lines (id, document_id, position, kind, description, qty, unit_price_fils, discount_pct, net_fils, vat_fils, gross_fils,
-             part_id, supplied_by, source_line_id, unit_ids_json, details, unit)
-           VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+             part_id, supplied_by, source_line_id, unit_ids_json, details, unit, condition)
+           VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
           [newId(), cnId, i, line.kind, line.description, qty, line.unit_price_fils, line.discount_pct, tt.netFils, tt.vatFils, tt.grossFils,
-            line.part_id, line.supplied_by, line.id, JSON.stringify(back), line.details ?? null, line.unit ?? null],
+            line.part_id, line.supplied_by, line.id, JSON.stringify(back), line.details ?? null, line.unit ?? null, line.condition],
         );
         // Back on the shelf: the part, or a kit's parts (as the kit was when sold).
         const kit = line.kind === "part" && line.part_id && line.supplied_by === "garage" && !line.part_stocked && (line.kit_json || line.part_is_kit) ? kitPartsOf(db, line.part_id, line.kit_json) : [];
@@ -763,7 +780,7 @@ export function documentRoutes(
     db.all<LineRow>("SELECT * FROM document_lines WHERE document_id = ? ORDER BY position", [docId]).map((l) => ({
       kind: l.kind as LineInput["kind"], description: l.description, qty: l.qty, unitPriceFils: l.unit_price_fils, discountPct: l.discount_pct,
       partId: l.part_id, suppliedBy: l.supplied_by as LineInput["suppliedBy"], poLineId: l.po_line_id, unitIds: unitIdsOf(l), kitJson: l.kit_json ?? null,
-      details: l.details ?? null, unit: l.unit ?? null,
+      details: l.details ?? null, unit: l.unit ?? null, condition: l.condition,
     }));
 
   app.post<{ Params: { id: string } }>("/api/documents/:id/promo", async (req) => {
