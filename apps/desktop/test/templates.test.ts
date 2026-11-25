@@ -315,3 +315,46 @@ describe("purchase order in packs", () => {
   });
 });
 
+
+describe("used parts on prints", () => {
+  const used = (patch: object = {}) => ({
+    kind: "part" as const, description: "Alternator", qty: 1, unitPriceFils: 30000, discountPct: 0, netFils: 30000, vatFils: 1500, grossFils: 31500,
+    condition: "used" as const, poLineId: "po-line-1", purchaseOrderId: "po-1", purchaseOrderNumber: "PO-00077", costFils: 15000,
+    purchasedOn: "2026-11-26", warrantyDays: 7, warrantyUntil: "2026-12-03", ...patch,
+  });
+  const html = (type: "estimate" | "jobcard" | "invoice", patch: object = {}, line: object = {}) =>
+    renderDocumentHtml({ ...SAMPLE_DOCUMENTS[type], lines: [used(line)], ...patch }, SAMPLE_GARAGE, settings());
+
+  it("estimates, job cards and credit notes say Used part; new parts say nothing", () => {
+    for (const type of ["estimate", "jobcard"] as const) {
+      expect(html(type)).toContain("Used part");
+      expect(html(type)).not.toContain("warranty until");
+      expect(html(type, {}, { condition: "new" })).not.toContain("Used part");
+    }
+    const cn = html("invoice", { type: "credit_note" });
+    expect(cn).toContain("Used part");
+    expect(cn).not.toContain("warranty until");
+  });
+
+  it("an invoice prints the warranty, judged on the day it was issued in Dubai", () => {
+    const on = (issuedAt: string | null, line: object = {}) => html("invoice", { issuedAt, status: issuedAt ? "issued" : "draft" }, line);
+    expect(on("2026-11-27T08:00:00.000Z")).toContain("Used part, warranty until 3 Dec 2026");
+    expect(on("2026-12-03T19:59:00.000Z")).toContain("Used part, warranty until 3 Dec 2026");
+    expect(on("2026-12-03T20:01:00.000Z")).toContain("Used part, no warranty remaining");
+    expect(on("2026-11-27T08:00:00.000Z", { warrantyDays: null, warrantyUntil: null })).toMatch(/Used part, no warranty\s*[<·]/);
+    const notBought = on("2026-11-27T08:00:00.000Z", { purchasedOn: null, warrantyDays: null, warrantyUntil: null });
+    expect(notBought).toContain("Used part");
+    expect(notBought).not.toContain("warranty until");
+    expect(on(null, { purchasedOn: "2020-01-01", warrantyUntil: "2020-01-08" })).toContain("no warranty remaining");
+  });
+
+  it("Arabic only on two-language documents; never the purchase order or what it cost", () => {
+    expect(html("invoice", { language: "en" })).not.toContain("قطعة مستعملة");
+    const bi = html("invoice", { language: "en_ar", issuedAt: "2026-11-27T08:00:00.000Z" });
+    expect(bi).toContain("قطعة مستعملة، الضمان حتى 3 Dec 2026");
+    for (const h of [bi, html("jobcard"), html("estimate")]) {
+      expect(h).not.toContain("PO-00077");
+      expect(h).not.toContain("150.00");
+    }
+  });
+});

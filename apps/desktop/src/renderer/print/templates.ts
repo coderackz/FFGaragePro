@@ -1,4 +1,4 @@
-import { amountInWords, formatAED, lineTotals, type DocLanguage, type Settings } from "@ffgp/shared";
+import { amountInWords, dubaiDate, formatAED, lineTotals, usedPartText, type DocLanguage, type Settings } from "@ffgp/shared";
 import type { AgingBucket, DocumentFull, Garage, PurchaseOrder, Receipt, Statement } from "../lib/types";
 import { arabicCss, H, L, vatLabel } from "./arabic";
 
@@ -154,6 +154,11 @@ export function renderDocumentHtml(doc: DocumentFull, garage: Garage, settings: 
   // Tyres and batteries: each one's DOT, or serial and the warranty's end.
   const units = (l: DocumentFull["lines"][number]) =>
     (l.units ?? []).map((u) => (u.kind === "dot" ? `DOT ${esc(u.code)}` : `Serial ${esc(u.code)}${u.warrantyEnds ? ` · warranty to ${date(u.warrantyEnds)}` : ""}`)).join(", ");
+  // A used part always says so; an invoice with its warranty, as it stood the day it was issued (a draft: today).
+  const usedOn = dubaiDate(isInvoice && doc.issuedAt ? doc.issuedAt : new Date().toISOString());
+  const used = (l: DocumentFull["lines"][number]) =>
+    usedPartText({ condition: l.condition ?? "new", purchasedOn: l.purchasedOn ?? null, warrantyDays: l.warrantyDays ?? null }, doc.type, usedOn);
+  const usedAr = (l: DocumentFull["lines"][number]) => (bi ? arLine(used(l)?.ar) : "");
   // A line's unit beside its quantity ("2 Pc", "1.5 Hr"); without one, labour shows hours as before.
   const qty = (l: DocumentFull["lines"][number]) => (l.unit ? `${l.qty} ${esc(l.unit)}` : ds.showLabourHours && l.kind === "labour" ? `${l.qty} h` : `${l.qty}`);
   // Labour and other lines: the work in detail under the title, line breaks kept.
@@ -163,12 +168,12 @@ export function renderDocumentHtml(doc: DocumentFull, garage: Garage, settings: 
   const rows = doc.lines
     .map((l, i) => {
       if (isJob) {
-        const notes = [partNo(l), units(l), l.suppliedBy === "fleetfix" ? "Supplied by Fleet Fix" : ""].filter(Boolean).join(" · ");
-        return `<tr><td class="n">${i + 1}</td><td>${esc(l.description)}${bi ? arLine(l.partNameAr) : ""}${details(l)}${notes ? `<div class="k">${notes}</div>` : ""}</td><td>${KIND[l.kind] ?? ""}</td><td class="r">${qty(l)}</td><td class="c"><span class="box"></span></td></tr>`;
+        const notes = [partNo(l), units(l), used(l)?.en ?? "", l.suppliedBy === "fleetfix" ? "Supplied by Fleet Fix" : ""].filter(Boolean).join(" · ");
+        return `<tr><td class="n">${i + 1}</td><td>${esc(l.description)}${bi ? arLine(l.partNameAr) : ""}${details(l)}${notes ? `<div class="k">${notes}</div>` : ""}${usedAr(l)}</td><td>${KIND[l.kind] ?? ""}</td><td class="r">${qty(l)}</td><td class="c"><span class="box"></span></td></tr>`;
       }
       const t = shownLineTotals(doc, l, garage.vatRateBp);
-      const notes = [KIND[l.kind] ?? "", partNo(l), units(l), l.suppliedBy === "fleetfix" ? "Supplied by Fleet Fix" : ""].filter(Boolean).join(" · ");
-      return `<tr><td class="n">${i + 1}</td><td>${esc(l.description)}${bi ? arLine(l.partNameAr) : ""}${details(l)}<div class="k">${notes}</div></td><td class="r">${qty(l)}</td><td class="r">${money(l.unitPriceFils)}</td><td class="r">${l.discountPct ? `${l.discountPct}%` : l.promoFils ? "" : "—"}${l.promoFils ? `<div class="k">${shareLabel} −${money(l.promoFils)}</div>` : ""}</td><td class="r">${money(t.netFils)}</td><td class="r">${money(t.vatFils)}</td><td class="r b">${money(t.grossFils)}</td></tr>`;
+      const notes = [KIND[l.kind] ?? "", partNo(l), units(l), used(l)?.en ?? "", l.suppliedBy === "fleetfix" ? "Supplied by Fleet Fix" : ""].filter(Boolean).join(" · ");
+      return `<tr><td class="n">${i + 1}</td><td>${esc(l.description)}${bi ? arLine(l.partNameAr) : ""}${details(l)}<div class="k">${notes}</div>${usedAr(l)}</td><td class="r">${qty(l)}</td><td class="r">${money(l.unitPriceFils)}</td><td class="r">${l.discountPct ? `${l.discountPct}%` : l.promoFils ? "" : "—"}${l.promoFils ? `<div class="k">${shareLabel} −${money(l.promoFils)}</div>` : ""}</td><td class="r">${money(t.netFils)}</td><td class="r">${money(t.vatFils)}</td><td class="r b">${money(t.grossFils)}</td></tr>`;
     })
     .join("");
 

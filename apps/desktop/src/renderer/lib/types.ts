@@ -1,4 +1,4 @@
-import type { AddressParts, DocLanguage, DocType, LineKind, MessageLanguage, Role } from "@ffgp/shared";
+import type { AddressParts, DocLanguage, DocType, LineCondition, LineKind, MessageLanguage, Role } from "@ffgp/shared";
 export type { Contact } from "@ffgp/shared";
 
 export interface User { id: string; name: string; username: string; role: Role; active?: boolean; createdAt?: string }
@@ -43,7 +43,13 @@ export interface DocLine {
   units?: { id: string; code: string; kind?: "dot" | "serial"; warrantyEnds: string | null }[];
   partTracking?: "none" | "dot" | "serial";
   partIsKit?: boolean;
+  /** Used: bought for this job, never stocked. The rest is set by the server once it's bought. */
+  condition?: LineCondition;
+  purchasedOn?: string | null; warrantyDays?: number | null; warrantyUntil?: string | null;
 }
+export interface UnchargedPurchase { poLineId: string; partId: string | null; description: string; condition: LineCondition; qty: number; costFils?: number }
+/** A used line on an open job card whose purchase isn't recorded yet. */
+export interface UsedPartToBuy { documentId: string; documentNumber: string; position: number; description: string; qty: number; customerName: string; plate: string | null }
 /** A tyre or battery tracked one by one. */
 export interface StockUnit {
   id: string; partId?: string; code: string; status?: "in_stock" | "fitted" | "returned" | "written_off"; receivedAt?: string; fittedAt?: string | null;
@@ -71,7 +77,10 @@ export interface DocumentFull {
   creditedFils?: number; owedFils?: number; customerBalanceFils?: number;
   creditNotes?: { id: string; number: string; grossFils: number }[];
   customer: Customer; vehicle: Vehicle | null; source: DocRef | null; derived: DocRef | null;
-  lines: DocLine[]; totals: { netFils: number; vatFils: number; grossFils: number }; paidFils: number; balanceFils: number; payments: Payment[];
+  lines: DocLine[];
+  /** Bought for this job but not on its lines (cost only for roles that see costs). */
+  uncharged?: UnchargedPurchase[];
+  totals: { netFils: number; vatFils: number; grossFils: number }; paidFils: number; balanceFils: number; payments: Payment[];
   partsCostFils?: number; marginFils?: number; costPending?: boolean; uncostedLines?: number;
   promo?: { code: string; kind: "percent" | "amount"; value: number; appliesTo: "all" | "labour" | "parts"; discountFils: number } | null;
   /** The overall discount (spread over the lines like a promo); not applied while a promo code is on the document. */
@@ -141,10 +150,12 @@ export interface GoodsReceipt {
 }
 export interface PurchaseOrder {
   id: string; number: string; status: string; version: number; notes: string | null; createdAt: string; updatedAt: string; createdBy: string | null;
+  /** Every line is a used part bought for a job. */
+  usedPart?: boolean;
   supplier: Supplier; editable: boolean; lines: PoLine[]; netFils?: number; receipts?: GoodsReceipt[];
 }
 export interface PurchaseOrderSummary {
-  id: string; number: string; status: string; supplierId: string; supplierName: string; lineCount: number; createdAt: string; netFils?: number;
+  id: string; number: string; status: string; supplierId: string; supplierName: string; lineCount: number; usedPart?: boolean; createdAt: string; netFils?: number;
 }
 
 /** A payment from a customer and what it was put against (Settings Part 2). */
