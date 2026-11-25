@@ -158,9 +158,34 @@ export function costTakenFor(db: Db, docId: string, partId: string): number | nu
   return t && t.qty > 0 ? Math.round(t.costFils / t.qty) : null;
 }
 
+export interface UnchargedPurchase { poLineId: string; partId: string | null; description: string; condition: "new" | "used"; qty: number; costFils: number }
+
+/**
+ * What was bought and delivered for this document's job but isn't on its lines (taken off, or more bought than
+ * charged). Shelf parts aren't here: those go back on the shelf. The books keep these on the job too.
+ */
+export function unchargedPurchases(db: Db, docId: string): UnchargedPurchase[] {
+  const doc = db.get<ChainDoc>("SELECT id, type, source_id FROM documents WHERE id = ?", [docId]);
+  if (!doc || (doc.type !== "jobcard" && doc.type !== "invoice")) return [];
+  const jobs = chainIds(db, doc);
+  return db.all<{ id: string; part_id: string | null; description: string; condition: "new" | "used"; received_qty: number; on_lines: number; cost: number | null }>(
+    `SELECT pl.id, pl.part_id, pl.description, pl.condition, pl.received_qty,
+            (SELECT COALESCE(SUM(dl.qty), 0) FROM document_lines dl WHERE dl.document_id = ? AND dl.po_line_id = pl.id) AS on_lines,
+            (SELECT SUM(g.qty * g.unit_cost_fils) * 1.0 / SUM(g.qty) FROM goods_receipt_lines g WHERE g.po_line_id = pl.id) AS cost
+     FROM po_lines pl JOIN purchase_orders po ON po.id = pl.po_id LEFT JOIN parts p ON p.id = pl.part_id
+     WHERE pl.job_document_id IN (${inList(jobs)}) AND po.status <> 'cancelled' AND pl.received_qty > 0 AND COALESCE(p.stocked, 0) = 0
+     ORDER BY pl.created_at, pl.id`,
+    [docId, ...jobs],
+  ).flatMap((r) => {
+    const qty = round3(r.received_qty - r.on_lines);
+    return qty > 0 ? [{ poLineId: r.id, partId: r.part_id, description: r.description, condition: r.condition, qty, costFils: Math.round((r.cost ?? 0) * qty) }] : [];
+  });
+}
+
 export interface DocumentCost {
   /** Cost per line id; null while a bought-for-the-job part hasn't been received. */
   lineCosts: Map<string, number | null>;
+  /** The lines' costs, and what was bought for the job but isn't charged. */
   partsCostFils: number;
   costPending: boolean;
   /** Typed-in part lines (not from the parts list, not ordered): their cost is unknown, so margin may be high. */
@@ -178,9 +203,9 @@ export function documentCost(db: Db, docId: string): DocumentCost {
   if (!doc) return { lineCosts, partsCostFils: 0, costPending: false, uncostedLines: 0 };
   const lines = db.all<{
     id: string; kind: string; qty: number; supplied_by: string; part_id: string | null; stocked: number | null; avg_cost_fils: number | null;
-    po_line_id: string | null; po_received: number | null; po_cost: number | null; is_kit: number | null; kit_json: string | null;
+    po_line_id: string | null; condition: string; po_received: number | null; po_cost: number | null; is_kit: number | null; kit_json: string | null;
   }>(
-    `SELECT dl.id, dl.kind, dl.qty, dl.supplied_by, dl.part_id, p.stocked, p.avg_cost_fils, p.is_kit, dl.kit_json, dl.po_line_id,
+    `SELECT dl.id, dl.kind, dl.qty, dl.supplied_by, dl.part_id, p.stocked, p.avg_cost_fils, p.is_kit, dl.kit_json, dl.po_line_id, dl.condition,
             pl.received_qty AS po_received,
             (SELECT SUM(g.qty * g.unit_cost_fils) * 1.0 / SUM(g.qty) FROM goods_receipt_lines g WHERE g.po_line_id = pl.id) AS po_cost
      FROM document_lines dl LEFT JOIN parts p ON p.id = dl.part_id LEFT JOIN po_lines pl ON pl.id = dl.po_line_id
@@ -211,8 +236,8 @@ export function documentCost(db: Db, docId: string): DocumentCost {
       const unit = perUnit(l.part_id, l.avg_cost_fils ?? 0);
       // Taken at no cost: fitted before any delivery was entered, so the real cost isn't known yet.
       cost = unit > 0 ? Math.round(unit * l.qty) : null;
-    } else if (l.po_line_id || l.part_id) {
-      cost = null; // ordered but not received, or a per-job part not requested yet
+    } else if (l.po_line_id || l.part_id || l.condition === "used") {
+      cost = null; // ordered but not received, a per-job part not requested yet, or a used part not bought yet
     } else if (l.kind === "part") {
       uncosted++;
     }
@@ -220,5 +245,6 @@ export function documentCost(db: Db, docId: string): DocumentCost {
     if (cost === null) pending = true;
     else total += cost;
   }
+  total += unchargedPurchases(db, docId).reduce((s, u) => s + u.costFils, 0);
   return { lineCosts, partsCostFils: total, costPending: pending, uncostedLines: uncosted };
 }

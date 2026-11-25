@@ -11,7 +11,7 @@ import { newId, now, type Db } from "../db";
 import { badRequest, conflict, HttpError, notFound, tooManyRequests } from "../errors";
 import { recomputeInvoiceMoney, releaseOverpayment } from "../invoice-money";
 import { customerBalance } from "../ledger";
-import { checkStockAvailable, costTakenFor, documentCost, kitParts, kitPartsOf, postMovement, reconcileDocumentStock } from "../stock";
+import { checkStockAvailable, costTakenFor, documentCost, kitParts, kitPartsOf, postMovement, reconcileDocumentStock, unchargedPurchases } from "../stock";
 import { chainOf, checkLineUnits, lineUnits, returnUnits } from "../units";
 import { reserveNumber, takeNumber, type NumberSource, type Reserved } from "../numbering";
 import { getSettings } from "../settings";
@@ -375,6 +375,7 @@ export function documentRoutes(
         partTracking: l.part_id && l.part_stocked ? l.part_tracking ?? "none" : "none", partIsKit: !!l.part_is_kit,
         ...(cost ? { costFils: cost.lineCosts.get(l.id) ?? null } : {}),
       })),
+      uncharged: unchargedPurchases(db, id).map(({ costFils, ...u }) => (cost ? { ...u, costFils } : u)),
       totals: { netFils: d.net_fils, vatFils: d.vat_fils, grossFils: d.gross_fils },
       promo: d.promo_code ? { code: d.promo_code, kind: d.promo_kind, value: d.promo_value, appliesTo: d.promo_applies, discountFils: d.promo_discount_fils } : null,
       discount: discountInfo(d),

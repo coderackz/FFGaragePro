@@ -1,9 +1,9 @@
 import { join } from "node:path";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import { FLEETFIX_SUPPLIER_ID } from "@ffgp/shared";
+import { FLEETFIX_SUPPLIER_ID, SYSTEM_ACCOUNTS } from "@ffgp/shared";
 import { postPending } from "../src/books/pending";
 import { Db, newId } from "../src/db";
-import { addUser, call, createPart, makeApp, setUp, tempDir, type App } from "./helpers";
+import { addUser, call, createPart, makeApp, onHand, setUp, tempDir, type App } from "./helpers";
 
 export async function world() {
   const app = await makeApp();
@@ -244,5 +244,86 @@ describe("buying a used part", () => {
     expect((await list()).map((i: any) => i.documentId)).toEqual([c.id]);
     await call(app, "POST", `/api/documents/${c.id}/convert`, owner, {});
     expect(await list()).toEqual([]);
+  });
+});
+
+describe("a bought part's cost stays on its job", () => {
+  beforeEach(() => at("2026-11-26T08:00:00Z"));
+  afterEach(() => { vi.useRealTimers(); });
+  const doc = async (app: App, token: string, id: string) => (await call(app, "GET", `/api/documents/${id}`, token)).body.document;
+  const lines = (app: App, token: string, id: string, ls: unknown[]) => call(app, "PUT", `/api/documents/${id}/lines`, token, { lines: ls });
+
+  it("taken off the job it shows as not charged, and can be put back", async () => {
+    const { app, owner, advisor, jobCard } = await world();
+    const jc = await jobCard([USED]);
+    const bought = (await buy(app, owner, jc.id)).body.document;
+    expect(bought).toMatchObject({ uncharged: [], partsCostFils: 15000, marginFils: 15000 });
+    const poLineId = bought.lines[0].poLineId;
+    const gone = (await lines(app, owner, jc.id, [])).body.document;
+    expect(gone.uncharged).toEqual([{ poLineId, partId: null, description: "Alternator", condition: "used", qty: 1, costFils: 15000 }]);
+    expect(gone).toMatchObject({ partsCostFils: 15000, marginFils: -15000 });
+    const seen = await doc(app, advisor, jc.id);
+    expect(seen.uncharged).toEqual([{ poLineId, partId: null, description: "Alternator", condition: "used", qty: 1 }]);
+    expect(seen.partsCostFils).toBeUndefined();
+    const back = (await lines(app, owner, jc.id, [{ ...USED, unitPriceFils: 0, poLineId }])).body.document;
+    expect(back).toMatchObject({ uncharged: [], partsCostFils: 15000, lines: [{ condition: "used", costFils: 15000, warrantyUntil: "2026-12-03" }] });
+  });
+
+  it("what was bought beyond the line counts too", async () => {
+    const { app, owner, jobCard } = await world();
+    const jc = await jobCard([USED]);
+    const d = (await buy(app, owner, jc.id, { qty: 2, unitCostFils: 10000 })).body.document;
+    expect(d.uncharged).toMatchObject([{ qty: 1, costFils: 10000 }]);
+    expect(d.partsCostFils).toBe(20000);
+  });
+
+  it("taken off the invoice only, it shows on the invoice only", async () => {
+    const { app, owner, jobCard } = await world();
+    const jc = await jobCard([USED]);
+    await buy(app, owner, jc.id);
+    const inv = (await call(app, "POST", `/api/documents/${jc.id}/convert`, owner, {})).body.document;
+    expect(inv.uncharged).toEqual([]);
+    expect((await lines(app, owner, inv.id, [])).body.document.uncharged).toHaveLength(1);
+    expect((await doc(app, owner, jc.id)).uncharged).toEqual([]);
+  });
+
+  it("not bought yet: the cost is pending, also on the invoice", async () => {
+    const { app, owner, jobCard } = await world();
+    const jc = await jobCard([USED]);
+    expect(await doc(app, owner, jc.id)).toMatchObject({ costPending: true, uncostedLines: 0, lines: [{ costFils: null }] });
+    const inv = (await call(app, "POST", `/api/documents/${jc.id}/convert`, owner, {})).body.document;
+    expect(inv).toMatchObject({ costPending: true });
+  });
+
+  it("a shelf part bought for a job and taken off is back on the shelf, not on the list", async () => {
+    const { app, owner, jobCard } = await world();
+    const part = await createPart(app, owner);
+    const jc = await jobCard([{ kind: "part", description: "Oil filter", qty: 1, unitPriceFils: 3500, discountPct: 0, partId: part.id }]);
+    const res = await call(app, "POST", "/api/purchase-requests", owner, { documentId: jc.id, position: 0, supplierId: FLEETFIX_SUPPLIER_ID, qty: 1, alreadyBought: true, unitCostFils: 1000 });
+    expect(res.status).toBe(200);
+    expect((await lines(app, owner, jc.id, [])).body.document).toMatchObject({ uncharged: [], partsCostFils: 0 });
+    expect(await onHand(app, owner, part.id)).toBe(1);
+  });
+
+  it("a part only ordered (not delivered) isn't a cost", async () => {
+    const { app, owner, jobCard } = await world();
+    const jc = await jobCard([{ ...USED, condition: "new" }]);
+    await call(app, "POST", "/api/purchase-requests", owner, { documentId: jc.id, position: 0, supplierId: FLEETFIX_SUPPLIER_ID, qty: 1 });
+    expect((await lines(app, owner, jc.id, [])).body.document).toMatchObject({ uncharged: [], partsCostFils: 0 });
+  });
+
+  it("the books' cost of parts is the invoice's", async () => {
+    const { app, owner, customer } = await booksWorld("2026-11-01");
+    const jc = (await call(app, "POST", "/api/documents", owner, { type: "jobcard", customerId: customer.id, lines: [USED, { ...USED, description: "Starter" }] })).body.document;
+    await buy(app, owner, jc.id);
+    await buy(app, owner, jc.id, { position: 1, description: "Starter", unitCostFils: 9000 });
+    const d = await doc(app, owner, jc.id);
+    await lines(app, owner, jc.id, [d.lines[0]].map((l: any) => ({ ...USED, poLineId: l.poLineId })));
+    const inv = (await call(app, "POST", `/api/documents/${jc.id}/convert`, owner, {})).body.document;
+    expect((await call(app, "POST", `/api/documents/${inv.id}/issue`, owner, {})).status).toBe(200);
+    postPending(app.db);
+    const cogs = app.db.get<{ v: number }>("SELECT SUM(debit_fils - credit_fils) AS v FROM journal_lines WHERE account_id = ?", [SYSTEM_ACCOUNTS.cogs_parts.id])!.v;
+    expect(cogs).toBe(24000);
+    expect((await doc(app, owner, inv.id)).partsCostFils).toBe(24000);
   });
 });
