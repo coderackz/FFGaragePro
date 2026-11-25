@@ -1,12 +1,13 @@
 import type { FastifyInstance } from "fastify";
 import { applyAdvances } from "../payables/payments";
-import { can, formatPoNumber, poLineNetFils, poLineTotalFils, prefixOf, poSchema, poUpdateSchema, receiveSchema, requestPartSchema, roundFils } from "@ffgp/shared";
+import { can, defaultPurchaseVat, dubaiDate, formatPoNumber, poLineNetFils, poLineTotalFils, prefixOf, poSchema, poUpdateSchema, receiveSchema, requestPartSchema, roundFils, usedPurchaseSchema } from "@ffgp/shared";
 import { z } from "zod";
 import { requireAction, sessionUser, type SessionUser } from "../auth";
 import { newId, now, type Db } from "../db";
 import { page, pageLimit } from "../paging";
 import { badRequest, conflict, notFound } from "../errors";
 import { addUnits, checkIncomingCodes } from "../units";
+import { checkSeller, resolveSeller, usedPartsToBuy } from "../used";
 import { postMovement, round3 } from "../stock";
 import { orderPrice } from "../inventory/planning";
 import type { DocumentOut } from "./documents";
@@ -21,6 +22,7 @@ interface PoRow {
 interface PoLineRow {
   id: string; po_id: string; position: number; part_id: string | null; description: string; qty: number; received_qty: number;
   unit_cost_fils: number; job_document_id: string | null; pack_name?: string | null; pack_size?: number | null; pack_cost_fils?: number | null;
+  condition?: string; warranty_days?: number | null;
 }
 type PoLineInput = z.infer<typeof poSchema>["lines"][number] & { id?: string };
 type ReceiveInput = z.infer<typeof receiveSchema>;
@@ -83,16 +85,30 @@ export function purchaseRoutes(app: FastifyInstance, db: Db, docs: { full: Docum
     return id;
   }
 
-  function addLine(poId: string, input: PoLineInput): string {
+  /** A purchase's day: as typed (not later than today in Dubai), else today. */
+  function purchaseDay(typed: string | undefined): string {
+    const today = dubaiDate(now());
+    if (typed && typed > today) throw badRequest("The purchase date can't be after today");
+    return typed ?? today;
+  }
+
+  /** The VAT a purchase from this supplier starts at, when none was given. */
+  function startingVat(supplierId: string, net: number): number {
+    const s = db.get<{ trn: string | null; is_fleetfix: number }>("SELECT trn, is_fleetfix FROM suppliers WHERE id = ?", [supplierId])!;
+    return defaultPurchaseVat(net, { trn: s.trn, isFleetfix: !!s.is_fleetfix }, garage(db)?.vat_rate_bp ?? 500);
+  }
+
+  function addLine(poId: string, input: PoLineInput, used?: { warrantyDays: number | null }): string {
     checkLineRefs(input);
     const line = withPackCost(input);
     const position = (db.get<{ n: number | null }>("SELECT MAX(position) AS n FROM po_lines WHERE po_id = ?", [poId])?.n ?? -1) + 1;
     const id = newId();
     const t = now();
     db.run(
-      `INSERT INTO po_lines (id, po_id, position, part_id, description, qty, unit_cost_fils, job_document_id, pack_name, pack_size, pack_cost_fils, created_at, updated_at)
-       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
-      [id, poId, position, line.partId ?? null, line.description, line.qty, line.unitCostFils, line.jobDocumentId ?? null, line.packName ?? null, line.packSize ?? null, line.packCostFils ?? null, t, t],
+      `INSERT INTO po_lines (id, po_id, position, part_id, description, qty, unit_cost_fils, job_document_id, pack_name, pack_size, pack_cost_fils, condition, warranty_days, created_at, updated_at)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+      [id, poId, position, line.partId ?? null, line.description, line.qty, line.unitCostFils, line.jobDocumentId ?? null, line.packName ?? null, line.packSize ?? null, line.packCostFils ?? null,
+        used ? "used" : "new", used?.warrantyDays ?? null, t, t],
     );
     return id;
   }
@@ -216,9 +232,11 @@ export function purchaseRoutes(app: FastifyInstance, db: Db, docs: { full: Docum
       id: po.id, number: po.number, status: po.status, version: po.version, notes: po.notes, createdAt: po.created_at, updatedAt: po.updated_at, createdBy,
       supplier: { id: supplier.id, name: supplier.name, trn: supplier.trn, phone: supplier.phone, email: supplier.email, address: supplier.address, isFleetfix: !!supplier.is_fleetfix },
       editable: po.status === "draft",
+      usedPart: lines.length > 0 && lines.every((l) => l.condition === "used"),
       lines: lines.map((l) => ({
         id: l.id, partId: l.part_id, partNo: l.part_no, stocked: l.stocked === null ? null : !!l.stocked, description: l.description,
         qty: l.qty, receivedQty: l.received_qty, jobDocumentId: l.job_document_id, jobDocumentNumber: l.job_number,
+        condition: l.condition ?? "new", warrantyDays: l.warranty_days ?? null,
         packName: l.pack_name ?? null, packSize: l.pack_size ?? null, partTracking: l.part_id && l.stocked ? l.tracking ?? "none" : "none",
         ...(showCost ? { unitCostFils: l.unit_cost_fils, packCostFils: l.pack_cost_fils ?? null, netFils: lineTotal(l), coreFils: l.core_fils ?? 0 } : {}),
       })),
@@ -237,8 +255,9 @@ export function purchaseRoutes(app: FastifyInstance, db: Db, docs: { full: Docum
   app.get<{ Querystring: { status?: string; supplierId?: string; limit?: string } }>("/api/purchase-orders", async (req) => {
     const user = sessionUser(db, req);
     const limit = pageLimit(req.query.limit);
-    const fetched = db.all<PoRow & { supplier_name: string; line_count: number }>(
-      `SELECT po.*, s.name AS supplier_name, (SELECT COUNT(*) FROM po_lines WHERE po_id = po.id) AS line_count
+    const fetched = db.all<PoRow & { supplier_name: string; line_count: number; used_count: number }>(
+      `SELECT po.*, s.name AS supplier_name, (SELECT COUNT(*) FROM po_lines WHERE po_id = po.id) AS line_count,
+              (SELECT COUNT(*) FROM po_lines WHERE po_id = po.id AND condition = 'used') AS used_count
        FROM purchase_orders po JOIN suppliers s ON s.id = po.supplier_id
        WHERE (:status IS NULL OR po.status = :status) AND (:supplier IS NULL OR po.supplier_id = :supplier)
        ORDER BY po.created_at DESC, po.rowid DESC LIMIT :limit`,
@@ -249,6 +268,7 @@ export function purchaseRoutes(app: FastifyInstance, db: Db, docs: { full: Docum
     return {
       purchaseOrders: rows.map((r) => ({
         id: r.id, number: r.number, status: r.status, supplierId: r.supplier_id, supplierName: r.supplier_name, lineCount: r.line_count,
+        usedPart: r.line_count > 0 && r.used_count === r.line_count,
         createdAt: r.created_at, ...(showCost ? { netFils: r.net_fils } : {}),
       })),
       more,
@@ -361,11 +381,12 @@ export function purchaseRoutes(app: FastifyInstance, db: Db, docs: { full: Docum
       const doc = db.get<{ id: string; type: string; status: string }>("SELECT id, type, status FROM documents WHERE id = ?", [input.documentId]);
       if (!doc) throw notFound("Document not found");
       if (doc.type !== "jobcard" || doc.status === "converted") throw badRequest("Parts can only be requested from an open job card");
-      const line = db.get<{ id: string; kind: string; supplied_by: string; part_id: string | null; description: string; po_line_id: string | null }>(
+      const line = db.get<{ id: string; kind: string; supplied_by: string; part_id: string | null; description: string; po_line_id: string | null; condition: string }>(
         "SELECT * FROM document_lines WHERE document_id = ? AND position = ?",
         [doc.id, input.position],
       );
       if (!line || line.kind !== "part" || line.supplied_by !== "garage") throw badRequest("Only parts the garage buys can be requested");
+      if (line.condition === "used") throw badRequest("Use Buy used part");
       if (line.po_line_id) throw badRequest("This line is already requested");
       if (input.description !== undefined && input.description !== line.description) {
         throw conflict("This job card was changed on another PC. Reload it and try again.");
@@ -385,12 +406,60 @@ export function purchaseRoutes(app: FastifyInstance, db: Db, docs: { full: Docum
       updateNet(poId);
       if (input.alreadyBought) {
         const net = lineNet(input.qty, input.unitCostFils!);
-        const vatFils = input.vatFils ?? roundFils((net * (garage(db)?.vat_rate_bp ?? 500)) / 10000);
+        const vatFils = input.vatFils ?? startingVat(input.supplierId, net);
         receive(getPo(poId)!, {
-          supplierInvoiceNo: input.supplierInvoiceNo, supplierInvoiceDate: now().slice(0, 10), vatFils,
+          supplierInvoiceNo: input.supplierInvoiceNo, supplierInvoiceDate: purchaseDay(input.purchasedOn), vatFils,
           lines: [{ poLineId, qty: input.qty, unitCostFils: input.unitCostFils!, units: input.units }],
         }, user);
       }
+    });
+    return { document: docs.full(input.documentId, user) };
+  });
+
+  app.get("/api/used-parts-to-buy", async (req) => {
+    sessionUser(db, req);
+    return { items: usedPartsToBuy(db) };
+  });
+
+  /** "Buy used part": a used line of an open job card, bought for that job — its own purchase order, already received. */
+  app.post("/api/used-purchases", async (req) => {
+    const user = sessionUser(db, req);
+    requireAction(user, "purchases.manage");
+    const input = usedPurchaseSchema.parse(req.body);
+    const purchasedOn = purchaseDay(input.purchasedOn);
+    // Everything that can refuse it runs before a number is taken (on a linked PC, from the cloud's series) and again inside.
+    const usedLine = () => {
+      const doc = db.get<{ id: string; type: string; status: string }>("SELECT id, type, status FROM documents WHERE id = ?", [input.documentId]);
+      if (!doc) throw notFound("Document not found");
+      if (doc.type !== "jobcard" || doc.status === "converted") throw badRequest("Used parts are bought for an open job card");
+      const line = db.get<{ id: string; qty: number; description: string; condition: string; po_line_id: string | null }>(
+        "SELECT id, qty, description, condition, po_line_id FROM document_lines WHERE document_id = ? AND position = ?", [doc.id, input.position],
+      );
+      if (!line || line.description.trim() !== input.description) throw conflict("This job card was changed on another PC. Reload it and try again.");
+      if (line.condition !== "used") throw badRequest("Tick Used on this line first");
+      if (line.po_line_id) throw badRequest("This part is already bought");
+      if (round3(input.qty) < round3(line.qty)) throw badRequest(`Buy at least the ${line.qty} on the job card`);
+      return line;
+    };
+    usedLine();
+    checkSeller(db, input.seller, input.bill);
+    const reserved = await reserveNumber(numbers, "purchase_order");
+    db.tx(() => {
+      const line = usedLine();
+      const supplierId = resolveSeller(db, input.seller, input.bill);
+      const poId = createPo(user, supplierId, null, reserved);
+      const poLineId = addLine(poId, {
+        partId: null, description: line.description, qty: input.qty, unitCostFils: input.unitCostFils, jobDocumentId: input.documentId,
+        packName: null, packSize: null, packCostFils: null,
+      }, { warrantyDays: input.warrantyDays });
+      db.run("UPDATE document_lines SET po_line_id = ? WHERE id = ?", [poLineId, line.id]);
+      updateNet(poId);
+      receive(getPo(poId)!, {
+        supplierInvoiceNo: input.bill?.invoiceNo ?? null, supplierInvoiceDate: purchasedOn, vatFils: input.bill?.vatFils ?? 0,
+        lines: [{ poLineId, qty: input.qty, unitCostFils: input.unitCostFils, units: [] }],
+      }, user);
+      // An advance already paid to this seller goes against it.
+      applyAdvances(db, supplierId, user.id);
     });
     return { document: docs.full(input.documentId, user) };
   });

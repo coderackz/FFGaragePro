@@ -1,6 +1,7 @@
 import { join } from "node:path";
-import { describe, expect, it } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { FLEETFIX_SUPPLIER_ID } from "@ffgp/shared";
+import { postPending } from "../src/books/pending";
 import { Db, newId } from "../src/db";
 import { addUser, call, createPart, makeApp, setUp, tempDir, type App } from "./helpers";
 
@@ -14,6 +15,14 @@ export async function world() {
   return { app, owner, advisor, customer, jobCard };
 }
 export const USED = { kind: "part", description: "Alternator", qty: 1, unitPriceFils: 30000, discountPct: 0, condition: "used" };
+
+async function booksWorld(startDate: string) {
+  const app = await makeApp(undefined, { postsBooks: true });
+  const owner = await setUp(app);
+  expect((await call(app, "PUT", "/api/settings/books", owner, { startDate })).status).toBe(200);
+  const customer = (await call(app, "POST", "/api/customers", owner, { name: "Ahmed", phone: "050" })).body.customer;
+  return { app, owner, customer };
+}
 
 /** A used purchase for a job written straight to the database (the API for it has its own tests). */
 function boughtUsed(app: App, docId: string, position: number, days: number | null, on: string): string {
@@ -104,5 +113,136 @@ describe("used on document lines", () => {
     const db = new Db(file);
     expect(db.get("SELECT condition FROM document_lines")).toEqual({ condition: "new" });
     db.close();
+  });
+});
+
+const TRN = "100123456700003";
+export const buy = (app: App, token: string, documentId: string, extra: Record<string, unknown> = {}) =>
+  call(app, "POST", "/api/used-purchases", token, {
+    documentId, position: 0, description: "Alternator", qty: 1, seller: { name: "Al Sajaa Used Parts", phone: "0501234567" },
+    unitCostFils: 15000, purchasedOn: "2026-11-26", bill: null, warrantyDays: 7, ...extra,
+  });
+const at = (iso: string) => { vi.useFakeTimers({ toFake: ["Date"] }); vi.setSystemTime(new Date(iso)); };
+const receipts = (app: App) => app.db.all<{ net_fils: number; vat_fils: number; gross_fils: number; supplier_invoice_date: string; supplier_invoice_no: string | null }>("SELECT * FROM goods_receipts ORDER BY created_at, rowid");
+const sellers = (app: App) => app.db.all<{ id: string; name: string; phone: string | null; trn: string | null }>("SELECT id, name, phone, trn FROM suppliers WHERE is_fleetfix = 0 ORDER BY rowid");
+
+describe("buying a used part", () => {
+  beforeEach(() => at("2026-11-26T08:00:00Z"));
+  afterEach(() => { vi.useRealTimers(); });
+
+  it("without a VAT bill: the job gets the cost, the seller is kept, no VAT, nothing in the parts list", async () => {
+    const { app, owner, jobCard } = await world();
+    const jc = await jobCard([USED]);
+    const res = await buy(app, owner, jc.id);
+    expect(res.status).toBe(200);
+    expect(res.body.document.lines[0]).toMatchObject({ condition: "used", orderStatus: "received", costFils: 15000, purchasedOn: "2026-11-26", warrantyUntil: "2026-12-03" });
+    expect(receipts(app)).toMatchObject([{ net_fils: 15000, vat_fils: 0, gross_fils: 15000, supplier_invoice_date: "2026-11-26", supplier_invoice_no: null }]);
+    expect(sellers(app)).toMatchObject([{ name: "Al Sajaa Used Parts", phone: "0501234567", trn: null }]);
+    expect(app.db.all("SELECT * FROM parts")).toEqual([]);
+    const list = (await call(app, "GET", "/api/purchase-orders", owner)).body.purchaseOrders;
+    expect(list).toMatchObject([{ status: "received", usedPart: true, netFils: 15000 }]);
+    const po = (await call(app, "GET", `/api/purchase-orders/${list[0].id}`, owner)).body.purchaseOrder;
+    expect(po).toMatchObject({ usedPart: true, lines: [{ condition: "used", warrantyDays: 7 }] });
+  });
+
+  it("with a VAT bill: the VAT and the seller's TRN are kept; another TRN is refused", async () => {
+    const { app, owner, jobCard } = await world();
+    const jc = await jobCard([USED, USED]);
+    expect((await buy(app, owner, jc.id, { bill: { trn: TRN, invoiceNo: "A-77", vatFils: 750 } })).status).toBe(200);
+    expect(receipts(app)).toMatchObject([{ vat_fils: 750, gross_fils: 15750, supplier_invoice_no: "A-77" }]);
+    expect(sellers(app)).toMatchObject([{ trn: TRN }]);
+    const other = await buy(app, owner, jc.id, { position: 1, bill: { trn: "100999999900003", invoiceNo: "B-1", vatFils: 750 } });
+    expect(other.status).toBe(409);
+    expect(other.body.error).toBe("This seller has another TRN saved");
+    expect(receipts(app)).toHaveLength(1);
+  });
+
+  it("refuses what can't be right, and saves nothing", async () => {
+    const { app, owner, advisor, jobCard } = await world();
+    const jc = await jobCard([{ ...USED, qty: 2 }, { ...USED, description: "Belt", condition: "new" }]);
+    expect((await buy(app, advisor, jc.id, { qty: 2 })).status).toBe(403);
+    expect((await buy(app, owner, jc.id, { qty: 2, purchasedOn: "2026-11-27" })).status).toBe(400);
+    expect((await buy(app, owner, jc.id, { qty: 2, purchasedOn: "2026-02-30" })).status).toBe(400);
+    expect((await buy(app, owner, jc.id, { qty: 2, position: 1, description: "Belt" })).status).toBe(400);
+    const few = await buy(app, owner, jc.id, { qty: 1 });
+    expect(few.status).toBe(400);
+    expect(few.body.error).toBe("Buy at least the 2 on the job card");
+    expect((await buy(app, owner, jc.id, { qty: 2, description: "Starter" })).status).toBe(409);
+    expect((await buy(app, owner, jc.id, { qty: 2, seller: { supplierId: "00000000-0000-4000-8000-00000000dead" } })).status).toBe(404);
+    expect(sellers(app)).toEqual([]);
+    expect(app.db.all("SELECT * FROM purchase_orders")).toEqual([]);
+    expect((await buy(app, owner, jc.id, { qty: 2 })).status).toBe(200);
+    expect((await buy(app, owner, jc.id, { qty: 2 })).body.error).toBe("This part is already bought");
+    const open = await jobCard([USED]);
+    await call(app, "POST", `/api/documents/${open.id}/convert`, owner, {});
+    expect((await buy(app, owner, open.id)).status).toBe(400);
+    const est = await jobCard([USED], "estimate");
+    expect((await buy(app, owner, est.id)).status).toBe(400);
+  });
+
+  it("the same phone typed another way, or the same name without a phone, is the same seller", async () => {
+    const { app, owner, jobCard } = await world();
+    const jc = await jobCard([USED, USED, USED, USED]);
+    for (const [position, seller] of [
+      { name: "Al Sajaa", phone: "0501234567" }, { name: "Sajaa yard", phone: "+971 50 123 4567" }, { name: "al sajaa", phone: "" }, { name: "Other yard", phone: "" },
+    ].entries()) expect((await buy(app, owner, jc.id, { position, seller })).status).toBe(200);
+    expect(sellers(app).map((s) => s.name)).toEqual(["Al Sajaa", "Other yard"]);
+  });
+
+  it("dates are Dubai's: 2 am on the 26th is the 26th", async () => {
+    at("2026-11-25T22:30:00Z");
+    const { app, owner, jobCard } = await world();
+    const jc = await jobCard([USED, { ...USED, description: "Coolant", condition: "new" }]);
+    expect((await buy(app, owner, jc.id)).status).toBe(200);
+    const bought = (extra: object) => call(app, "POST", "/api/purchase-requests", owner, { documentId: jc.id, position: 1, supplierId: FLEETFIX_SUPPLIER_ID, qty: 1, alreadyBought: true, unitCostFils: 100, ...extra });
+    expect((await bought({ purchasedOn: "2026-11-27" })).status).toBe(400);
+    expect((await bought({})).status).toBe(200);
+    expect(receipts(app).map((r) => r.supplier_invoice_date)).toEqual(["2026-11-26", "2026-11-26"]);
+  });
+
+  it("dated in a locked month: the books take it on the first open day, keeping its date", async () => {
+    const { app, owner, customer } = await booksWorld("2026-11-01");
+    app.db.run("UPDATE settings SET value = ? WHERE key = 'books.lockDate'", [JSON.stringify("2026-11-20")]);
+    const jc = (await call(app, "POST", "/api/documents", owner, { type: "jobcard", customerId: customer.id, lines: [USED] })).body.document;
+    expect((await buy(app, owner, jc.id, { purchasedOn: "2026-11-15" })).status).toBe(200);
+    postPending(app.db);
+    expect(app.db.get("SELECT date, original_date FROM journal_entries WHERE source_type = 'goods_receipt'")).toEqual({ date: "2026-11-21", original_date: "2026-11-15" });
+  });
+
+  it("VAT left out follows the supplier's TRN", async () => {
+    const { app, owner, jobCard } = await world();
+    const supplier = async (body: object) => (await call(app, "POST", "/api/suppliers", owner, body)).body.supplier.id as string;
+    const plain = await supplier({ name: "No TRN" });
+    const registered = await supplier({ name: "With TRN", trn: TRN });
+    for (const id of [plain, registered, FLEETFIX_SUPPLIER_ID]) {
+      const jc = await jobCard([{ ...USED, condition: "new" }]);
+      expect((await call(app, "POST", "/api/purchase-requests", owner, { documentId: jc.id, position: 0, supplierId: id, qty: 1, alreadyBought: true, unitCostFils: 10000 })).status).toBe(200);
+    }
+    expect(receipts(app).map((r) => r.vat_fils)).toEqual([0, 500, 500]);
+  });
+
+  it("a used line isn't ordered with Request part", async () => {
+    const { app, owner, jobCard } = await world();
+    const jc = await jobCard([USED]);
+    const res = await call(app, "POST", "/api/purchase-requests", owner, { documentId: jc.id, position: 0, supplierId: FLEETFIX_SUPPLIER_ID, qty: 1 });
+    expect(res.status).toBe(400);
+    expect(res.body.error).toBe("Use Buy used part");
+  });
+
+  it("lists the used parts still to buy, without costs", async () => {
+    const { app, owner, advisor, jobCard } = await world();
+    const list = async () => (await call(app, "GET", "/api/used-parts-to-buy", advisor)).body.items;
+    await jobCard([USED], "estimate");
+    const a = await jobCard([{ ...USED, description: "Belt", condition: "new" }, USED]);
+    const b = await jobCard([USED]);
+    const c = await jobCard([USED]);
+    expect(await list()).toHaveLength(3);
+    const item = (await list()).find((i: any) => i.documentId === a.id);
+    expect(item).toEqual({ documentId: a.id, documentNumber: a.number, position: 1, description: "Alternator", qty: 1, customerName: "Ahmed", plate: null });
+    await buy(app, owner, a.id, { position: 1 });
+    await call(app, "PUT", `/api/documents/${b.id}/lines`, owner, { lines: [{ ...USED, condition: "new" }] });
+    expect((await list()).map((i: any) => i.documentId)).toEqual([c.id]);
+    await call(app, "POST", `/api/documents/${c.id}/convert`, owner, {});
+    expect(await list()).toEqual([]);
   });
 });
