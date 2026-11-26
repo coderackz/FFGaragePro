@@ -1,5 +1,5 @@
 import type { FastifyInstance } from "fastify";
-import { can, customerSchema, dubaiDate, samePlate, similarPlate, vehicleSchema, type CustomerInput } from "@ffgp/shared";
+import { can, customerSchema, dubaiDate, samePlate, similarPlate, VEHICLE_FILE_KINDS, vehicleFileSchema, vehicleSchema, type CustomerInput, type VehicleFileKind } from "@ffgp/shared";
 import { requireAction, sessionUser, type SessionUser } from "../auth";
 import { customerBalance, customerLedger } from "../ledger";
 import { newId, now, type Db } from "../db";
@@ -7,6 +7,7 @@ import { badRequest, conflict, forbidden, HttpError, notFound } from "../errors"
 import { resolveAddress, saveAddress, sentAddress, shownAddress, type AddressRow } from "../address";
 import { page, pageLimit } from "../paging";
 import { phoneHas, phoneSearch } from "../phones";
+import { mulkiyaOf } from "../requests";
 
 interface CustomerRow extends AddressRow {
   id: string; kind: string; name: string; phone: string | null; email: string | null; trn: string | null;
@@ -150,11 +151,47 @@ export function customerRoutes(app: FastifyInstance, db: Db): void {
     return { vehicles: rows.map(vehicleOut), more };
   });
 
+  /** One vehicle as its own screen sees it: with which Mulkiya photos it has. */
+  const vehicleFull = (v: VehicleRow) => ({ ...vehicleOut(v), mulkiya: mulkiyaOf(db, v.id) });
+
   app.get<{ Params: { id: string } }>("/api/vehicles/:id", async (req) => {
     sessionUser(db, req);
     const v = getVehicle(req.params.id);
     if (!v) throw notFound("Vehicle not found");
-    return { vehicle: vehicleOut(v) };
+    return { vehicle: vehicleFull(v) };
+  });
+
+  // The Mulkiya (registration card), front and back: taken at intake, sent to vendors only when the buyer ticks it.
+  const fileKind = (kind: string): VehicleFileKind => {
+    if (!(VEHICLE_FILE_KINDS as readonly string[]).includes(kind)) throw notFound("No such photo");
+    return kind as VehicleFileKind;
+  };
+  app.get<{ Params: { id: string; kind: string } }>("/api/vehicles/:id/files/:kind", async (req) => {
+    sessionUser(db, req);
+    const f = db.get<{ file_name: string; data_base64: string }>("SELECT file_name, data_base64 FROM vehicle_files WHERE id = ?", [`${req.params.id}:${fileKind(req.params.kind)}`]);
+    if (!f) throw notFound("No photo saved");
+    return { fileName: f.file_name, base64: f.data_base64 };
+  });
+  app.put<{ Params: { id: string; kind: string } }>("/api/vehicles/:id/files/:kind", { bodyLimit: 6 * 1024 * 1024 }, async (req) => {
+    requireAction(sessionUser(db, req), "customers.edit");
+    const kind = fileKind(req.params.kind);
+    const v = getVehicle(req.params.id);
+    if (!v) throw notFound("Vehicle not found");
+    const input = vehicleFileSchema.parse(req.body);
+    const t = now();
+    db.run(
+      `INSERT INTO vehicle_files (id, vehicle_id, kind, file_name, data_base64, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?)
+       ON CONFLICT(id) DO UPDATE SET file_name = excluded.file_name, data_base64 = excluded.data_base64, updated_at = excluded.updated_at`,
+      [`${v.id}:${kind}`, v.id, kind, input.fileName, input.base64, t, t],
+    );
+    return { vehicle: vehicleFull(v) };
+  });
+  app.delete<{ Params: { id: string; kind: string } }>("/api/vehicles/:id/files/:kind", async (req) => {
+    requireAction(sessionUser(db, req), "customers.edit");
+    const v = getVehicle(req.params.id);
+    if (!v) throw notFound("Vehicle not found");
+    db.run("DELETE FROM vehicle_files WHERE id = ?", [`${v.id}:${fileKind(req.params.kind)}`]);
+    return { vehicle: vehicleFull(v) };
   });
 
   const saveVehicle = (id: string | null, body: unknown) => {

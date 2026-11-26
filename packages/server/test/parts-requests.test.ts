@@ -197,3 +197,20 @@ describe("vendors' prices and ordering", () => {
     expect(po.quotes[0].prices).toEqual([]);
   });
 });
+
+describe("Mulkiya on the vehicle", () => {
+  it("anyone who edits customers adds, replaces, reads and removes the front and back; the vehicle says which it has", async () => {
+    const { app, advisor, vehicle } = await world();
+    const path = (kind: string) => `/api/vehicles/${vehicle.id}/files/${kind}`;
+    expect((await call(app, "PUT", path("mulkiya_front"), advisor, { fileName: "front.jpg", base64: "AAAA" })).status).toBe(200);
+    expect((await call(app, "PUT", path("mulkiya_front"), advisor, { fileName: "front2.jpg", base64: "BBBB" })).status).toBe(200);
+    expect((await call(app, "GET", path("mulkiya_front"), advisor)).body).toEqual({ fileName: "front2.jpg", base64: "BBBB" });
+    expect((await call(app, "GET", `/api/vehicles/${vehicle.id}`, advisor)).body.vehicle.mulkiya).toEqual({ front: true, back: false });
+    expect((await call(app, "PUT", path("mulkiya_back"), advisor, { fileName: "back.pdf", base64: "AAAA" })).body.error).toBe("Choose a JPEG or PNG photo");
+    expect((await call(app, "PUT", path("passport"), advisor, { fileName: "a.jpg", base64: "AAAA" })).status).toBe(404);
+    expect((await call(app, "GET", path("mulkiya_back"), advisor)).status).toBe(404);
+    expect((await call(app, "DELETE", path("mulkiya_front"), advisor)).status).toBe(200);
+    expect((await call(app, "GET", `/api/vehicles/${vehicle.id}`, advisor)).body.vehicle.mulkiya).toEqual({ front: false, back: false });
+    expect(app.db.all("SELECT id FROM vehicle_files")).toEqual([]);
+  });
+});
