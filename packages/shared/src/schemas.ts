@@ -399,7 +399,8 @@ export type UsedPurchaseInput = z.infer<typeof usedPurchaseSchema>;
 export const requestPartSchema = z.object({
   documentId: z.string().uuid(),
   position: z.number().int().min(0),
-  supplierId: z.string().uuid(),
+  /** Already bought: the shop it came from. A request has no vendor (it's chosen later); one sent anyway is ignored. */
+  supplierId: z.string().uuid().optional(),
   qty: z.number().positive().max(100000),
   /** The line's description as the requesting screen sees it; a mismatch means the job card changed meanwhile. */
   description: text(500).optional(),
@@ -412,4 +413,46 @@ export const requestPartSchema = z.object({
   purchasedOn: day.optional(),
   /** Bought now, a tracked part: each unit's DOT code or serial. */
   units: z.array(text(60).min(1)).max(1000).default([]),
+}).refine((r) => !r.alreadyBought || !!r.supplierId, { message: "Choose the supplier", path: ["supplierId"] });
+
+/** "Request parts" on a job card: every part line that can be requested, at once. */
+export const requestPartsSchema = z.object({ documentId: z.string().uuid() });
+
+/** A vendor to ask for prices: a saved one, or a new one saved now. */
+export const vendorSchema = z.union([
+  z.object({ supplierId: z.string().uuid() }),
+  z.object({ name: text().min(1, "Enter the vendor's name"), phone: optionalText(40), email: optionalText(120) }),
+]);
+export const askVendorsSchema = z.object({ vendors: z.array(vendorSchema).min(1, "Choose at least one vendor").max(10) });
+
+/** Vendors' prices on a request, per part; null = they don't have it. */
+export const quotePricesSchema = z.object({
+  prices: z.array(z.object({ supplierId: z.string().uuid(), poLineId: z.string().uuid(), unitCostFils: money.nullable() })).max(2000),
+});
+
+/** Ordering a request: the vendor chosen for each part (parts left out stay on a new request). */
+export const orderRequestSchema = z.object({
+  version: z.number().int().min(0),
+  choices: z.array(z.object({ poLineId: z.string().uuid(), supplierId: z.string().uuid() })).min(1, "Choose a vendor for at least one part").max(2000),
+});
+
+/** A message to a vendor about a purchase order or request: emailed, or a WhatsApp chat opened on this PC (logged). */
+export const vendorMessageSchema = z.object({
+  supplierId: z.string().uuid(),
+  channel: z.enum(["email", "whatsapp"]),
+  recipient: z.string().trim().min(1).max(120),
+  subject: z.string().trim().max(300).nullable().optional().transform((v) => v || null),
+  body: z.string().trim().min(1, "The message is empty").max(4000),
+  attachment: z.object({
+    fileName: z.string().trim().min(1).max(150).regex(/^[^\\/:*?"<>|]+$/, "That file name can't be used"),
+    base64: z.string().max(8_000_000, "The attachment is over 6 MB").regex(/^[A-Za-z0-9+/]*={0,2}$/),
+  }).nullable().optional().transform((v) => v ?? null),
+});
+
+export const VEHICLE_FILE_KINDS = ["mulkiya_front", "mulkiya_back"] as const;
+export type VehicleFileKind = (typeof VEHICLE_FILE_KINDS)[number];
+/** A Mulkiya photo: a JPEG or PNG, shrunk on the screen before it's sent. */
+export const vehicleFileSchema = z.object({
+  fileName: z.string().trim().min(1).max(150).regex(/\.(jpe?g|png)$/i, "Choose a JPEG or PNG photo"),
+  base64: z.string().min(1).max(4_000_000, "The photo is over 3 MB").regex(/^[A-Za-z0-9+/]*={0,2}$/, "That isn't a photo"),
 });

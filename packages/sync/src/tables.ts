@@ -18,6 +18,7 @@ export const SYNC_TABLES: SyncTable[] = [
   { name: "accounts", key: "id" },
   { name: "customers", key: "id" },
   { name: "vehicles", key: "id" },
+  { name: "vehicle_files", key: "id" },
   { name: "part_categories", key: "id" },
   { name: "parts", key: "id", derived: ["on_hand", "avg_cost_fils"] },
   { name: "part_numbers", key: "id" },
@@ -28,6 +29,9 @@ export const SYNC_TABLES: SyncTable[] = [
   { name: "documents", key: "id", derived: ["net_fils", "vat_fils", "gross_fils", "paid_fils", "credited_fils"] },
   { name: "purchase_orders", key: "id", derived: ["net_fils", "version"] },
   { name: "po_lines", key: "id", derived: ["received_qty"] },
+  // Vendors asked for prices on a request, and their prices.
+  { name: "po_quotes", key: "id" },
+  { name: "po_quote_prices", key: "id" },
   { name: "document_lines", key: "document_id", set: true },
   // Tyres and batteries one by one: after the documents and PO lines they point to.
   { name: "stock_units", key: "id" },

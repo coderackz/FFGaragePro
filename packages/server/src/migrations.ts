@@ -1556,6 +1556,71 @@ ALTER TABLE po_lines ADD COLUMN condition TEXT NOT NULL DEFAULT 'new' CHECK (con
 ALTER TABLE po_lines ADD COLUMN warranty_days INTEGER;
 `,
   },
+  {
+    id: 29,
+    // Parts requests: a purchase order may have no vendor yet (an advisor's request for a job card, job_document_id);
+    // the vendors asked for prices (po_quotes) and their price per line (po_quote_prices, NULL = not available).
+    // Ids are made from what they join (po:supplier, quote:line, vehicle:kind) so two computers never make two.
+    foreignKeysOff: ["purchase_orders", "po_lines", "goods_receipts"],
+    sql: `
+CREATE TABLE purchase_orders_new (
+  id TEXT PRIMARY KEY,
+  series TEXT NOT NULL DEFAULT '',
+  seq INTEGER NOT NULL,
+  number TEXT NOT NULL,
+  supplier_id TEXT REFERENCES suppliers(id),
+  status TEXT NOT NULL CHECK (status IN ('draft','sent','part_received','received','cancelled')),
+  notes TEXT,
+  net_fils INTEGER NOT NULL DEFAULT 0,
+  created_by TEXT REFERENCES users(id),
+  created_at TEXT NOT NULL,
+  updated_at TEXT NOT NULL,
+  version INTEGER NOT NULL DEFAULT 0,
+  job_document_id TEXT REFERENCES documents(id),
+  UNIQUE (series, seq)
+);
+INSERT INTO purchase_orders_new (id, series, seq, number, supplier_id, status, notes, net_fils, created_by, created_at, updated_at, version)
+SELECT id, series, seq, number, supplier_id, status, notes, net_fils, created_by, created_at, updated_at, version FROM purchase_orders;
+DROP TABLE purchase_orders;
+ALTER TABLE purchase_orders_new RENAME TO purchase_orders;
+CREATE INDEX purchase_orders_supplier ON purchase_orders(supplier_id, status);
+CREATE INDEX purchase_orders_job ON purchase_orders(job_document_id, status);
+
+CREATE TABLE po_quotes (
+  id TEXT PRIMARY KEY,
+  po_id TEXT NOT NULL REFERENCES purchase_orders(id),
+  supplier_id TEXT NOT NULL REFERENCES suppliers(id),
+  asked_at TEXT,
+  created_by TEXT REFERENCES users(id),
+  created_at TEXT NOT NULL,
+  updated_at TEXT NOT NULL
+);
+CREATE INDEX po_quotes_po ON po_quotes(po_id);
+CREATE TABLE po_quote_prices (
+  id TEXT PRIMARY KEY,
+  quote_id TEXT NOT NULL REFERENCES po_quotes(id),
+  po_line_id TEXT NOT NULL REFERENCES po_lines(id),
+  unit_cost_fils INTEGER,
+  created_at TEXT NOT NULL,
+  updated_at TEXT NOT NULL
+);
+CREATE INDEX po_quote_prices_quote ON po_quote_prices(quote_id);
+
+CREATE TABLE vehicle_files (
+  id TEXT PRIMARY KEY,
+  vehicle_id TEXT NOT NULL REFERENCES vehicles(id),
+  kind TEXT NOT NULL CHECK (kind IN ('mulkiya_front', 'mulkiya_back')),
+  file_name TEXT NOT NULL,
+  data_base64 TEXT NOT NULL,
+  created_at TEXT NOT NULL,
+  updated_at TEXT NOT NULL
+);
+CREATE INDEX vehicle_files_vehicle ON vehicle_files(vehicle_id);
+
+ALTER TABLE messages ADD COLUMN po_id TEXT;
+ALTER TABLE messages ADD COLUMN supplier_id TEXT;
+`,
+  },
 ];
 
 /** The newest migration this code knows: the garage database's schema version. */
