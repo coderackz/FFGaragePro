@@ -188,8 +188,8 @@ export function StatusBadge({ status }: { status: string }) {
   );
 }
 
-export function Badge({ children, tone = "zinc" }: { children: ReactNode; tone?: "zinc" | "brand" | "red" }) {
-  const tones = { zinc: "bg-zinc-100 text-zinc-700", brand: "bg-brand-50 text-brand-700 ring-1 ring-inset ring-brand/50", red: "bg-red-50 text-red-700" };
+export function Badge({ children, tone = "zinc" }: { children: ReactNode; tone?: "zinc" | "brand" | "red" | "amber" }) {
+  const tones = { zinc: "bg-zinc-100 text-zinc-700", brand: "bg-brand-50 text-brand-700 ring-1 ring-inset ring-brand/50", red: "bg-red-50 text-red-700", amber: "bg-amber-50 text-amber-800" };
   return <span className={clsx("inline-flex items-center rounded px-1.5 py-0.5 text-xs font-medium", tones[tone])}>{children}</span>;
 }
 

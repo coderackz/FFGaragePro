@@ -1,4 +1,4 @@
-import { ArrowLeft, ArrowRight, Banknote, CircleCheck, FileDown, FileMinus, Printer, Send } from "lucide-react";
+import { ArrowLeft, ArrowRight, Banknote, CircleCheck, FileDown, FileMinus, PackagePlus, Printer, Send } from "lucide-react";
 import { useEffect, useMemo, useRef, useState } from "react";
 import { Link, useLocation, useNavigate, useParams, useSearchParams } from "react-router";
 import { toast } from "sonner";
@@ -8,7 +8,7 @@ import {
 import { CustomerPicker } from "../components/CustomerPicker";
 import { CustomerFormModal, VehicleFormModal } from "../components/forms";
 import { BuyUsedPartDialog, type UsedPartRequest } from "../components/BuyUsedPartDialog";
-import { RequestPartDialog } from "../components/RequestPartDialog";
+import { AlreadyBoughtDialog } from "../components/AlreadyBoughtDialog";
 import { Badge, Button, Card, Empty, Field, Input, Modal, MoneyInput, PageHeader, Select, Spinner, StatusBadge, Textarea } from "../components/ui";
 import { OdometerField, PhoneField } from "../components/fields";
 import { del, get, patch, post, put } from "../lib/api";
@@ -492,8 +492,33 @@ function DocumentScreen() {
     toast.success("Payment taken back off — it's now the customer's credit");
   });
 
-  /** Saves first if needed, then opens "Request part" for the line (positions are counted after blank lines are dropped). */
+  /**
+   * Saves first if needed, then requests the line: it goes on this job card's request, which the buyer prices with
+   * vendors (positions are counted after blank lines are dropped).
+   */
   const onRequest = (i: number) => run("request", async () => {
+    const line = draft.lines[i]!;
+    const position = cleanLines().indexOf(line);
+    const id = await saveFirst();
+    if (!id || position < 0) return;
+    const res = await post<{ document: DocumentFull }>("/api/purchase-requests", { documentId: id, position, description: line.description.trim(), qty: line.qty || 1 });
+    docQuery.setData(res);
+    toast.success(`Requested on ${res.document.lines[position]?.purchaseOrderNumber ?? "a purchase order"}`);
+  });
+
+  /** Every part line still to request (not shelf stock), at once. */
+  const toRequest = draft.lines.filter((l) => l.kind === "part" && l.suppliedBy !== "fleetfix" && l.condition !== "used" && !l.poLineId && l.description.trim() !== "" && !l.partStocked && !l.partIsKit);
+  const onRequestAll = () => run("request-all", async () => {
+    const id = await saveFirst();
+    if (!id) return;
+    const res = await post<{ document: DocumentFull }>("/api/purchase-requests/all", { documentId: id });
+    docQuery.setData(res);
+    const number = res.document.lines.find((l) => l.orderStatus === "requested")?.purchaseOrderNumber;
+    toast.success(`${toRequest.length === 1 ? "1 part" : `${toRequest.length} parts`} requested${number ? ` on ${number}` : ""}`);
+  });
+
+  /** Owner/Accountant: a part already bought at a shop. */
+  const onAlreadyBought = (i: number) => run("bought", async () => {
     const line = draft.lines[i]!;
     const position = cleanLines().indexOf(line);
     const id = await saveFirst();
@@ -670,13 +695,17 @@ function DocumentScreen() {
             </div>
           </Card>
 
-          <Card title={type === "jobcard" ? "Work & parts" : "Items"} padded={false}>
+          <Card title={type === "jobcard" ? "Work & parts" : "Items"} padded={false}
+            actions={type === "jobcard" && !isNew && editable && can("documents.edit") && toRequest.length > 0 && (
+              <Button size="sm" icon={<PackagePlus className="size-3.5" />} busy={busy === "request-all"} onClick={onRequestAll}>Request parts ({toRequest.length})</Button>
+            )}>
             <LinesTable
               type={type} vehicleId={draft.vehicleId} lines={draft.lines} editable={editable} vatRate={vatRate} includeVat={includeVat} onChange={updateLine}
               promoFils={shareTerms && type !== "credit_note" ? promoLines.map((l) => l.promoFils ?? 0) : undefined}
               onRemove={onRemoveLine}
               onAdd={(k) => update({ lines: [...draft.lines, { ...blankLine(k, settings?.pricing.labourRateFils), discountPct: customerDetail.data?.customer.discountPct ?? 0 }] })}
               onRequest={type === "jobcard" && !isNew && editable && can("documents.edit") ? onRequest : undefined}
+              onAlreadyBought={type === "jobcard" && !isNew && editable && can("purchases.manage") ? onAlreadyBought : undefined}
               onBuyUsed={type === "jobcard" && !isNew && editable && can("purchases.manage") ? onBuyUsed : undefined}
               showCost={can("costs.view")}
             />
@@ -837,7 +866,7 @@ function DocumentScreen() {
         }}
       />
       <BuyUsedPartDialog request={buyingUsed} onClose={() => setBuyingUsed(null)} onDone={(d) => docQuery.setData({ document: d })} />
-      <RequestPartDialog request={requesting} onClose={() => setRequesting(null)} onDone={(d) => docQuery.setData({ document: d })} />
+      <AlreadyBoughtDialog request={requesting} onClose={() => setRequesting(null)} onDone={(d) => docQuery.setData({ document: d })} />
       {doc && (
         <Card title="Messages" className="mt-5" padded={false}>
           <MessageLog documentId={doc.id} />

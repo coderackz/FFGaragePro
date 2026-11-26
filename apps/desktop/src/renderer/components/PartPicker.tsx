@@ -12,12 +12,14 @@ import { Input } from "./ui";
  * Description field for a part line. Typing searches the parts list; picking a part links the line to it
  * (stock and cost follow it). Typing without picking keeps a free-text line.
  */
-export function PartPicker({ line, onChange, onPick, priceOf, vehicleId }: {
+export function PartPicker({ line, onChange, onPick, priceOf, vehicleId, shelfHint }: {
   line: DocLine; onChange: (patch: Partial<DocLine>) => void; onPick?: (p: Part) => void;
   /** The job's vehicle: parts that fit it come first (and with nothing typed, those are offered). */
   vehicleId?: string | null;
   /** The line price for a picked part (a document whose prices include VAT adds it). Default: its selling price. */
   priceOf?: (p: Part) => number;
+  /** Job lines: a typed line that matches a shelf part with stock says so ("Use it"), never linking it by itself. */
+  shelfHint?: boolean;
 }) {
   const [open, setOpen] = useState(false);
   const [results, setResults] = useState<Part[]>([]);
@@ -27,7 +29,8 @@ export function PartPicker({ line, onChange, onPick, priceOf, vehicleId }: {
 
   useEffect(() => {
     const typed = q.trim();
-    if (!open || line.partId || (typed.length < 2 && !(typed === "" && vehicleId))) {
+    const hinting = shelfHint && !open && typed.length >= 3 && line.condition !== "used" && line.suppliedBy !== "fleetfix" && !line.poLineId;
+    if ((!open && !hinting) || line.partId || (typed.length < 2 && !(typed === "" && vehicleId))) {
       setResults([]);
       return;
     }
@@ -35,7 +38,8 @@ export function PartPicker({ line, onChange, onPick, priceOf, vehicleId }: {
     const url = `/api/parts?active=1&picker=1&q=${encodeURIComponent(typed)}${vehicleId ? `&vehicleId=${vehicleId}` : ""}`;
     get<{ parts: Part[] }>(url).then((r) => live && (setResults(r.parts.slice(0, 8)), setActive(0))).catch(() => undefined);
     return () => { live = false; };
-  }, [q, open, line.partId, vehicleId]);
+  }, [q, open, line.partId, vehicleId, shelfHint, line.condition, line.suppliedBy, line.poLineId]);
+  const onShelf = shelfHint && !open && !line.partId ? results.find((p) => p.stocked && p.onHand > 0) : undefined;
 
   useEffect(() => {
     const onDoc = (e: MouseEvent) => box.current && !box.current.contains(e.target as Node) && setOpen(false);
@@ -70,6 +74,12 @@ export function PartPicker({ line, onChange, onPick, priceOf, vehicleId }: {
           if (e.key === "Escape") setOpen(false);
         }}
       />
+      {onShelf && (
+        <div className="mt-1 flex flex-wrap items-center gap-x-2 text-xs text-emerald-800" data-testid="shelf-hint">
+          <span>On the shelf: {onShelf.name} ({onShelf.partNo}) · {onShelf.onHand}</span>
+          <button type="button" onClick={() => pick(onShelf)} className="font-medium text-brand-700 hover:underline">Use it</button>
+        </div>
+      )}
       {open && results.length > 0 && (
         <ul role="listbox" className="absolute top-full right-0 left-0 z-30 mt-1 max-h-72 overflow-y-auto rounded-md border border-zinc-200 bg-white py-1 shadow-lg">
           {results.map((p, i) => (

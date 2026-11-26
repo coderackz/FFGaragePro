@@ -288,9 +288,9 @@ export function renderPurchaseOrderHtml(po: PurchaseOrder, garage: Garage, setti
   <div class="parties">
     <div class="party">
       <h3>Supplier</h3>
-      <div class="main">${esc(s.name)}</div>
-      <div class="line">${esc([s.phone, s.email, s.address].filter(Boolean).join("\n"))}</div>
-      ${s.trn ? `<div class="line"><b>TRN:</b> ${esc(s.trn)}</div>` : ""}
+      <div class="main">${esc(s?.name ?? "Not chosen yet")}</div>
+      ${s ? `<div class="line">${esc([s.phone, s.email, s.address].filter(Boolean).join("\n"))}</div>` : ""}
+      ${s?.trn ? `<div class="line"><b>TRN:</b> ${esc(s.trn)}</div>` : ""}
     </div>
     <div class="party">
       <h3>Deliver to</h3>

@@ -39,7 +39,7 @@ export function ReceiveDialog({ po, open, onClose, onDone }: { po: PurchaseOrder
   // Whole packs at the PO's price: packs × the pack price, as the server works it out.
   const net = useMemo(() => rows.reduce((s, r) => s + poLineNetFils(r) + roundFils(r.qty * r.coreFils), 0), [rows]);
   useEffect(() => {
-    if (!vatTouched) setVatFils(defaultPurchaseVat(net, po.supplier, garage?.vatRateBp ?? 500));
+    if (!vatTouched) setVatFils(defaultPurchaseVat(net, po.supplier ?? { trn: null, isFleetfix: false }, garage?.vatRateBp ?? 500));
   }, [net, vatTouched, garage, po.supplier]);
   const setRow = (i: number, patch: Partial<Row>) => setRows((rs) => rs.map((r, j) => (j === i ? { ...r, ...patch } : r)));
   const over = rows.some((r) => r.qty > r.remaining);
@@ -89,7 +89,7 @@ export function ReceiveDialog({ po, open, onClose, onDone }: { po: PurchaseOrder
       <div className="grid grid-cols-4 gap-3">
         <Field label="Supplier invoice no."><Input value={invoiceNo} onChange={(e) => setInvoiceNo(e.target.value)} /></Field>
         <Field label="Invoice date"><Input type="date" value={invoiceDate} onChange={(e) => setInvoiceDate(e.target.value)} /></Field>
-        <Field label="VAT on invoice (AED)"><MoneyInput fils={vatFils} onChange={(v) => { setVatTouched(true); setVatFils(v); }} aria-label="VAT" /><PurchaseVatNote supplier={po.supplier} vatFils={vatFils} /></Field>
+        <Field label="VAT on invoice (AED)"><MoneyInput fils={vatFils} onChange={(v) => { setVatTouched(true); setVatFils(v); }} aria-label="VAT" /><PurchaseVatNote supplier={po.supplier ?? undefined} vatFils={vatFils} /></Field>
         <div className="flex flex-col justify-end pb-2 text-right text-sm">
           <div className="text-zinc-500">Net {formatAED(net)}</div>
           <div className="font-semibold">Total {formatAED(net + vatFils)}</div>

@@ -22,6 +22,8 @@ export interface Customer {
 export interface Vehicle {
   id: string; customerId: string; plate: string; make: string | null; model: string | null; year: number | null; vin: string | null;
   engine?: string | null; colour: string | null; odometer: number | null; createdAt: string; customerName?: string;
+  /** Which Mulkiya photos are saved. */
+  mulkiya?: { front: boolean; back: boolean };
 }
 
 export interface DocLine {
@@ -34,7 +36,7 @@ export interface DocLine {
   /** This line's share of the document's promo discount (set by the server). */
   promoFils?: number;
   partId?: string | null; partNo?: string | null; partNameAr?: string | null; partStocked?: boolean | null; partOnHand?: number | null; partUnit?: string | null;
-  suppliedBy?: "garage" | "fleetfix"; poLineId?: string | null; orderStatus?: "on_order" | "received" | null; receivedQty?: number | null;
+  suppliedBy?: "garage" | "fleetfix"; poLineId?: string | null; orderStatus?: "requested" | "on_order" | "received" | null; receivedQty?: number | null;
   purchaseOrderId?: string | null; purchaseOrderNumber?: string | null; costFils?: number | null;
   /** Set in the editor when a part was just picked: its shelf count before this line takes any. */
   pickedOnHand?: number;
@@ -143,6 +145,8 @@ export interface PoLine {
   packName?: string | null; packSize?: number | null; packCostFils?: number | null; partTracking?: "none" | "dot" | "serial";
   /** The part's core deposit per unit (charged with the delivery, owed back). */
   coreFils?: number;
+  /** Still on its job card (a part taken off the job card after it was requested isn't). */
+  onJob?: boolean;
 }
 export interface GoodsReceipt {
   id: string; supplierInvoiceNo: string | null; supplierInvoiceDate: string | null; netFils: number; vatFils: number; grossFils: number;
@@ -152,10 +156,29 @@ export interface PurchaseOrder {
   id: string; number: string; status: string; version: number; notes: string | null; createdAt: string; updatedAt: string; createdBy: string | null;
   /** Every line is a used part bought for a job. */
   usedPart?: boolean;
-  supplier: Supplier; editable: boolean; lines: PoLine[]; netFils?: number; receipts?: GoodsReceipt[];
+  /** Null: a job card's request, its vendor not chosen yet. */
+  supplier: Supplier | null; editable: boolean; lines: PoLine[]; netFils?: number; receipts?: GoodsReceipt[];
+  /** A request: the buyer asks vendors for prices, then orders. */
+  request?: boolean;
+  job?: RequestJob | null;
+  quotes?: Quote[];
+  messages?: Message[];
+}
+export interface RequestJob {
+  id: string; number: string;
+  vehicle: { id: string; plate: string; make: string | null; model: string | null; year: number | null; engine: string | null; vin: string | null; mulkiya: { front: boolean; back: boolean } } | null;
+}
+/** A vendor asked for prices on a request; prices for those who see costs (null: they don't have it). */
+export interface Quote {
+  supplierId: string; name: string; phone: string | null; email: string | null; askedAt: string | null;
+  prices?: { poLineId: string; unitCostFils: number | null }[];
+}
+export interface PartsRequest {
+  id: string; number: string; createdAt: string; jobDocumentId: string | null; jobDocumentNumber: string | null;
+  vehicle: { plate: string; make: string | null; model: string | null; year: number | null } | null; lineCount: number; asked: number; priced: number;
 }
 export interface PurchaseOrderSummary {
-  id: string; number: string; status: string; supplierId: string; supplierName: string; lineCount: number; usedPart?: boolean; createdAt: string; netFils?: number;
+  id: string; number: string; status: string; supplierId: string | null; supplierName: string | null; lineCount: number; usedPart?: boolean; createdAt: string; netFils?: number;
 }
 
 /** A payment from a customer and what it was put against (Settings Part 2). */
@@ -179,4 +202,6 @@ export interface Message {
   senderPlace: string | null; createdBy: string | null; createdAt: string; sentAt: string | null; fileName: string | null;
   /** WhatsApp Business API: what Meta reported back. */
   delivery?: "delivered" | "read" | null;
+  /** To a vendor, about this order or request. */
+  purchaseOrderId?: string | null; supplierId?: string | null;
 }

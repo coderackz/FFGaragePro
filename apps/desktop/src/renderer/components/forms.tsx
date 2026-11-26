@@ -1,10 +1,11 @@
 import { useEffect, useState, type FormEvent } from "react";
 import { toast } from "sonner";
-import { checkEmail, checkOdometer, checkPhone, checkPlate, checkTrn, checkYear, EMPTY_ADDRESS, filsToInput, parseAED } from "@ffgp/shared";
-import { patch, post } from "../lib/api";
+import { checkEmail, checkOdometer, checkPhone, checkPlate, checkTrn, checkYear, EMPTY_ADDRESS, filsToInput, parseAED, type VehicleFileKind } from "@ffgp/shared";
+import { patch, post, put } from "../lib/api";
 import { useAuth } from "../lib/auth";
 import type { Customer, Vehicle } from "../lib/types";
 import { CustomerPicker } from "./CustomerPicker";
+import { MulkiyaPhotos, type Photo } from "./MulkiyaPhotos";
 import { Button, Field, Input, Modal, MoneyInput, Select, Textarea } from "./ui";
 import { AddressFields, EmailField, firstProblem, OdometerField, PhoneField, PlateField, TrnField, VinField, YearField } from "./fields";
 
@@ -163,8 +164,11 @@ export function VehicleFormModal({ open, vehicle, customerId, title, skip, onClo
   const [form, setForm] = useState(emptyVehicle);
   const [owner, setOwner] = useState<{ id: string; name: string } | null>(null);
   const [busy, setBusy] = useState(false);
+  // A new vehicle's Mulkiya photos, saved with it.
+  const [mulkiya, setMulkiya] = useState<Partial<Record<VehicleFileKind, Photo>>>({});
   useEffect(() => {
     if (!open) return;
+    setMulkiya({});
     setForm(vehicle ? { plate: vehicle.plate, make: vehicle.make ?? "", model: vehicle.model ?? "", year: vehicle.year?.toString() ?? "", vin: vehicle.vin ?? "", engine: vehicle.engine ?? "", colour: vehicle.colour ?? "", odometer: vehicle.odometer?.toString() ?? "" } : emptyVehicle);
     setOwner(null);
   }, [open, vehicle]);
@@ -188,6 +192,7 @@ export function VehicleFormModal({ open, vehicle, customerId, title, skip, onClo
         return window.confirm(`${err.message}. Is ${form.plate} a different car?`) ? send(body) : null;
       });
       if (!res) return;
+      for (const [kind, photo] of Object.entries(mulkiya)) if (photo) await put(`/api/vehicles/${res.vehicle.id}/files/${kind}`, photo);
       toast.success(vehicle ? "Vehicle updated" : "Vehicle added");
       onSaved(res.vehicle);
       onClose();
@@ -234,6 +239,7 @@ export function VehicleFormModal({ open, vehicle, customerId, title, skip, onClo
           <Input {...f("engine")} aria-label="Engine" />
         </Field>
         <VinField label="VIN / chassis number" className="col-span-2" {...box("vin")} />
+        <MulkiyaPhotos vehicleId={vehicle?.id ?? null} pending={mulkiya} onPending={setMulkiya} />
       </form>
     </Modal>
   );

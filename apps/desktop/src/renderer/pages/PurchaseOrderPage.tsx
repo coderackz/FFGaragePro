@@ -2,7 +2,7 @@ import { ArrowLeft, Ban, FileDown, PackageCheck, Plus, Printer, Save, Send, Tras
 import { useEffect, useState } from "react";
 import { Link, useNavigate, useParams } from "react-router";
 import { toast } from "sonner";
-import { DEFAULT_SETTINGS, FLEETFIX_SUPPLIER_ID, poLineNetFils } from "@ffgp/shared";
+import { DEFAULT_SETTINGS, poLineNetFils } from "@ffgp/shared";
 import { PartLink, PartPicker } from "../components/PartPicker";
 import { ReceiveDialog } from "../components/ReceiveDialog";
 import { Badge, Button, Card, Empty, Field, MoneyInput, NumberInput, PageHeader, Select, Spinner, StatusBadge, Table, Textarea } from "../components/ui";
@@ -23,7 +23,8 @@ export function PurchaseOrderPage() {
   const poQuery = useApi<{ purchaseOrder: PurchaseOrder }>(isNew ? null : `/api/purchase-orders/${id}`);
   const po = poQuery.data?.purchaseOrder ?? null;
   const suppliers = useApi<{ suppliers: Supplier[] }>(isNew ? "/api/suppliers" : null);
-  const [supplierId, setSupplierId] = useState(FLEETFIX_SUPPLIER_ID);
+  // Nobody is preselected: the supplier is chosen every time.
+  const [supplierId, setSupplierId] = useState("");
   const [notes, setNotes] = useState("");
   const [lines, setLines] = useState<PoLine[]>([blankLine()]);
   const [dirty, setDirty] = useState(false);
@@ -63,6 +64,7 @@ export function PurchaseOrderPage() {
       })),
     };
     if (isNew) {
+      if (!supplierId) throw new Error("Choose the supplier");
       const res = await post<{ purchaseOrder: PurchaseOrder }>("/api/purchase-orders", { supplierId, notes, lines: body.lines.map(({ id: _, ...l }) => l) });
       setDirty(false);
       navigate(`/purchase-orders/${res.purchaseOrder.id}`, { replace: true });
@@ -100,7 +102,7 @@ export function PurchaseOrderPage() {
       <PageHeader
         back={<Link to="/purchase-orders" className="mb-1 inline-flex items-center gap-1 text-sm text-zinc-500 hover:text-zinc-800"><ArrowLeft className="size-3.5" /> Purchase orders</Link>}
         title={<span className="flex items-center gap-3">{po ? <span className="font-mono">{po.number}</span> : "New purchase order"}{po && <StatusBadge status={po.status} />}{po?.usedPart && <Badge>Used part</Badge>}{dirty && <span className="text-sm font-normal text-amber-700">Unsaved changes</span>}</span>}
-        subtitle={po && `${po.supplier.name} · created ${formatDateTime(po.createdAt)}${po.createdBy ? ` by ${po.createdBy}` : ""}`}
+        subtitle={po && `${po.supplier?.name ?? "Vendor not chosen yet"} · created ${formatDateTime(po.createdAt)}${po.createdBy ? ` by ${po.createdBy}` : ""}`}
         actions={
           <>
             {po && <Button icon={<Printer className="size-4" />} busy={busy === "print"} onClick={() => onPrint("print")}>Print</Button>}
@@ -116,7 +118,8 @@ export function PurchaseOrderPage() {
         {isNew && (
           <Card title="Supplier">
             <Field label="Supplier" className="max-w-sm">
-              <Select value={supplierId} onChange={(e) => setSupplierId(e.target.value)}>
+              <Select value={supplierId} onChange={(e) => setSupplierId(e.target.value)} aria-label="Supplier">
+                <option value="">Choose the supplier…</option>
                 {(suppliers.data?.suppliers ?? []).map((s) => <option key={s.id} value={s.id}>{s.name}</option>)}
               </Select>
             </Field>

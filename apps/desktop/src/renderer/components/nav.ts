@@ -52,10 +52,11 @@ export function navGroups(can: (a: Action) => boolean): NavGroup[] {
       section: "Inventory",
       items: [
         { to: "/parts", label: "Parts", icon: Package },
-        { to: "/purchase-orders", label: "Purchases", icon: ShoppingCart },
+        // Vendors are for those who buy: advisors request parts from the job card and never see who supplies them.
+        ...when(can("purchases.manage"), { to: "/purchase-orders", label: "Purchases", icon: ShoppingCart }),
         ...when(can("purchases.manage"), { to: "/reorder", label: "Reorder", icon: ClipboardList }),
         ...when(can("payables.manage"), { to: "/returns", label: "Returns & claims", icon: Undo2 }),
-        { to: "/suppliers", label: "Suppliers", icon: Truck },
+        ...when(can("purchases.manage"), { to: "/suppliers", label: "Suppliers", icon: Truck }),
       ],
     },
     {

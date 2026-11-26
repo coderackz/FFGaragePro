@@ -1,4 +1,4 @@
-import { PackagePlus, Trash2, TriangleAlert } from "lucide-react";
+import { PackagePlus, Receipt, Trash2, TriangleAlert } from "lucide-react";
 import { useMemo, useState } from "react";
 import { catalogueLinePrice, defaultUnit, dubaiDate, formatDay, LINE_KINDS, UNIT_SUGGESTIONS, warrantyState, type DocType, type LineKind } from "@ffgp/shared";
 import { PartLink, PartPicker } from "../PartPicker";
@@ -11,7 +11,7 @@ import { shownLineTotals } from "../../print/templates";
 
 export const KIND_LABELS: Record<LineKind, string> = { labour: "Labour", part: "Part", other: "Other" };
 
-export function LinesTable({ type, lines, promoFils, vehicleId, editable, vatRate, includeVat, onChange, onRemove, onRequest, onBuyUsed, onAdd, showCost }: {
+export function LinesTable({ type, lines, promoFils, vehicleId, editable, vatRate, includeVat, onChange, onRemove, onRequest, onAlreadyBought, onBuyUsed, onAdd, showCost }: {
   /** The job's vehicle: the part search puts what fits it first. */
   vehicleId?: string | null;
   /** Each line's share of the promo or discount as the lines stand now (worked out while editing, before saving). */
@@ -20,6 +20,8 @@ export function LinesTable({ type, lines, promoFils, vehicleId, editable, vatRat
   onRequest?: (i: number) => void;
   /** Records a used line's purchase (an open job card, for who may buy). */
   onBuyUsed?: (i: number) => void; showCost: boolean;
+  /** Owner/Accountant: a part already bought at a shop, recorded in one step. */
+  onAlreadyBought?: (i: number) => void;
   /** Adds a line of that kind (the buttons under the last line). */
   onAdd?: (kind: LineKind) => void;
 }) {
@@ -86,7 +88,7 @@ export function LinesTable({ type, lines, promoFils, vehicleId, editable, vatRat
                 {editable && line.kind === "part" && line.condition === "used" ? (
                   <Input value={line.description} onChange={(e) => onChange(i, { description: e.target.value })} placeholder="What to buy, e.g. Alternator" className="h-8" aria-label="Part" />
                 ) : editable && line.kind === "part" ? (
-                  <PartPicker line={line} vehicleId={vehicleId} priceOf={(p) => catalogueLinePrice(p.sellPriceFils, vatRate, includeVat)}
+                  <PartPicker line={line} vehicleId={vehicleId} shelfHint priceOf={(p) => catalogueLinePrice(p.sellPriceFils, vatRate, includeVat)}
                     onChange={(p) => onChange(i, p.partUnit !== undefined && untouched(line) ? { ...p, unit: defaultUnit("part", p.partUnit) } : p)} />
                 ) : editable ? (
                   <Input value={line.description} onChange={(e) => onChange(i, { description: e.target.value })} placeholder={line.kind === "labour" ? "e.g. Replace front brake pads" : "Description"} className="h-8" aria-label="Line title" />
@@ -105,7 +107,7 @@ export function LinesTable({ type, lines, promoFils, vehicleId, editable, vatRat
                   </button>
                 ))}
                 {hasDetails && !editable && line.details && <div className="mt-0.5 text-xs whitespace-pre-line text-zinc-600">{line.details}</div>}
-                {line.kind === "part" && <PartControls vehicleId={vehicleId} line={line} editable={editable} showCost={showCost} fitsUnits={type !== "estimate"} awaitsPurchase={type === "jobcard" || (type === "invoice" && editable)} onChange={(p) => onChange(i, p)} onRequest={onRequest && (() => onRequest(i))} onBuyUsed={onBuyUsed && (() => onBuyUsed(i))} />}
+                {line.kind === "part" && <PartControls vehicleId={vehicleId} line={line} editable={editable} showCost={showCost} fitsUnits={type !== "estimate"} awaitsPurchase={type === "jobcard" || (type === "invoice" && editable)} onChange={(p) => onChange(i, p)} onRequest={onRequest && (() => onRequest(i))} onAlreadyBought={onAlreadyBought && (() => onAlreadyBought(i))} onBuyUsed={onBuyUsed && (() => onBuyUsed(i))} />}
               </td>
               <td className="px-1.5 py-1.5 text-right tabular">
                 {editable ? <NumberInput value={line.qty} onChange={(qty) => onChange(i, { qty })} className="h-8" aria-label="Quantity" /> : <span className="leading-8">{line.qty}</span>}
@@ -154,8 +156,8 @@ function WarrantyBadge({ until }: { until: string | null }) {
 }
 
 /** The row of part details under a part line: used or new, Fleet Fix supply, order status, shelf warning, request button. */
-function PartControls({ line, editable, showCost, fitsUnits, awaitsPurchase, onChange, onRequest, onBuyUsed, vehicleId }: {
-  line: DocLine; editable: boolean; showCost: boolean; onChange: (p: Partial<DocLine>) => void; onRequest?: () => void; onBuyUsed?: () => void; vehicleId?: string | null;
+function PartControls({ line, editable, showCost, fitsUnits, awaitsPurchase, onChange, onRequest, onAlreadyBought, onBuyUsed, vehicleId }: {
+  line: DocLine; editable: boolean; showCost: boolean; onChange: (p: Partial<DocLine>) => void; onRequest?: () => void; onAlreadyBought?: () => void; onBuyUsed?: () => void; vehicleId?: string | null;
   /** Job cards and invoices fit tyres and batteries one by one; estimates don't. */
   fitsUnits: boolean;
   /** Job cards and draft invoices: where a used part not bought yet is still to be bought or its cost is pending. */
@@ -186,6 +188,7 @@ function PartControls({ line, editable, showCost, fitsUnits, awaitsPurchase, onC
           Supplied by Fleet Fix
         </label>
       ) : fleetfix ? <Badge tone="brand">Supplied by Fleet Fix</Badge> : null}
+      {line.orderStatus === "requested" && <Badge tone="amber">Requested · {line.purchaseOrderNumber}</Badge>}
       {line.orderStatus === "on_order" && <Badge tone="zinc">On order · {line.purchaseOrderNumber}</Badge>}
       {line.orderStatus === "received" && <Badge tone="brand">Received · {line.purchaseOrderNumber}</Badge>}
       {short && (
@@ -202,6 +205,11 @@ function PartControls({ line, editable, showCost, fitsUnits, awaitsPurchase, onC
       {canRequest && (
         <button type="button" onClick={onRequest} className="inline-flex items-center gap-1 font-medium text-brand-700 hover:underline">
           <PackagePlus className="size-3.5" />Request part
+        </button>
+      )}
+      {canRequest && onAlreadyBought && (
+        <button type="button" onClick={onAlreadyBought} className="inline-flex items-center gap-1 text-zinc-600 hover:text-zinc-900 hover:underline">
+          <Receipt className="size-3.5" />Already bought
         </button>
       )}
       {fitsUnits && !fleetfix && line.partId && line.partTracking && line.partTracking !== "none" && (

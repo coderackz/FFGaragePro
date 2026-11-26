@@ -15,7 +15,7 @@ export async function printDocument(doc: DocumentFull, garage: Garage, settings:
 }
 
 export function printPurchaseOrder(po: PurchaseOrder, garage: Garage, settings: Settings, mode: "pdf" | "print"): Promise<void> {
-  return printHtml(renderPurchaseOrderHtml(po, garage, settings), `${po.number} - ${po.supplier.name}`, mode);
+  return printHtml(renderPurchaseOrderHtml(po, garage, settings), `${po.number} - ${po.supplier?.name ?? "Request"}`, mode);
 }
 
 export function printReceipt(r: Receipt, garage: Garage, settings: Settings, mode: "pdf" | "print"): Promise<void> {
