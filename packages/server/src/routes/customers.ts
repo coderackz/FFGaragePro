@@ -1,5 +1,6 @@
 import type { FastifyInstance } from "fastify";
-import { can, customerSchema, dubaiDate, samePlate, similarPlate, VEHICLE_FILE_KINDS, vehicleFileSchema, vehicleSchema, type CustomerInput, type VehicleFileKind } from "@ffgp/shared";
+import { z } from "zod";
+import { can, customerSchema, dubaiDate, MAKE_NAMES, modelsOf, nameKey, samePlate, similarPlate, VEHICLE_FILE_KINDS, vehicleFileSchema, vehicleSchema, type CustomerInput, type VehicleFileKind } from "@ffgp/shared";
 import { requireAction, sessionUser, type SessionUser } from "../auth";
 import { customerBalance, customerLedger } from "../ledger";
 import { newId, now, type Db } from "../db";
@@ -149,6 +150,70 @@ export function customerRoutes(app: FastifyInstance, db: Db): void {
     );
     const { rows, more } = page(fetched, limit);
     return { vehicles: rows.map(vehicleOut), more };
+  });
+
+  // ---- The garage's makes and models: what its vehicles and parts' fitments use (the list's spelling when it's one of
+  // the list's names, else the spelling used most). Suggested and corrected to on the screens; the owner tidies them.
+  app.get("/api/vehicle-names", async (req) => {
+    sessionUser(db, req);
+    return vehicleNames();
+  });
+
+  function vehicleNames() {
+    const rows = [
+      ...db.all<{ make: string | null; model: string | null }>("SELECT make, model FROM vehicles").map((r) => ({ ...r, vehicle: 1 })),
+      ...db.all<{ make: string | null; model: string | null }>("SELECT make, model FROM part_fitments").map((r) => ({ ...r, vehicle: 0 })),
+    ].filter((r) => nameKey(r.make));
+    /** The name to show for one key: the list's spelling, else the one used most. */
+    const pick = (listed: string[], spellings: Map<string, number>) => {
+      const k = nameKey([...spellings.keys()][0]);
+      return listed.find((n) => nameKey(n) === k) ?? [...spellings.entries()].sort((a, b) => b[1] - a[1])[0]![0];
+    };
+    const makes = new Map<string, { spellings: Map<string, number>; vehicles: number }>();
+    const models = new Map<string, { makeKey: string; spellings: Map<string, number>; vehicles: number }>();
+    const count = (m: Map<string, number>, s: string) => m.set(s, (m.get(s) ?? 0) + 1);
+    for (const r of rows) {
+      const mk = nameKey(r.make);
+      const entry = makes.get(mk) ?? { spellings: new Map(), vehicles: 0 };
+      count(entry.spellings, r.make!.trim());
+      entry.vehicles += r.vehicle;
+      makes.set(mk, entry);
+      if (!nameKey(r.model)) continue;
+      const key = `${mk}:${nameKey(r.model)}`;
+      const m = models.get(key) ?? { makeKey: mk, spellings: new Map(), vehicles: 0 };
+      count(m.spellings, r.model!.trim());
+      m.vehicles += r.vehicle;
+      models.set(key, m);
+    }
+    const makeName = new Map([...makes].map(([k, v]) => [k, pick(MAKE_NAMES, v.spellings)]));
+    const byName = (a: { name: string }, b: { name: string }) => a.name.localeCompare(b.name);
+    return {
+      makes: [...makes].map(([k, v]) => ({ name: makeName.get(k)!, vehicles: v.vehicles })).sort(byName),
+      models: [...models.values()]
+        .map((m) => ({ make: makeName.get(m.makeKey)!, name: pick(modelsOf(makeName.get(m.makeKey)!), m.spellings), vehicles: m.vehicles }))
+        .sort((a, b) => a.make.localeCompare(b.make) || a.name.localeCompare(b.name)),
+    };
+  }
+
+  /** The owner renames a make or a model (or merges one spelling into another): every vehicle and fitment with it. */
+  app.post("/api/vehicle-names/rename", async (req) => {
+    requireAction(sessionUser(db, req), "settings.manage");
+    const input = z.object({
+      kind: z.enum(["make", "model"]), make: z.string().trim().max(60).optional(),
+      from: z.string().trim().min(1).max(60), to: z.string().trim().min(1, "Enter the new name").max(60),
+    }).parse(req.body);
+    if (input.kind === "model" && !nameKey(input.make)) throw badRequest("Say which make the model is of");
+    const hit = (r: { make: string | null; model: string | null }) =>
+      input.kind === "make" ? nameKey(r.make) === nameKey(input.from) : nameKey(r.make) === nameKey(input.make) && nameKey(r.model) === nameKey(input.from);
+    const column = input.kind === "make" ? "make" : "model";
+    return db.tx(() => {
+      const t = now();
+      const vehicles = db.all<{ id: string; make: string | null; model: string | null }>("SELECT id, make, model FROM vehicles").filter(hit);
+      for (const v of vehicles) db.run(`UPDATE vehicles SET ${column} = ?, updated_at = ? WHERE id = ?`, [input.to, t, v.id]);
+      const fitments = db.all<{ id: string; make: string | null; model: string | null }>("SELECT id, make, model FROM part_fitments").filter(hit);
+      for (const f of fitments) db.run(`UPDATE part_fitments SET ${column} = ? WHERE id = ?`, [input.to, f.id]);
+      return { vehicles: vehicles.length, fitments: fitments.length, ...vehicleNames() };
+    });
   });
 
   /** One vehicle as its own screen sees it: with which Mulkiya photos it has. */
