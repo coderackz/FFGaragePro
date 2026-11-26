@@ -368,3 +368,44 @@ describe("review fixes", () => {
     expect(more).toMatchObject({ partsCostFils: 15000, costPending: true, uncharged: [], lines: [{ costFils: 15000 }] });
   });
 });
+
+describe("minor fixes", () => {
+  beforeEach(() => at("2026-11-26T08:00:00Z"));
+  afterEach(() => { vi.useRealTimers(); });
+
+  it("a phone typed for a saved seller without one is saved; one with a phone keeps it", async () => {
+    const { app, owner, jobCard } = await world();
+    const jc = await jobCard([USED, USED, USED, USED]);
+    expect((await buy(app, owner, jc.id, { position: 0, seller: { name: "Al Sajaa", phone: "" } })).status).toBe(200);
+    expect((await buy(app, owner, jc.id, { position: 1, seller: { name: "al sajaa", phone: "050 123 4567" } })).status).toBe(200);
+    expect(sellers(app)).toMatchObject([{ name: "Al Sajaa", phone: "050 123 4567" }]);
+    const yard = (await call(app, "POST", "/api/suppliers", owner, { name: "Yard Two" })).body.supplier;
+    expect((await buy(app, owner, jc.id, { position: 2, seller: { supplierId: yard.id, phone: "0507654321" } })).status).toBe(200);
+    expect((await buy(app, owner, jc.id, { position: 3, seller: { supplierId: yard.id, phone: "0500000000" } })).status).toBe(200);
+    expect(sellers(app)).toMatchObject([{ name: "Al Sajaa", phone: "050 123 4567" }, { name: "Yard Two", phone: "0507654321" }]);
+  });
+
+  it("an older screen moving lines keeps a used line used", async () => {
+    const { app, owner, jobCard } = await world();
+    const coolant = { ...USED, description: "Coolant", condition: "new" };
+    const jc = await jobCard([coolant, USED]);
+    const { condition: _c, ...older } = USED;
+    const { condition: _n, ...olderCoolant } = coolant;
+    const up = (await call(app, "PUT", `/api/documents/${jc.id}/lines`, owner, { lines: [older] })).body.document;
+    expect(up.lines.map((l: any) => [l.description, l.condition])).toEqual([["Alternator", "used"]]);
+    const down = (await call(app, "PUT", `/api/documents/${jc.id}/lines`, owner, { lines: [olderCoolant, { ...olderCoolant, description: "Belt" }, older] })).body.document;
+    expect(down.lines.map((l: any) => [l.description, l.condition])).toEqual([["Coolant", "new"], ["Belt", "new"], ["Alternator", "used"]]);
+  });
+
+  it("a line partly delivered says how many came", async () => {
+    const { app, owner, jobCard } = await world();
+    const jc = await jobCard([{ ...USED, condition: "new", qty: 2 }]);
+    await call(app, "POST", "/api/purchase-requests", owner, { documentId: jc.id, position: 0, supplierId: FLEETFIX_SUPPLIER_ID, qty: 2 });
+    const before = (await call(app, "GET", `/api/documents/${jc.id}`, owner)).body.document.lines[0];
+    expect(before).toMatchObject({ orderStatus: "on_order", receivedQty: 0 });
+    const got = await call(app, "POST", `/api/purchase-orders/${before.purchaseOrderId}/receive`, owner, { vatFils: 0, lines: [{ poLineId: before.poLineId, qty: 1, unitCostFils: 10000 }] });
+    expect(got.status).toBe(200);
+    const after = (await call(app, "GET", `/api/documents/${jc.id}`, owner)).body.document.lines[0];
+    expect(after).toMatchObject({ orderStatus: "on_order", receivedQty: 1 });
+  });
+});

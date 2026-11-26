@@ -186,8 +186,11 @@ export function documentRoutes(
     const old = db.all<{ position: number; kind: string; description: string; details: string | null; unit: string | null; condition: LineCondition }>(
       "SELECT position, kind, description, details, unit, condition FROM document_lines WHERE document_id = ?", [docId],
     );
+    const same = (o: (typeof old)[number], l: T) => o.kind === l.kind && o.description.trim() === l.description.trim();
     return lines.map((l, i) => {
-      const was = old.find((o) => o.position === i && o.kind === l.kind && o.description.trim() === l.description.trim());
+      // In its place, else moved: the only line with its text (an older screen adding or removing a line above it).
+      const moved = old.filter((o) => same(o, l));
+      const was = old.find((o) => o.position === i && same(o, l)) ?? (moved.length === 1 && lines.filter((n) => same(moved[0]!, n)).length === 1 ? moved[0] : undefined);
       const details = l.details !== undefined ? l.details : was?.details ?? null;
       const bought = !!l.poLineId && db.get<{ condition: string }>("SELECT condition FROM po_lines WHERE id = ?", [l.poLineId])?.condition === "used";
       const kept = l.condition ?? (l.partId || l.suppliedBy !== "garage" ? "new" : was?.condition ?? "new");
@@ -374,6 +377,7 @@ export function documentRoutes(
         partStocked: l.part_id ? !!l.part_stocked : null, partOnHand: l.part_id ? l.part_on_hand ?? null : null, partUnit: l.part_unit ?? null, suppliedBy: l.supplied_by, poLineId: l.po_line_id,
         purchaseOrderId: l.po_id ?? null, purchaseOrderNumber: l.po_number ?? null,
         orderStatus: !l.po_line_id || l.po_status === "cancelled" ? null : (l.po_received ?? 0) >= (l.po_qty ?? 0) ? "received" : "on_order",
+        receivedQty: !l.po_line_id || l.po_status === "cancelled" ? null : l.po_received ?? 0,
         unitIds: unitIdsOf(l), units: lineUnits(db, l.unit_ids_json),
         partTracking: l.part_id && l.part_stocked ? l.part_tracking ?? "none" : "none", partIsKit: !!l.part_is_kit,
         ...(cost ? { costFils: cost.lineCosts.get(l.id) ?? null } : {}),

@@ -34,7 +34,7 @@ export interface DocLine {
   /** This line's share of the document's promo discount (set by the server). */
   promoFils?: number;
   partId?: string | null; partNo?: string | null; partNameAr?: string | null; partStocked?: boolean | null; partOnHand?: number | null; partUnit?: string | null;
-  suppliedBy?: "garage" | "fleetfix"; poLineId?: string | null; orderStatus?: "on_order" | "received" | null;
+  suppliedBy?: "garage" | "fleetfix"; poLineId?: string | null; orderStatus?: "on_order" | "received" | null; receivedQty?: number | null;
   purchaseOrderId?: string | null; purchaseOrderNumber?: string | null; costFils?: number | null;
   /** Set in the editor when a part was just picked: its shelf count before this line takes any. */
   pickedOnHand?: number;

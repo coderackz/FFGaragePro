@@ -413,7 +413,7 @@ function DocumentScreen() {
     const id = await saveFirst();
     if (!id) return;
     const unbought = type === "jobcard" ? draftRef.current.lines.find((l) => lineCounts(l) && l.kind === "part" && l.condition === "used" && !l.poLineId) : undefined;
-    if (unbought && !window.confirm(`${unbought.description.trim()} is marked used but its purchase isn't recorded. Convert anyway?`)) return;
+    if (unbought && !window.confirm(`${unbought.description.trim()} is marked used but its purchase isn't recorded. After converting it can't be bought here, and its cost stays pending. Convert anyway?`)) return;
     const res = await approval.withApproval((a) => post<{ document: DocumentFull; warning?: string }>(`/api/documents/${id}/convert`, { approval: a }));
     toast.success(`${res.document.number} created`);
     if (res.warning) toast.warning(res.warning);
@@ -513,7 +513,8 @@ function DocumentScreen() {
   /** A part bought for this job and not shelf stock: taking it off doesn't undo its purchase. */
   const onRemoveLine = (i: number) => {
     const line = draft.lines[i]!;
-    if (line.orderStatus === "received" && !line.partStocked && !window.confirm("This part was bought for this job. Its cost stays on the job.")) return false;
+    const delivered = line.orderStatus === "received" || (line.receivedQty ?? 0) > 0;
+    if (delivered && !line.partStocked && !window.confirm("This part was bought for this job. Its cost stays on the job.")) return false;
     update({ lines: draft.lines.filter((_, j) => j !== i) });
     return true;
   };
@@ -734,7 +735,7 @@ function DocumentScreen() {
                 <div className="mt-1 flex flex-col gap-1.5 border-t border-zinc-100 pt-2" data-testid="job-cost">
                   <Row label="Parts cost" value={formatAED(doc.partsCostFils)} />
                   <Row label="Margin (before VAT)" value={formatAED(doc.marginFils ?? 0)} />
-                  {doc.costPending && <div className="text-xs text-amber-700">Some parts' cost isn't known yet (not received, or used before a delivery was entered), so it isn't counted.</div>}
+                  {doc.costPending && <div className="text-xs text-amber-700">Some parts' cost isn't known yet (not received, used parts not bought yet, or used before a delivery was entered), so it isn't counted.</div>}
                   {!!doc.uncostedLines && <div className="text-xs text-amber-700">{doc.uncostedLines} typed-in part {doc.uncostedLines === 1 ? "line has" : "lines have"} no cost — pick parts from the list so margin is right.</div>}
                 </div>
               )}

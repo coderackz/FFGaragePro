@@ -105,7 +105,7 @@ export function LinesTable({ type, lines, promoFils, vehicleId, editable, vatRat
                   </button>
                 ))}
                 {hasDetails && !editable && line.details && <div className="mt-0.5 text-xs whitespace-pre-line text-zinc-600">{line.details}</div>}
-                {line.kind === "part" && <PartControls vehicleId={vehicleId} line={line} editable={editable} showCost={showCost} fitsUnits={type !== "estimate"} onChange={(p) => onChange(i, p)} onRequest={onRequest && (() => onRequest(i))} onBuyUsed={onBuyUsed && (() => onBuyUsed(i))} />}
+                {line.kind === "part" && <PartControls vehicleId={vehicleId} line={line} editable={editable} showCost={showCost} fitsUnits={type !== "estimate"} awaitsPurchase={type === "jobcard" || (type === "invoice" && editable)} onChange={(p) => onChange(i, p)} onRequest={onRequest && (() => onRequest(i))} onBuyUsed={onBuyUsed && (() => onBuyUsed(i))} />}
               </td>
               <td className="px-1.5 py-1.5 text-right tabular">
                 {editable ? <NumberInput value={line.qty} onChange={(qty) => onChange(i, { qty })} className="h-8" aria-label="Quantity" /> : <span className="leading-8">{line.qty}</span>}
@@ -154,10 +154,12 @@ function WarrantyBadge({ until }: { until: string | null }) {
 }
 
 /** The row of part details under a part line: used or new, Fleet Fix supply, order status, shelf warning, request button. */
-function PartControls({ line, editable, showCost, fitsUnits, onChange, onRequest, onBuyUsed, vehicleId }: {
+function PartControls({ line, editable, showCost, fitsUnits, awaitsPurchase, onChange, onRequest, onBuyUsed, vehicleId }: {
   line: DocLine; editable: boolean; showCost: boolean; onChange: (p: Partial<DocLine>) => void; onRequest?: () => void; onBuyUsed?: () => void; vehicleId?: string | null;
   /** Job cards and invoices fit tyres and batteries one by one; estimates don't. */
   fitsUnits: boolean;
+  /** Job cards and draft invoices: where a used part not bought yet is still to be bought or its cost is pending. */
+  awaitsPurchase: boolean;
 }) {
   const fleetfix = line.suppliedBy === "fleetfix";
   const short = line.partStocked && !fleetfix && line.pickedOnHand !== undefined && line.qty > line.pickedOnHand;
@@ -176,7 +178,7 @@ function PartControls({ line, editable, showCost, fitsUnits, onChange, onRequest
           Used
         </label>
       ) : used ? <Badge>Used</Badge> : null}
-      {used && fitsUnits && !line.poLineId && <span className="text-amber-700">Not bought yet</span>}
+      {used && awaitsPurchase && !line.poLineId && <span className="text-amber-700">{showCost ? "Not bought yet · cost pending" : "Not bought yet"}</span>}
       {used && line.purchasedOn && <WarrantyBadge until={line.warrantyUntil ?? null} />}
       {used ? null : editable ? (
         <label className="inline-flex items-center gap-1 text-zinc-600">

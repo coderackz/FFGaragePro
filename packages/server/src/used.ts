@@ -14,7 +14,7 @@ export function usedPartsToBuy(db: Db) {
 
 interface Seller { id: string; name: string; phone: string | null; trn: string | null }
 
-/** The saved seller this is: picked, or the one with the same phone (however it's written), or without a phone the same name. */
+/** The saved seller this is: picked, or the one with the same phone (however it's written), or one of the same name without a phone. */
 function savedSeller(db: Db, seller: UsedPurchaseInput["seller"]): Seller | null {
   if ("supplierId" in seller) {
     const s = db.get<Seller>("SELECT id, name, phone, trn FROM suppliers WHERE id = ?", [seller.supplierId]);
@@ -23,8 +23,10 @@ function savedSeller(db: Db, seller: UsedPurchaseInput["seller"]): Seller | null
   }
   const all = db.all<Seller>("SELECT id, name, phone, trn FROM suppliers ORDER BY created_at, rowid");
   const digits = phoneDigits(seller.phone ?? "");
-  if (digits) return all.find((s) => phoneDigits(s.phone ?? "") === digits) ?? null;
-  return all.find((s) => s.name.trim().toLowerCase() === seller.name.toLowerCase()) ?? null;
+  const named = (s: Seller) => s.name.trim().toLowerCase() === seller.name.trim().toLowerCase();
+  // With a phone: the seller with that phone, else one of that name without a phone (one with another phone is somebody else).
+  if (digits) return all.find((s) => phoneDigits(s.phone ?? "") === digits) ?? all.find((s) => !s.phone?.trim() && named(s)) ?? null;
+  return all.find(named) ?? null;
 }
 
 /** The saved seller, refusing one that doesn't exist or whose TRN isn't the bill's. */
@@ -41,6 +43,7 @@ export function resolveSeller(db: Db, seller: UsedPurchaseInput["seller"], bill:
   const t = now();
   if (saved) {
     if (bill && !saved.trn?.trim()) db.run("UPDATE suppliers SET trn = ?, updated_at = ? WHERE id = ?", [bill.trn, t, saved.id]);
+    if (seller.phone && phoneDigits(seller.phone) && !saved.phone?.trim()) db.run("UPDATE suppliers SET phone = ?, updated_at = ? WHERE id = ?", [seller.phone, t, saved.id]);
     return saved.id;
   }
   if ("supplierId" in seller) throw notFound("Supplier not found");

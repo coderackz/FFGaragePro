@@ -379,7 +379,8 @@ export const usedPurchaseSchema = z.object({
   description: text(500),
   qty: z.number().positive().max(100000),
   seller: z.union([
-    z.object({ supplierId: z.string().uuid() }),
+    /** A phone typed for a saved seller is saved on one without a phone. */
+    z.object({ supplierId: z.string().uuid(), phone: optionalText(40).optional() }),
     z.object({ name: text().min(1, "Enter the seller's name"), phone: optionalText(40) }),
   ]),
   unitCostFils: money,

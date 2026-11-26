@@ -60,7 +60,7 @@ test.describe.serial("used parts", () => {
     await expect(page.getByText("JC-00001", { exact: true })).toBeVisible();
     expect(dialogs).toEqual([]); // an estimate's used part isn't bought yet, of course
     await expect(page.getByLabel("Used", { exact: true })).toBeChecked();
-    await expect(page.getByText("Not bought yet")).toBeVisible();
+    await expect(page.getByText("Not bought yet", { exact: true })).toBeVisible(); // no "cost pending": advisors don't see costs
     await expect(page.getByRole("button", { name: "Request part" })).toHaveCount(0);
     await expect(page.getByRole("button", { name: "Buy used part" })).toHaveCount(0);
     await page.goto("/#/purchase-orders");
@@ -132,7 +132,7 @@ test.describe.serial("used parts", () => {
     await page.goto(`/#/documents/${other.id}`);
     accept = false;
     await page.getByRole("button", { name: "Create invoice" }).click();
-    await expect.poll(() => dialogs).toEqual(["Starter is marked used but its purchase isn't recorded. Convert anyway?"]);
+    await expect.poll(() => dialogs).toEqual(["Starter is marked used but its purchase isn't recorded. After converting it can't be bought here, and its cost stays pending. Convert anyway?"]);
     await expect(page.getByText(other.number, { exact: true })).toBeVisible();
     dialogs = [];
     accept = true;
@@ -212,5 +212,39 @@ test.describe.serial("used parts", () => {
     await expect(dialog.getByLabel("Seller's TRN")).toHaveValue("100123456700003");
     await dialog.getByLabel("Seller", { exact: true }).fill("Registered Yard Two");
     await expect(dialog.getByLabel("Seller's TRN")).toHaveValue("");
+  });
+
+  test("a phone typed for a saved seller without one is saved with it", async ({ page, request }) => {
+    await signIn(page);
+    const api = await apiAs(page, request);
+    const customerId = (await api("get", "/api/customers")).customers[0].id;
+    const { document: jc } = await api("post", "/api/documents", job([USED], customerId));
+    await page.goto(`/#/documents/${jc.id}`);
+    await page.getByRole("button", { name: "Buy used part" }).click();
+    const dialog = page.getByRole("dialog");
+    await dialog.getByLabel("Seller", { exact: true }).fill("Registered Yard");
+    await dialog.getByLabel("Phone", { exact: true }).fill("0507654321");
+    await expect(dialog.getByText("Saved seller: Registered Yard · the phone will be saved")).toBeVisible();
+    await dialog.getByLabel("Price each").fill("50");
+    await dialog.getByRole("radio", { name: "No warranty", exact: true }).check();
+    await dialog.getByRole("button", { name: "Save purchase" }).click();
+    await expect(dialog).toHaveCount(0);
+    const yards = (await api("get", "/api/suppliers")).suppliers.filter((s: { name: string }) => s.name === "Registered Yard");
+    expect(yards).toMatchObject([{ phone: "+971 50 765 4321" }]);
+  });
+
+  test("a used part not bought: the draft invoice says its cost is pending; issued, the invoice doesn't", async ({ page, request }) => {
+    await signIn(page);
+    const api = await apiAs(page, request);
+    const customerId = (await api("get", "/api/customers")).customers[0].id;
+    const { document: jc } = await api("post", "/api/documents", job([{ ...USED, description: "Radiator" }], customerId));
+    const { document: inv } = await api("post", `/api/documents/${jc.id}/convert`, {});
+    await page.goto(`/#/documents/${inv.id}`);
+    await expect(page.getByText("Not bought yet · cost pending")).toBeVisible();
+    await api("post", `/api/documents/${inv.id}/issue`, {});
+    await page.reload();
+    await expect(page.getByLabel("Used", { exact: true })).toHaveCount(0); // issued: no longer editable
+    await expect(page.getByText("Used", { exact: true })).toBeVisible();
+    await expect(page.getByText(/Not bought yet/)).toHaveCount(0);
   });
 });

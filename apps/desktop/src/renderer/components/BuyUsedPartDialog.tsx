@@ -66,7 +66,7 @@ export function BuyUsedPartDialog({ request, onClose, onDone }: { request: UsedP
     try {
       const res = await post<{ document: DocumentFull }>("/api/used-purchases", {
         documentId: request.documentId, position: request.position, description: request.line.description.trim(), qty,
-        seller: saved ? { supplierId: saved.id } : { name: name.trim(), phone: phone || null },
+        seller: saved ? { supplierId: saved.id, ...(digits && !saved.phone ? { phone } : {}) } : { name: name.trim(), phone: phone || null },
         unitCostFils: costFils, purchasedOn: on, bill: bill ? { trn, invoiceNo: invoiceNo.trim(), vatFils } : null, warrantyDays: days,
       });
       toast.success("Used part recorded as bought");
@@ -94,7 +94,7 @@ export function BuyUsedPartDialog({ request, onClose, onDone }: { request: UsedP
         </Field>
         <datalist id="used-sellers">{sellers.filter((s) => !s.isFleetfix).map((s) => <option key={s.id} value={s.name}>{s.phone ?? ""}</option>)}</datalist>
         <PhoneField label="Phone" value={phone} onChange={setPhone} before="" />
-        {saved && <p className="col-span-2 -mt-1 text-xs text-zinc-600">Saved seller: {saved.name}{saved.phone ? ` · ${saved.phone}` : ""}</p>}
+        {saved && <p className="col-span-2 -mt-1 text-xs text-zinc-600">Saved seller: {saved.name}{saved.phone ? ` · ${saved.phone}` : digits ? " · the phone will be saved" : ""}</p>}
         <Field label="Price each"><MoneyInput fils={costFils} onChange={setCostFils} /></Field>
         <Field label="Qty"><NumberInput value={qty} onChange={setQty} /></Field>
         {few && <p className="col-span-2 -mt-1 text-xs text-red-700">Buy at least the {request!.line.qty} on the job card</p>}
