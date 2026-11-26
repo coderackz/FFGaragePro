@@ -15,7 +15,6 @@ interface CustomerRow extends AddressRow {
   notes: string | null; created_at: string; plates?: string | null;
   credit_allowed: number; credit_limit_fils: number; terms_days: number | null; discount_bp: number; lpo_required: number;
   opening_balance_fils: number; opening_balance_date: string | null;
-  name_ar: string | null; address_ar: string | null; doc_language: string; message_language: string;
 }
 interface VehicleRow {
   id: string; customer_id: string; plate: string; make: string | null; model: string | null; year: number | null;
@@ -27,7 +26,6 @@ export const customerOut = (c: CustomerRow) => ({
   createdAt: c.created_at, plates: c.plates ? c.plates.split(",") : undefined,
   creditAllowed: !!c.credit_allowed, creditLimitFils: c.credit_limit_fils, termsDays: c.terms_days, discountPct: c.discount_bp / 100,
   lpoRequired: !!c.lpo_required, openingBalanceFils: c.opening_balance_fils, openingBalanceDate: c.opening_balance_date,
-  nameAr: c.name_ar, addressAr: c.address_ar, docLanguage: c.doc_language, messageLanguage: c.message_language,
 });
 
 /** A customer with where their account stands (balance, overdue, credit, over the credit limit). */
@@ -92,11 +90,11 @@ export function customerRoutes(app: FastifyInstance, db: Db): void {
     db.tx(() => {
       db.run(
         `INSERT INTO customers (id, kind, name, phone, email, trn, address, notes, credit_allowed, credit_limit_fils, terms_days, discount_bp,
-           lpo_required, opening_balance_fils, opening_balance_date, name_ar, address_ar, doc_language, message_language, created_at, updated_at)
-           VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+           lpo_required, opening_balance_fils, opening_balance_date, created_at, updated_at)
+           VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
         [id, input.kind, input.name, input.phone, input.email, input.trn, input.address, input.notes, input.creditAllowed ? 1 : 0, input.creditLimitFils,
           input.termsDays, Math.round(input.discountPct * 100), input.lpoRequired ? 1 : 0, input.openingBalanceFils, input.openingBalanceDate,
-          input.nameAr, input.addressAr, input.docLanguage, input.messageLanguage, t, t],
+          t, t],
       );
       if (input.addressParts) saveAddress(db, "customers", id, resolveAddress(null, input));
     });
@@ -115,11 +113,11 @@ export function customerRoutes(app: FastifyInstance, db: Db): void {
     db.tx(() => {
       db.run(
         `UPDATE customers SET kind = ?, name = ?, phone = ?, email = ?, trn = ?, notes = ?, credit_allowed = ?, credit_limit_fils = ?,
-           terms_days = ?, discount_bp = ?, lpo_required = ?, opening_balance_fils = ?, opening_balance_date = ?, name_ar = ?, address_ar = ?,
-           doc_language = ?, message_language = ?, updated_at = ? WHERE id = ?`,
+           terms_days = ?, discount_bp = ?, lpo_required = ?, opening_balance_fils = ?, opening_balance_date = ?,
+           updated_at = ? WHERE id = ?`,
         [input.kind, input.name, input.phone, input.email, input.trn, input.notes, input.creditAllowed ? 1 : 0, input.creditLimitFils,
           input.termsDays, Math.round(input.discountPct * 100), input.lpoRequired ? 1 : 0, input.openingBalanceFils, input.openingBalanceDate,
-          input.nameAr, input.addressAr, input.docLanguage, input.messageLanguage, now(), existing.id],
+          now(), existing.id],
       );
       saveAddress(db, "customers", existing.id, address);
     });

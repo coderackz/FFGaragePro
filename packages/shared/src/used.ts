@@ -23,15 +23,13 @@ export const formatDay = (ymd: string): string => dayFmt.format(new Date(`${ymd}
 /** What prints under a used part: its warranty only on an invoice, judged on `onDate` (the issue date). */
 export function usedPartText(
   l: { condition: LineCondition; purchasedOn: string | null; warrantyDays: number | null }, docType: DocType, onDate: string,
-): { en: string; ar: string } | null {
+): string | null {
   if (l.condition !== "used") return null;
-  const en = "Used part";
-  const ar = "قطعة مستعملة";
-  if (docType !== "invoice" || l.purchasedOn === null) return { en, ar };
+  if (docType !== "invoice" || l.purchasedOn === null) return "Used part";
   const until = warrantyUntil(l.purchasedOn, l.warrantyDays);
-  if (until === null) return { en: `${en}, no warranty`, ar: `${ar}، بدون ضمان` };
-  if (warrantyState(until, onDate) === "ended") return { en: `${en}, no warranty remaining`, ar: `${ar}، انتهى الضمان` };
-  return { en: `${en}, warranty until ${formatDay(until)}`, ar: `${ar}، الضمان حتى ${formatDay(until)}` };
+  if (until === null) return "Used part, no warranty";
+  if (warrantyState(until, onDate) === "ended") return "Used part, no warranty remaining";
+  return `Used part, warranty until ${formatDay(until)}`;
 }
 
 /** The VAT a purchase starts at: none from a supplier without a TRN (Fleet Fix is always VAT-registered). */

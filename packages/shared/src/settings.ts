@@ -70,9 +70,7 @@ function eventSchema(event: MessageEvent) {
       mode: z.enum(["auto", "ask"]).default(defaults.mode),
       channel: z.enum(["email", "whatsapp", "both"]).default(defaults.channel),
       subjectEn: templateText(200).default(t.subjectEn),
-      subjectAr: templateText(200).default(t.subjectAr),
       textEn: templateText(1000).default(t.textEn),
-      textAr: templateText(1000).default(t.textAr),
     })
     .refine((v) => !reminder || v.channel === "email", { message: "Reminders go by email only", path: ["channel"] })
     .refine((v) => event !== "statement" || v.mode === "ask", { message: "Statements are sent from the dashboard, so they always ask", path: ["mode"] })
@@ -89,9 +87,6 @@ export const settingsSchemas = {
     tradeLicence: optText(40),
     /** Where the garage is: its row in box 1 of the VAT return. */
     emirate: z.enum(EMIRATES).nullable().default(null),
-    /** Arabic name and address, printed on English + Arabic documents. */
-    nameAr: optText(120),
-    addressAr: optText(500),
     bankName: optText(80),
     accountName: optText(120),
     iban,
@@ -103,9 +98,7 @@ export const settingsSchemas = {
     paper: z.enum(["plain", "letterhead"]).default("plain"),
     letterheadTopMm: z.number().int().min(10).max(120).default(45),
     terms: optText(1000),
-    termsAr: optText(1000),
     warranty: optText(300),
-    warrantyAr: optText(300),
     estimateValidDays: z.number().int().min(1).max(365).default(14),
     showPartNumbers: z.boolean().default(true),
     showLabourHours: z.boolean().default(true),

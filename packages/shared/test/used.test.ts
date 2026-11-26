@@ -13,13 +13,13 @@ describe("used part warranty", () => {
 
   it("prints in words", () => {
     const used = { condition: "used" as const, purchasedOn: "2026-11-26", warrantyDays: 7 };
-    expect(usedPartText(used, "estimate", "2026-12-01")).toEqual({ en: "Used part", ar: "قطعة مستعملة" });
-    expect(usedPartText(used, "jobcard", "2026-12-01")).toEqual({ en: "Used part", ar: "قطعة مستعملة" });
-    expect(usedPartText(used, "credit_note", "2026-12-01")!.en).toBe("Used part");
-    expect(usedPartText(used, "invoice", "2026-12-03")).toEqual({ en: "Used part, warranty until 3 Dec 2026", ar: "قطعة مستعملة، الضمان حتى 3 Dec 2026" });
-    expect(usedPartText(used, "invoice", "2026-12-04")).toEqual({ en: "Used part, no warranty remaining", ar: "قطعة مستعملة، انتهى الضمان" });
-    expect(usedPartText({ ...used, warrantyDays: null }, "invoice", "2026-12-01")).toEqual({ en: "Used part, no warranty", ar: "قطعة مستعملة، بدون ضمان" });
-    expect(usedPartText({ ...used, purchasedOn: null, warrantyDays: null }, "invoice", "2026-12-01")!.en).toBe("Used part");
+    expect(usedPartText(used, "estimate", "2026-12-01")).toBe("Used part");
+    expect(usedPartText(used, "jobcard", "2026-12-01")).toBe("Used part");
+    expect(usedPartText(used, "credit_note", "2026-12-01")).toBe("Used part");
+    expect(usedPartText(used, "invoice", "2026-12-03")).toBe("Used part, warranty until 3 Dec 2026");
+    expect(usedPartText(used, "invoice", "2026-12-04")).toBe("Used part, no warranty remaining");
+    expect(usedPartText({ ...used, warrantyDays: null }, "invoice", "2026-12-01")).toBe("Used part, no warranty");
+    expect(usedPartText({ ...used, purchasedOn: null, warrantyDays: null }, "invoice", "2026-12-01")).toBe("Used part");
     expect(usedPartText({ ...used, condition: "new" }, "invoice", "2026-12-01")).toBeNull();
   });
 });

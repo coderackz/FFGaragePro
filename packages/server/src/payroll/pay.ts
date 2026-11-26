@@ -85,7 +85,7 @@ export function bonusVoucher(db: Db, runId: string) {
   return { month: run.month, lines, totalFils: lines.reduce((s, l) => s + l.bonusFils, 0) };
 }
 
-interface Emp { id: string; name: string; name_ar: string | null; job: string; language: "en" | "en_ar"; person_id: string | null; housing_fils: number; transport_fils: number; other_allowance_fils: number; pay_method: string }
+interface Emp { id: string; name: string; job: string; person_id: string | null; housing_fils: number; transport_fils: number; other_allowance_fils: number; pay_method: string }
 
 /** One payslip per person: pay, deductions, the bonus, and what was paid how. Allowances keep the employee's split. */
 export function payslips(db: Db, runId: string) {
@@ -99,7 +99,7 @@ export function payslips(db: Db, runId: string) {
     shares[parts.indexOf(Math.max(...parts))]! += l.allowancesFils - shares.reduce((a, b) => a + b, 0);
     const [housing, transport] = shares as [number, number, number];
     return {
-      employee: { id: e.id, name: e.name, nameAr: e.name_ar, job: e.job, language: e.language, personId: e.person_id },
+      employee: { id: e.id, name: e.name, job: e.job, personId: e.person_id },
       month: run.month, workedDays: l.workedDays, basicFils: l.basicFils, allowances: { housing, transport, other: shares[2]! },
       unpaidDays: l.unpaidDays, unpaidDeductionFils: l.unpaidDeductionFils, advanceRepaymentFils: l.advanceRepaymentFils, extrasFils: l.extrasFils,
       extrasNote: l.extrasNote, bonusFils: l.bonusFils, bonusInWps: l.bonusInWps, netWpsFils: l.netFils + (l.bonusInWps ? l.bonusFils : 0),

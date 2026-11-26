@@ -14,7 +14,7 @@ import { addUnits, checkIncomingCodes, unitOut, unitsOf, writeOffUnits, type Uni
 export interface PartRow {
   id: string; part_no: string; name: string; brand: string | null; unit: string; stocked: number; sell_price_fils: number;
   avg_cost_fils: number; on_hand: number; reorder_level: number; location: string | null; fits: string | null; active: number;
-  created_at: string; updated_at: string; name_ar: string | null;
+  created_at: string; updated_at: string;
   category_id: string | null; attributes_json: string; spec_text: string; superseded_by: string | null;
   tracking: "none" | "dot" | "serial"; warranty_months: number; is_kit: number;
   max_level: number; preferred_supplier_id: string | null; lead_time_days: number; core_fils: number;
@@ -26,7 +26,7 @@ interface SupplierRow extends AddressRow {
 
 export function partOut(p: PartRow, showCost: boolean) {
   return {
-    id: p.id, partNo: p.part_no, name: p.name, nameAr: p.name_ar, brand: p.brand, unit: p.unit, stocked: !!p.stocked, sellPriceFils: p.sell_price_fils,
+    id: p.id, partNo: p.part_no, name: p.name, brand: p.brand, unit: p.unit, stocked: !!p.stocked, sellPriceFils: p.sell_price_fils,
     onHand: p.on_hand, reorderLevel: p.reorder_level, location: p.location, fits: p.fits, active: !!p.active,
     lowStock: !!p.stocked && p.on_hand <= p.reorder_level,
     categoryId: p.category_id, attributes: JSON.parse(p.attributes_json || "{}") as Record<string, string | number>, supersededById: p.superseded_by,
@@ -98,12 +98,12 @@ export function partRoutes(app: FastifyInstance, db: Db): void {
     const t = now();
     const values = [
       input.partNo, input.name, input.brand ?? null, input.unit, input.stocked ? 1 : 0, input.sellPriceFils, input.reorderLevel,
-      input.location ?? null, input.fits ?? null, input.active ? 1 : 0, input.nameAr ?? null, t,
+      input.location ?? null, input.fits ?? null, input.active ? 1 : 0, t,
     ];
     if (existing) {
       db.run(
         `UPDATE parts SET part_no = ?, name = ?, brand = ?, unit = ?, stocked = ?, sell_price_fils = ?, reorder_level = ?, location = ?,
-         fits = ?, active = ?, name_ar = ?, updated_at = ? WHERE id = ?`,
+         fits = ?, active = ?, updated_at = ? WHERE id = ?`,
         [...values, existing.id],
       );
       saveCatalogue(db, existing.id, input, present);
@@ -112,8 +112,8 @@ export function partRoutes(app: FastifyInstance, db: Db): void {
     }
     const id = newId();
     db.run(
-      `INSERT INTO parts (part_no, name, brand, unit, stocked, sell_price_fils, reorder_level, location, fits, active, name_ar, updated_at, id, created_at)
-       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+      `INSERT INTO parts (part_no, name, brand, unit, stocked, sell_price_fils, reorder_level, location, fits, active, updated_at, id, created_at)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
       [...values, id, t],
     );
     saveCatalogue(db, id, input, () => true);
@@ -398,7 +398,7 @@ export function partRoutes(app: FastifyInstance, db: Db): void {
 
   // ---- CSV import ----
 
-  const COLUMNS = ["part_no", "name", "name_ar", "brand", "unit", "stocked", "sell_price", "cost", "qty", "reorder_level", "location", "fits", "category", "numbers", "fitment"] as const;
+  const COLUMNS = ["part_no", "name", "brand", "unit", "stocked", "sell_price", "cost", "qty", "reorder_level", "location", "fits", "category", "numbers", "fitment"] as const;
   const KINDS: Record<string, "oem" | "aftermarket" | "supplier" | "old"> = { OEM: "oem", AM: "aftermarket", AFTERMARKET: "aftermarket", SUP: "supplier", SUPPLIER: "supplier", OLD: "old" };
   /** "OEM:04152-YZZA1; AM:W 68/3" (no kind: OEM). */
   const csvNumbers = (cell: string) => cell.split(";").map((x) => x.trim()).filter(Boolean).map((x) => {
@@ -485,7 +485,6 @@ export function partRoutes(app: FastifyInstance, db: Db): void {
               reorderLevel: num("reorder_level") ?? existing?.reorder_level ?? 0,
               location: text("location", existing?.location ?? null),
               fits: text("fits", existing?.fits ?? null),
-              nameAr: text("name_ar", existing?.name_ar ?? null),
               active: true,
             });
             if (!parsed.success) {

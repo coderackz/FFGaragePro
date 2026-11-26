@@ -1,4 +1,4 @@
-import { fillTemplate, messageValues, recipientsFor, type MessageLanguage, type Recipient } from "@ffgp/shared";
+import { fillTemplate, messageValues, recipientsFor, type Recipient } from "@ffgp/shared";
 import type { Db } from "../db";
 import { customerBalance } from "../ledger";
 import { contactsOf } from "../routes/contacts";
@@ -6,10 +6,9 @@ import { garage } from "../routes/setup";
 import { getSettings } from "../settings";
 import { queueMessage } from "./outbox";
 
-interface CustomerRow { id: string; kind: "individual" | "company"; name: string; phone: string | null; email: string | null; message_language: string }
+interface CustomerRow { id: string; kind: "individual" | "company"; name: string; phone: string | null; email: string | null }
 
-const customerOf = (db: Db, id: string) => db.get<CustomerRow>("SELECT id, kind, name, phone, email, message_language FROM customers WHERE id = ?", [id]);
-const asCustomer = (c: CustomerRow) => ({ ...c, messageLanguage: c.message_language as MessageLanguage });
+const customerOf = (db: Db, id: string) => db.get<CustomerRow>("SELECT id, kind, name, phone, email FROM customers WHERE id = ?", [id]);
 /** Days past the overdue threshold an invoice still gets its overdue reminder. */
 const OVERDUE_WINDOW = 30;
 const addDays = (ymd: string, days: number) => new Date(Date.parse(`${ymd}T00:00:00Z`) + days * 86_400_000).toISOString().slice(0, 10);
@@ -42,17 +41,16 @@ export function queueReminders(db: Db, today: string): number {
       const c = customerOf(db, inv.customer_id);
       if (!c) continue;
       const balance = customerBalance(db, c.id, today).balanceFils;
-      for (const r of recipientsFor(event, asCustomer(c), contactsOf(db, c.id)).filter((x): x is Recipient & { email: string } => !!x.email)) {
+      for (const r of recipientsFor(event, c, contactsOf(db, c.id)).filter((x): x is Recipient & { email: string } => !!x.email)) {
         const dedupeKey = `${event}:${inv.id}:${r.email}`;
         if (db.get("SELECT 1 FROM messages WHERE dedupe_key = ?", [dedupeKey])) continue;
         const values = messageValues({
           customerName: c.name, contactName: r.name, plate: inv.plate, vehicle: [inv.make, inv.model].filter(Boolean).join(" "),
           docNumber: inv.number, amountFils: inv.owed, balanceFils: balance, dueDate: inv.due_date, garageName: g?.name ?? "", garagePhone: g?.phone,
         });
-        const ar = r.language === "ar";
         queueMessage(db, {
           event, channel: "email", customerId: c.id, employeeId: null, contactId: r.contactId, documentId: inv.id, receiptId: null, recipient: r.email,
-          subject: fillTemplate(ar ? settings.subjectAr : settings.subjectEn, values), body: fillTemplate(ar ? settings.textAr : settings.textEn, values),
+          subject: fillTemplate(settings.subjectEn, values), body: fillTemplate(settings.textEn, values),
           attachment: null, dedupeKey,
         }, null);
         queued++;
@@ -73,11 +71,11 @@ export function statementsDue(db: Db, today: string) {
       .map((r) => r.customer_id),
   );
   const out: { id: string; name: string; balanceFils: number; recipients: Recipient[] }[] = [];
-  for (const c of db.all<CustomerRow>("SELECT id, kind, name, phone, email, message_language FROM customers ORDER BY name COLLATE NOCASE")) {
+  for (const c of db.all<CustomerRow>("SELECT id, kind, name, phone, email FROM customers ORDER BY name COLLATE NOCASE")) {
     if (sent.has(c.id)) continue;
     const balance = customerBalance(db, c.id, today).balanceFils;
     if (balance === 0) continue;
-    const recipients = recipientsFor("statement", asCustomer(c), contactsOf(db, c.id));
+    const recipients = recipientsFor("statement", c, contactsOf(db, c.id));
     if (recipients.length) out.push({ id: c.id, name: c.name, balanceFils: balance, recipients });
   }
   return out;

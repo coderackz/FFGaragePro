@@ -25,7 +25,6 @@ const optDate = ymd.nullable().optional().transform((v) => v ?? null);
 export const employeeSchema = z
   .object({
     name: z.string().trim().min(1, "Enter the name").max(120),
-    nameAr: optText(120),
     job: z.string().trim().min(1, "Enter the job").max(80),
     nationality: optText(60),
     joinDate: ymd,
@@ -44,7 +43,6 @@ export const employeeSchema = z
     labourCard: optText(30), labourCardExpiry: optDate,
     passport: optText(30), passportExpiry: optDate,
     visa: optText(30), visaExpiry: optDate,
-    language: z.enum(["en", "en_ar"]).default("en"),
     /** Annual leave days owed on a date (from before the app): leave builds up from there instead of from joining. */
     leaveBalanceDays: z.number().min(-365).max(1000).nullable().optional().transform((v) => v ?? null),
     leaveBalanceDate: optDate,

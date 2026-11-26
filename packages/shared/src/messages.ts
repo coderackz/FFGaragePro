@@ -15,9 +15,6 @@ export type MessageChannel = (typeof MESSAGE_CHANNELS)[number];
 export const MESSAGE_STATUSES = ["queued", "sending", "sent", "failed", "opened"] as const;
 export type MessageStatus = (typeof MESSAGE_STATUSES)[number];
 
-export const MESSAGE_LANGUAGES = ["en", "ar"] as const;
-export type MessageLanguage = (typeof MESSAGE_LANGUAGES)[number];
-
 export const PLACEHOLDERS = [
   "customer", "contact", "plate", "vehicle", "doc_number", "amount", "balance", "due_date", "garage", "garage_phone",
 ] as const;
@@ -43,7 +40,6 @@ export const contactSchema = z.object({
   name: z.string().trim().min(1, "Name is required").max(120),
   phone: optional(40),
   email: optional(120).refine((v) => v === null || /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(v), "Enter a valid email address"),
-  language: z.enum(MESSAGE_LANGUAGES).default("en"),
   getsApprovals: z.boolean().default(false),
   getsInvoices: z.boolean().default(false),
   getsReady: z.boolean().default(false),
@@ -58,7 +54,6 @@ export interface Contact {
   name: string;
   phone: string | null;
   email: string | null;
-  language: MessageLanguage;
   getsApprovals: boolean;
   getsInvoices: boolean;
   getsReady: boolean;
@@ -71,7 +66,6 @@ export interface Recipient {
   name: string;
   phone: string | null;
   email: string | null;
-  language: MessageLanguage;
 }
 
 type Role = "getsApprovals" | "getsInvoices" | "getsReady" | "getsStatements";
@@ -99,19 +93,19 @@ const ROLE: Record<MessageEvent, Role> = {
  */
 export function recipientsFor(
   event: MessageEvent,
-  customer: { kind: "individual" | "company"; name: string; phone: string | null; email: string | null; messageLanguage: MessageLanguage },
+  customer: { kind: "individual" | "company"; name: string; phone: string | null; email: string | null },
   contacts: Contact[],
   driver?: { name: string | null; phone: string | null } | null,
 ): Recipient[] {
   const role = ROLE[event];
   const reachable = (r: Recipient) => !!(r.phone || r.email);
   if (role === "getsReady" && driver?.phone) {
-    return [{ contactId: null, name: driver.name || "Driver", phone: driver.phone, email: null, language: customer.messageLanguage }];
+    return [{ contactId: null, name: driver.name || "Driver", phone: driver.phone, email: null }];
   }
-  const own: Recipient = { contactId: null, name: customer.name, phone: customer.phone, email: customer.email, language: customer.messageLanguage };
+  const own: Recipient = { contactId: null, name: customer.name, phone: customer.phone, email: customer.email };
   const ticked = contacts
     .filter((c) => c[role])
-    .map((c): Recipient => ({ contactId: c.id, name: c.name, phone: c.phone, email: c.email, language: c.language }))
+    .map((c): Recipient => ({ contactId: c.id, name: c.name, phone: c.phone, email: c.email }))
     .filter(reachable);
   if (customer.kind === "individual") return [own, ...ticked].filter(reachable);
   return ticked.length ? ticked : [own].filter(reachable);
@@ -202,9 +196,7 @@ export const messageTemplateSchema = z
     name: z.string().trim().min(1, "Name the template").max(80),
     channel: z.enum(TEMPLATE_CHANNELS),
     subjectEn: templateText(200, "Subject").nullable().optional().transform((v) => v || null),
-    subjectAr: templateText(200, "Arabic subject").nullable().optional().transform((v) => v || null),
     textEn: templateText(1000, "Text").pipe(z.string().min(1, "Write the text")),
-    textAr: templateText(1000, "Arabic text").pipe(z.string().min(1, "Write the Arabic text")),
     /** WhatsApp Business API: the Meta-approved template this one sends as, its language and its body parameters in order. */
     waTemplateName: z.string().trim().max(512).nullable().optional().transform((v) => v || null),
     waLanguage: z.string().trim().max(15).nullable().optional().transform((v) => v || null),

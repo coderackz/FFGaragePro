@@ -1,16 +1,16 @@
 import type { FastifyInstance } from "fastify";
-import { contactSchema, type Contact, type ContactInput, type MessageLanguage } from "@ffgp/shared";
+import { contactSchema, type Contact, type ContactInput } from "@ffgp/shared";
 import { requireAction, sessionUser } from "../auth";
 import { newId, now, type Db } from "../db";
 import { notFound } from "../errors";
 
 export interface ContactRow {
-  id: string; customer_id: string; name: string; phone: string | null; email: string | null; language: string;
+  id: string; customer_id: string; name: string; phone: string | null; email: string | null;
   gets_approvals: number; gets_invoices: number; gets_ready: number; gets_statements: number; marketing_consent_at: string | null;
 }
 
 export const contactOut = (c: ContactRow): Contact & { customerId: string } => ({
-  id: c.id, customerId: c.customer_id, name: c.name, phone: c.phone, email: c.email, language: c.language as MessageLanguage,
+  id: c.id, customerId: c.customer_id, name: c.name, phone: c.phone, email: c.email,
   getsApprovals: !!c.gets_approvals, getsInvoices: !!c.gets_invoices, getsReady: !!c.gets_ready, getsStatements: !!c.gets_statements,
   marketingConsentAt: c.marketing_consent_at,
 });
@@ -38,9 +38,9 @@ export function contactRoutes(app: FastifyInstance, db: Db): void {
     const id = newId();
     const t = now();
     db.run(
-      `INSERT INTO customer_contacts (id, customer_id, name, phone, email, language, gets_approvals, gets_invoices, gets_ready, gets_statements,
-         marketing_consent_at, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
-      [id, req.params.id, input.name, input.phone, input.email, input.language, ...flags(input), input.marketingConsent ? t : null, t, t],
+      `INSERT INTO customer_contacts (id, customer_id, name, phone, email, gets_approvals, gets_invoices, gets_ready, gets_statements,
+         marketing_consent_at, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+      [id, req.params.id, input.name, input.phone, input.email, ...flags(input), input.marketingConsent ? t : null, t, t],
     );
     return { contact: contactOut(getContact(id)!) };
   });
@@ -56,9 +56,9 @@ export function contactRoutes(app: FastifyInstance, db: Db): void {
     // Consent keeps the date it was first given; unticking clears it.
     const consentAt = input.marketingConsent ? (existing.marketing_consent_at ?? t) : null;
     db.run(
-      `UPDATE customer_contacts SET name = ?, phone = ?, email = ?, language = ?, gets_approvals = ?, gets_invoices = ?, gets_ready = ?,
+      `UPDATE customer_contacts SET name = ?, phone = ?, email = ?, gets_approvals = ?, gets_invoices = ?, gets_ready = ?,
          gets_statements = ?, marketing_consent_at = ?, updated_at = ? WHERE id = ?`,
-      [input.name, input.phone, input.email, input.language, ...flags(input), consentAt, t, existing.id],
+      [input.name, input.phone, input.email, ...flags(input), consentAt, t, existing.id],
     );
     return { contact: contactOut(getContact(existing.id)!) };
   });

@@ -20,7 +20,7 @@ async function october(o: { bonusInWps?: boolean; employer?: boolean; approve?: 
   await call(app, "PUT", "/api/settings/books", owner, { startDate: "2026-09-01" });
   const rules = o.employer === false ? { ...RULES, establishmentId: null, employerRoutingCode: null } : RULES;
   await call(app, "PUT", "/api/settings/payroll", owner, { ...rules, bonusInWps: !!o.bonusInWps });
-  const ravi = (await call(app, "POST", "/api/employees", owner, { ...EMPLOYEE, language: "en_ar", nameAr: "رافي" })).body.employee;
+  const ravi = (await call(app, "POST", "/api/employees", owner, { ...EMPLOYEE })).body.employee;
   await call(app, "POST", "/api/employees", owner, { ...EMPLOYEE, name: "Sami", personId: "10012345678902", basicFils: 200000, housingFils: 0, transportFils: 0 });
   const run = (await call(app, "POST", "/api/payroll/runs", owner, { month: "2026-10" })).body.run;
   await call(app, "PATCH", `/api/payroll/runs/${run.id}/lines/${ravi.id}`, owner, { bonusFils: 20000 });
@@ -75,7 +75,7 @@ describe("paying a payroll", () => {
     const slips = (await call(g.app, "GET", `/api/payroll/runs/${g.run.id}/payslips`, g.owner)).body.payslips;
     expect(slips).toHaveLength(2);
     expect(slips.find((s: { employee: { name: string } }) => s.employee.name === "Ravi Kumar")).toMatchObject({
-      month: "2026-10", employee: { language: "en_ar", nameAr: "رافي" }, basicFils: 300000, allowances: { housing: 100000, transport: 50000, other: 0 }, bonusFils: 20000, netWpsFils: 450000,
+      month: "2026-10", employee: { name: EMPLOYEE.name }, basicFils: 300000, allowances: { housing: 100000, transport: 50000, other: 0 }, bonusFils: 20000, netWpsFils: 450000,
     });
   });
 });

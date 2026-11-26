@@ -1626,6 +1626,44 @@ ALTER TABLE po_lines ADD COLUMN requested_at TEXT;
 ALTER TABLE po_lines ADD COLUMN ordered_at TEXT;
 `,
   },
+  {
+    id: 30,
+    // No Arabic: the user removed it from the app, saved Arabic included. The sync triggers name every column, so they
+    // go first (they're put back, without these columns, when sync starts). Messages already sent stay as sent.
+    sql: `
+DROP TRIGGER IF EXISTS sync_customers_ins;
+DROP TRIGGER IF EXISTS sync_customers_upd;
+DROP TRIGGER IF EXISTS sync_customers_del;
+DROP TRIGGER IF EXISTS sync_parts_ins;
+DROP TRIGGER IF EXISTS sync_parts_upd;
+DROP TRIGGER IF EXISTS sync_parts_del;
+DROP TRIGGER IF EXISTS sync_documents_ins;
+DROP TRIGGER IF EXISTS sync_documents_upd;
+DROP TRIGGER IF EXISTS sync_documents_del;
+DROP TRIGGER IF EXISTS sync_customer_contacts_ins;
+DROP TRIGGER IF EXISTS sync_customer_contacts_upd;
+DROP TRIGGER IF EXISTS sync_customer_contacts_del;
+DROP TRIGGER IF EXISTS sync_employees_ins;
+DROP TRIGGER IF EXISTS sync_employees_upd;
+DROP TRIGGER IF EXISTS sync_employees_del;
+DROP TRIGGER IF EXISTS sync_message_templates_ins;
+DROP TRIGGER IF EXISTS sync_message_templates_upd;
+DROP TRIGGER IF EXISTS sync_message_templates_del;
+ALTER TABLE customers DROP COLUMN name_ar;
+ALTER TABLE customers DROP COLUMN address_ar;
+ALTER TABLE customers DROP COLUMN doc_language;
+ALTER TABLE customers DROP COLUMN message_language;
+ALTER TABLE parts DROP COLUMN name_ar;
+ALTER TABLE documents DROP COLUMN language;
+ALTER TABLE customer_contacts DROP COLUMN language;
+ALTER TABLE employees DROP COLUMN name_ar;
+ALTER TABLE employees DROP COLUMN language;
+ALTER TABLE message_templates DROP COLUMN subject_ar;
+ALTER TABLE message_templates DROP COLUMN text_ar;
+DELETE FROM settings WHERE key IN ('garage.nameAr', 'garage.addressAr', 'documents.termsAr', 'documents.warrantyAr');
+UPDATE settings SET value = json_remove(value, '$.subjectAr', '$.textAr') WHERE key LIKE 'messages.%' AND json_valid(value) AND json_type(value) = 'object';
+`,
+  },
 ];
 
 /** The newest migration this code knows: the garage database's schema version. */

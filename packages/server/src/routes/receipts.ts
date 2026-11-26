@@ -15,7 +15,6 @@ import { getSettings } from "../settings";
 interface ReceiptRow {
   id: string; number: string; customer_id: string; customer_name: string; amount_fils: number; method: string; reference: string | null;
   cheque_date: string | null; received_at: string; created_by_name: string | null; created_at: string;
-  customer_name_ar: string | null; customer_language: string;
 }
 interface InvoiceRow { id: string; number: string; type: string; status: string; customer_id: string; owed: number; due_date: string | null; issued_at: string | null }
 
@@ -31,7 +30,7 @@ const invoiceOf = (db: Db, id: string) =>
 /** A receipt with what it was put against and what's left of it (the customer's credit from it). */
 export function receiptOut(db: Db, id: string) {
   const r = db.get<ReceiptRow>(
-    `SELECT r.*, c.name AS customer_name, c.name_ar AS customer_name_ar, c.doc_language AS customer_language, u.name AS created_by_name FROM receipts r JOIN customers c ON c.id = r.customer_id
+    `SELECT r.*, c.name AS customer_name, u.name AS created_by_name FROM receipts r JOIN customers c ON c.id = r.customer_id
      LEFT JOIN users u ON u.id = r.created_by WHERE r.id = ?`,
     [id],
   );
@@ -44,7 +43,7 @@ export function receiptOut(db: Db, id: string) {
   const allocated = allocations.reduce((s, a) => s + a.amount_fils, 0);
   return {
     id: r.id, number: r.number, customerId: r.customer_id, customerName: r.customer_name,
-    customerNameAr: r.customer_name_ar, customerLanguage: r.customer_language, amountFils: r.amount_fils, method: r.method,
+    amountFils: r.amount_fils, method: r.method,
     reference: r.reference, chequeDate: r.cheque_date, receivedAt: r.received_at, createdBy: r.created_by_name,
     allocations: allocations.map((a) => ({ id: a.id, documentId: a.document_id, number: a.number, amountFils: a.amount_fils, createdAt: a.created_at })),
     allocatedFils: allocated,

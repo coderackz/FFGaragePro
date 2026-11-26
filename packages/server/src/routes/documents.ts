@@ -24,7 +24,6 @@ interface DocRow {
   vat_fils: number; gross_fils: number; paid_fils: number; created_by: string | null; created_at: string; updated_at: string;
   prices_include_vat: number; credited_fils: number; due_date: string | null; lpo_number: string | null; reason: string | null;
   driver_name: string | null; driver_phone: string | null;
-  language: string;
   promo_code: string | null; promo_kind: "percent" | "amount" | null; promo_value: number | null; promo_applies: "all" | "labour" | "parts" | null;
   promo_discount_fils: number; promo_override_by: string | null;
   discount_kind: "percent" | "amount" | null; discount_value: number | null; discount_confirmed_by: string | null; discount_confirmed_at: string | null;
@@ -32,7 +31,7 @@ interface DocRow {
 }
 interface LineRow {
   id: string; position: number; kind: string; description: string; qty: number; unit_price_fils: number;
-  discount_pct: number; net_fils: number; vat_fils: number; gross_fils: number; part_id: string | null; supplied_by: string; part_name_ar?: string | null;
+  discount_pct: number; net_fils: number; vat_fils: number; gross_fils: number; part_id: string | null; supplied_by: string;
   promo_fils?: number; details?: string | null; unit?: string | null; condition: LineCondition;
   po_condition?: LineCondition | null; po_warranty_days?: number | null; po_purchased_on?: string | null;
   po_line_id: string | null; part_no?: string | null; part_stocked?: number | null; part_on_hand?: number | null; part_unit?: string | null; po_qty?: number | null; po_received?: number | null; po_number?: string | null;
@@ -307,11 +306,10 @@ export function documentRoutes(
     const { series, seq, number } = nextNumber(d.type, reserved);
     const t = now();
     db.run(
-      // A new document (converted ones too) is printed in the customer's language as it is now, and keeps it.
       `INSERT INTO documents (id, type, series, seq, number, status, customer_id, vehicle_id, odometer, notes, source_id, prices_include_vat,
-         created_by, created_at, updated_at, language)
-       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, (SELECT doc_language FROM customers WHERE id = ?))`,
-      [id, d.type, series, seq, number, DOC_STATUSES[d.type][0], d.customerId, d.vehicleId, d.odometer, d.notes, d.sourceId, d.pricesIncludeVat ? 1 : 0, user.id, t, t, d.customerId],
+         created_by, created_at, updated_at)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+      [id, d.type, series, seq, number, DOC_STATUSES[d.type][0], d.customerId, d.vehicleId, d.odometer, d.notes, d.sourceId, d.pricesIncludeVat ? 1 : 0, user.id, t, t],
     );
     writeLines(id, lines, user.id);
     if (d.vehicleId && d.odometer) {
@@ -331,7 +329,7 @@ export function documentRoutes(
     const d = getDoc(id);
     if (!d) throw notFound("Document not found");
     const lines = db.all<LineRow>(
-      `SELECT dl.*, p.part_no, p.name_ar AS part_name_ar, p.stocked AS part_stocked, p.tracking AS part_tracking, p.is_kit AS part_is_kit, p.on_hand AS part_on_hand, p.unit AS part_unit, pl.qty AS po_qty, pl.received_qty AS po_received, po.number AS po_number, po.id AS po_id, po.status AS po_status, po.supplier_id AS po_supplier_id, pl.requested_at AS po_requested_at, pl.ordered_at AS po_ordered_at,
+      `SELECT dl.*, p.part_no, p.stocked AS part_stocked, p.tracking AS part_tracking, p.is_kit AS part_is_kit, p.on_hand AS part_on_hand, p.unit AS part_unit, pl.qty AS po_qty, pl.received_qty AS po_received, po.number AS po_number, po.id AS po_id, po.status AS po_status, po.supplier_id AS po_supplier_id, pl.requested_at AS po_requested_at, pl.ordered_at AS po_ordered_at,
          pl.condition AS po_condition, pl.warranty_days AS po_warranty_days,
          (SELECT MAX(g.supplier_invoice_date) FROM goods_receipt_lines gl JOIN goods_receipts g ON g.id = gl.receipt_id WHERE gl.po_line_id = pl.id) AS po_purchased_on
        FROM document_lines dl
@@ -350,7 +348,7 @@ export function documentRoutes(
       [id],
     );
     const customer = db.get<Record<string, unknown>>(
-      "SELECT id, kind, name, phone, email, trn, address, name_ar AS nameAr, address_ar AS addressAr, doc_language AS docLanguage FROM customers WHERE id = ?",
+      "SELECT id, kind, name, phone, email, trn, address FROM customers WHERE id = ?",
       [d.customer_id],
     );
     const vehicle = d.vehicle_id
@@ -370,7 +368,7 @@ export function documentRoutes(
       issuedAt: d.issued_at, createdAt: d.created_at, updatedAt: d.updated_at, createdBy,
       editable: linesEditable(d),
       pricesIncludeVat: !!d.prices_include_vat,
-      dueDate: d.due_date, lpoNumber: d.lpo_number, reason: d.reason, language: d.language,
+      dueDate: d.due_date, lpoNumber: d.lpo_number, reason: d.reason,
       driverName: d.driver_name, driverPhone: d.driver_phone,
       creditedFils: d.credited_fils,
       owedFils: d.type === "invoice" && d.status !== "draft" ? d.gross_fils - d.credited_fils - d.paid_fils : 0,
@@ -380,7 +378,7 @@ export function documentRoutes(
       lines: lines.map((l) => ({
         id: l.id, kind: l.kind, condition: l.condition, ...usedWarranty(l), description: l.description, details: l.details ?? null, unit: l.unit ?? null, qty: l.qty, unitPriceFils: l.unit_price_fils,
         discountPct: l.discount_pct, netFils: l.net_fils, vatFils: l.vat_fils, grossFils: l.gross_fils, promoFils: l.promo_fils ?? 0,
-        partId: l.part_id, partNo: l.part_no ?? null, partNameAr: l.part_name_ar ?? null,
+        partId: l.part_id, partNo: l.part_no ?? null,
         partStocked: l.part_id ? !!l.part_stocked : null, partOnHand: l.part_id ? l.part_on_hand ?? null : null, partUnit: l.part_unit ?? null, suppliedBy: l.supplied_by, poLineId: l.po_line_id,
         purchaseOrderId: l.po_id ?? null, purchaseOrderNumber: l.po_number ?? null,
         orderStatus: !l.po_line_id || l.po_status === "cancelled" ? null : (l.po_received ?? 0) >= (l.po_qty ?? 0) && (l.po_qty ?? 0) > 0 ? "received" : awaitingVendor(l) ? "requested" : "on_order",
@@ -475,7 +473,7 @@ export function documentRoutes(
         throw conflict("This document was changed on another computer. Reload it to see the changes.");
       }
       const changesContent = input.lines !== undefined || input.vehicleId !== undefined || input.odometer !== undefined || input.notes !== undefined
-        || input.lpoNumber !== undefined || input.language !== undefined || input.driverName !== undefined || input.driverPhone !== undefined;
+        || input.lpoNumber !== undefined || input.driverName !== undefined || input.driverPhone !== undefined;
       if (changesContent && !linesEditable(d)) throw conflict(`${d.number} can no longer be edited`);
       if (input.status !== undefined && input.status !== d.status) {
         if (!MANUAL_STATUSES[d.type].includes(input.status)) throw badRequest("That status can't be set directly");
@@ -483,14 +481,13 @@ export function documentRoutes(
       }
       if (input.vehicleId !== undefined) checkVehicle(d.customer_id, input.vehicleId);
       db.run(
-        `UPDATE documents SET vehicle_id = ?, odometer = ?, notes = ?, lpo_number = ?, language = ?, driver_name = ?, driver_phone = ?, status = ?,
+        `UPDATE documents SET vehicle_id = ?, odometer = ?, notes = ?, lpo_number = ?, driver_name = ?, driver_phone = ?, status = ?,
            updated_at = ? WHERE id = ?`,
         [
           input.vehicleId !== undefined ? input.vehicleId : d.vehicle_id,
           input.odometer !== undefined ? input.odometer : d.odometer,
           input.notes !== undefined ? input.notes : d.notes,
           input.lpoNumber !== undefined ? input.lpoNumber : d.lpo_number,
-          input.language ?? d.language,
           input.driverName !== undefined ? input.driverName : d.driver_name,
           input.driverPhone !== undefined ? input.driverPhone : d.driver_phone,
           input.status ?? d.status,
@@ -679,9 +676,9 @@ export function documentRoutes(
       const t = now();
       db.run(
         `INSERT INTO documents (id, type, series, seq, number, status, customer_id, vehicle_id, odometer, source_id, issued_at, prices_include_vat, reason,
-           created_by, created_at, updated_at, language)
-         VALUES (?, 'credit_note', ?, ?, ?, 'issued', ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
-        [cnId, series, seq, number, inv.customer_id, inv.vehicle_id, inv.odometer, inv.id, t, inv.prices_include_vat, input.reason, user.id, t, t, inv.language],
+           created_by, created_at, updated_at)
+         VALUES (?, 'credit_note', ?, ?, ?, 'issued', ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+        [cnId, series, seq, number, inv.customer_id, inv.vehicle_id, inv.odometer, inv.id, t, inv.prices_include_vat, input.reason, user.id, t, t],
       );
       const rate = vatRate();
       let net = 0, vat = 0, gross = 0;

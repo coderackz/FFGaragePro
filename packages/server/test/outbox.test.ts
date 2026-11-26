@@ -158,14 +158,14 @@ describe("reminders", () => {
   const today = () => dubaiDate(new Date().toISOString());
   const plus = (ymd: string, days: number) => new Date(Date.parse(`${ymd}T00:00:00Z`) + days * 86_400_000).toISOString().slice(0, 10);
 
-  it("an invoice due in 3 days gets one reminder in its contact's language", async () => {
+  it("an invoice due in 3 days gets one reminder, in English", async () => {
     const { app, inv } = await withInvoice();
     expect(inv.dueDate).toBe(plus(today(), 3));
     expect(queueReminders(app.db, today())).toBe(1);
     expect(queueReminders(app.db, today())).toBe(0);
     const m = app.db.get<{ event: string; recipient: string; body: string; status: string }>("SELECT event, recipient, body, status FROM messages")!;
     expect(m).toMatchObject({ event: "payment_due", recipient: "accounts@gulffleet.ae", status: "queued" });
-    expect(m.body).toContain("عزيزي Accounts");
+    expect(m.body).toContain("Dear Accounts");
     expect(m.body).toContain(inv.number);
     expect(m.body).toContain("AED 105.00");
   });

@@ -17,7 +17,7 @@ describe("messages data (Part 3b)", () => {
     old.run("INSERT INTO customers (id, kind, name, created_at, updated_at) VALUES ('c1', 'individual', 'Old', 'x', 'x')");
     old.close();
     const db = new Db(file);
-    expect(db.get("SELECT message_language FROM customers WHERE id = 'c1'")).toEqual({ message_language: "en" });
+    expect(db.get("SELECT name FROM customers WHERE id = 'c1'")).toEqual({ name: "Old" });
     for (const t of ["customer_contacts", "messages", "message_files"]) expect(db.get("SELECT name FROM sqlite_master WHERE name = ?", [t])).toBeTruthy();
     expect(db.all<{ name: string }>("PRAGMA table_info(documents)").map((c) => c.name)).toEqual(expect.arrayContaining(["driver_name", "driver_phone"]));
     db.close();
@@ -26,11 +26,11 @@ describe("messages data (Part 3b)", () => {
   it("contacts round-trip", async () => {
     const { app, owner, customer } = await garage();
     const created = await call(app, "POST", `/api/customers/${customer.id}/contacts`, owner, {
-      name: "Accounts", email: "accounts@gulffleet.ae", getsInvoices: true, getsStatements: true, language: "ar",
+      name: "Accounts", email: "accounts@gulffleet.ae", getsInvoices: true, getsStatements: true,
     });
     expect(created.status).toBe(200);
     const c = created.body.contact;
-    expect(c).toMatchObject({ name: "Accounts", email: "accounts@gulffleet.ae", getsInvoices: true, getsApprovals: false, language: "ar", marketingConsentAt: null });
+    expect(c).toMatchObject({ name: "Accounts", email: "accounts@gulffleet.ae", getsInvoices: true, getsApprovals: false, marketingConsentAt: null });
 
     const ticked = (await call(app, "PATCH", `/api/contacts/${c.id}`, owner, { ...c, marketingConsent: true })).body.contact;
     expect(ticked.marketingConsentAt).toMatch(/^\d{4}-\d{2}-\d{2}/);
@@ -51,13 +51,6 @@ describe("messages data (Part 3b)", () => {
     expect((await call(app, "POST", `/api/customers/${customer.id}/contacts`, advisor, { name: "Driver", phone: "0501234567", getsReady: true })).status).toBe(200);
     expect((await call(app, "POST", `/api/customers/${customer.id}/contacts`, advisor, { name: "X", email: "nope" })).status).toBe(400);
     expect((await call(app, "POST", `/api/customers/00000000-0000-4000-8000-000000000000/contacts`, advisor, { name: "X" })).status).toBe(404);
-  });
-
-  it("customer message language round-trips", async () => {
-    const { app, owner } = await garage();
-    const c = (await call(app, "POST", "/api/customers", owner, { name: "Mohammed", messageLanguage: "ar" })).body.customer;
-    expect(c.messageLanguage).toBe("ar");
-    expect((await call(app, "GET", `/api/customers/${c.id}`, owner)).body.customer.messageLanguage).toBe("ar");
   });
 
   it("driver fields on a job card", async () => {

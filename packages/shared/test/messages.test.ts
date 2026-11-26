@@ -2,13 +2,13 @@ import { describe, expect, it } from "vitest";
 import { contactSchema, fillTemplate, recipientsFor, unknownPlaceholders, type Contact } from "../src";
 
 const contact = (c: Partial<Contact>): Contact => ({
-  id: "x", name: "X", phone: null, email: null, language: "en",
+  id: "x", name: "X", phone: null, email: null,
   getsApprovals: false, getsInvoices: false, getsReady: false, getsStatements: false, marketingConsentAt: null, ...c,
 });
 
 const fleet = { kind: "company" as const, name: "Gulf Fleet LLC", phone: "042000000", email: "office@gulffleet.ae", messageLanguage: "en" as const };
 const accounts = contact({ id: "acc", name: "Accounts", email: "accounts@gulffleet.ae", getsInvoices: true, getsStatements: true });
-const driverContact = contact({ id: "drv", name: "Fleet driver", phone: "0507654321", getsReady: true, language: "ar" });
+const driverContact = contact({ id: "drv", name: "Fleet driver", phone: "0507654321", getsReady: true });
 const ali = { name: "Ali", phone: "0501234567" };
 
 describe("message templates", () => {
@@ -30,12 +30,12 @@ describe("recipientsFor routes by role", () => {
 
   it("sends vehicle ready to the job card's driver when named", () => {
     const r = recipientsFor("vehicle_ready", fleet, [accounts, driverContact], ali);
-    expect(r).toEqual([{ contactId: null, name: "Ali", phone: "0501234567", email: null, language: "en" }]);
+    expect(r).toEqual([{ contactId: null, name: "Ali", phone: "0501234567", email: null }]);
   });
 
   it("sends vehicle ready to the vehicle-ready contacts when no driver is named", () => {
     const r = recipientsFor("vehicle_ready", fleet, [accounts, driverContact], null);
-    expect(r).toEqual([{ contactId: "drv", name: "Fleet driver", phone: "0507654321", email: null, language: "ar" }]);
+    expect(r).toEqual([{ contactId: "drv", name: "Fleet driver", phone: "0507654321", email: null }]);
   });
 
   it("uses a company's own details only when no contact has that tick", () => {
@@ -43,10 +43,10 @@ describe("recipientsFor routes by role", () => {
     expect(recipientsFor("statement", fleet, [accounts]).map((r) => r.email)).toEqual(["accounts@gulffleet.ae"]);
   });
 
-  it("an individual's own details get every message, in their message language", () => {
-    const person = { kind: "individual" as const, name: "Mohammed", phone: "0551112222", email: "m@example.com", messageLanguage: "ar" as const };
+  it("an individual's own details get every message", () => {
+    const person = { kind: "individual" as const, name: "Mohammed", phone: "0551112222", email: "m@example.com" };
     for (const e of ["vehicle_received", "estimate_ready", "invoice_issued", "payment_due", "statement"] as const) {
-      expect(recipientsFor(e, person, [])).toEqual([{ contactId: null, name: "Mohammed", phone: "0551112222", email: "m@example.com", language: "ar" }]);
+      expect(recipientsFor(e, person, [])).toEqual([{ contactId: null, name: "Mohammed", phone: "0551112222", email: "m@example.com" }]);
     }
   });
 
@@ -59,6 +59,6 @@ describe("contactSchema", () => {
   it("needs a name and checks the email", () => {
     expect(contactSchema.safeParse({ name: "" }).success).toBe(false);
     expect(contactSchema.safeParse({ name: "A", email: "not-an-email" }).success).toBe(false);
-    expect(contactSchema.parse({ name: "A" })).toMatchObject({ language: "en", getsApprovals: false, marketingConsent: false });
+    expect(contactSchema.parse({ name: "A" })).toMatchObject({ getsApprovals: false, marketingConsent: false });
   });
 });

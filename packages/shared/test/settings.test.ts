@@ -60,19 +60,15 @@ describe("settings", () => {
   });
 });
 
-describe("Arabic fields (Part 3a)", () => {
-  it("Arabic settings default to empty", () => {
-    expect(DEFAULT_SETTINGS.garage.nameAr).toBeNull();
-    expect(DEFAULT_SETTINGS.garage.addressAr).toBeNull();
-    expect(DEFAULT_SETTINGS.documents.termsAr).toBeNull();
-    expect(DEFAULT_SETTINGS.documents.warrantyAr).toBeNull();
-  });
-  it("customers default to English documents; only en and en_ar are allowed", () => {
-    expect(customerSchema.parse({ name: "A" }).docLanguage).toBe("en");
-    expect(customerSchema.safeParse({ name: "A", docLanguage: "ar" }).success).toBe(false);
-    expect(customerSchema.parse({ name: "A", nameAr: " محمد ", docLanguage: "en_ar" })).toMatchObject({ nameAr: "محمد", docLanguage: "en_ar" });
-    expect(partSchema.parse({ partNo: "X", name: "Oil filter", stocked: false, sellPriceFils: 0, nameAr: "فلتر زيت" }).nameAr).toBe("فلتر زيت");
-    expect(documentUpdateSchema.parse({ language: "en_ar" }).language).toBe("en_ar");
+describe("no Arabic", () => {
+  it("settings, customers, parts and documents have no Arabic fields; Arabic sent by an older screen is dropped", () => {
+    expect(DEFAULT_SETTINGS.garage).not.toHaveProperty("nameAr");
+    expect(DEFAULT_SETTINGS.documents).not.toHaveProperty("termsAr");
+    expect(customerSchema.parse({ name: "A", nameAr: "محمد", docLanguage: "en_ar", messageLanguage: "ar" })).not.toHaveProperty("nameAr");
+    expect(customerSchema.parse({ name: "A", docLanguage: "en_ar" })).not.toHaveProperty("docLanguage");
+    expect(partSchema.parse({ partNo: "X", name: "Oil filter", stocked: false, sellPriceFils: 0, nameAr: "فلتر زيت" })).not.toHaveProperty("nameAr");
+    expect(documentUpdateSchema.parse({ language: "en_ar" })).not.toHaveProperty("language");
+    for (const e of MESSAGE_EVENTS) expect(Object.keys(DEFAULT_SETTINGS.messages[e]).sort()).toEqual(["channel", "mode", "on", "subjectEn", "textEn"]);
   });
 });
 
@@ -85,7 +81,7 @@ describe("messages settings", () => {
     expect(m.statement.mode).toBe("ask");
     for (const e of MESSAGE_EVENTS) {
       const t = m[e];
-      for (const text of [t.subjectEn, t.subjectAr, t.textEn, t.textAr]) {
+      for (const text of [t.subjectEn, t.textEn]) {
         expect(text.length).toBeGreaterThan(0);
         expect(unknownPlaceholders(text)).toEqual([]);
       }

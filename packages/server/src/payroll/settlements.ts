@@ -10,7 +10,7 @@ import { broughtForward, gratuityAtStart, gratuityHeld, refreshRun, stableId, ty
 import { audit } from "../audit";
 
 interface EmpRow {
-  id: string; name: string; job: string; name_ar: string | null; language: string; join_date: string; left_date: string | null;
+  id: string; name: string; job: string; join_date: string; left_date: string | null;
   basic_fils: number; housing_fils: number; transport_fils: number; other_allowance_fils: number; leave_balance_days: number | null; leave_balance_date: string | null;
 }
 interface Row { id: string; employee_id: string; edit_salary: string | null; edit_leave: string | null; edit_gratuity: string | null; edit_advances: string | null; created_at: string }

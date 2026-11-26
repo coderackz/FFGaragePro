@@ -9,12 +9,12 @@ const today = () => dubaiDate(new Date().toISOString());
 
 /** Employee fields: the API's names and the table's columns. */
 const FIELDS = [
-  ["name", "name"], ["nameAr", "name_ar"], ["job", "job"], ["nationality", "nationality"], ["joinDate", "join_date"], ["leftDate", "left_date"],
+  ["name", "name"], ["job", "job"], ["nationality", "nationality"], ["joinDate", "join_date"], ["leftDate", "left_date"],
   ["basicFils", "basic_fils"], ["housingFils", "housing_fils"], ["transportFils", "transport_fils"], ["otherAllowanceFils", "other_allowance_fils"],
   ["payMethod", "pay_method"], ["iban", "iban"], ["cardNumber", "card_number"], ["routingCode", "routing_code"], ["personId", "person_id"],
   ["emiratesId", "emirates_id"], ["emiratesIdExpiry", "emirates_id_expiry"], ["labourCard", "labour_card"], ["labourCardExpiry", "labour_card_expiry"],
   ["passport", "passport"], ["passportExpiry", "passport_expiry"], ["visa", "visa"], ["visaExpiry", "visa_expiry"],
-  ["language", "language"], ["phone", "phone"], ["email", "email"], ["leaveBalanceDays", "leave_balance_days"], ["leaveBalanceDate", "leave_balance_date"],
+  ["phone", "phone"], ["email", "email"], ["leaveBalanceDays", "leave_balance_days"], ["leaveBalanceDate", "leave_balance_date"],
 ] as const;
 type Row = Record<string, unknown> & { id: string };
 export type EmployeeOut = ReturnType<typeof employeeOut>;
@@ -23,12 +23,12 @@ export const employeeOut = (r: Row) => ({
   ...(Object.fromEntries(FIELDS.map(([api, col]) => [api, r[col] ?? null])) as Record<(typeof FIELDS)[number][0], never>),
   createdAt: r.created_at as string, updatedAt: r.updated_at as string,
 }) as { id: string; createdAt: string; updatedAt: string } & {
-  name: string; nameAr: string | null; job: string; nationality: string | null; joinDate: string; leftDate: string | null;
+  name: string; job: string; nationality: string | null; joinDate: string; leftDate: string | null;
   basicFils: number; housingFils: number; transportFils: number; otherAllowanceFils: number; payMethod: "bank" | "salary_card";
   iban: string | null; cardNumber: string | null; routingCode: string | null; personId: string | null;
   emiratesId: string | null; emiratesIdExpiry: string | null; labourCard: string | null; labourCardExpiry: string | null;
   passport: string | null; passportExpiry: string | null; visa: string | null; visaExpiry: string | null;
-  language: "en" | "en_ar"; phone: string | null; email: string | null; leaveBalanceDays: number | null; leaveBalanceDate: string | null;
+  phone: string | null; email: string | null; leaveBalanceDays: number | null; leaveBalanceDate: string | null;
 };
 
 /** What an approved final settlement was worked out on. */

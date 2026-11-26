@@ -5,18 +5,18 @@ import { newId, now, type Db } from "../db";
 import { notFound } from "../errors";
 
 interface Row {
-  id: string; name: string; channel: string; subject_en: string | null; subject_ar: string | null; text_en: string; text_ar: string;
+  id: string; name: string; channel: string; subject_en: string | null; text_en: string;
   wa_template_name: string | null; wa_language: string | null; wa_params_json: string; archived_at: string | null; created_at: string; updated_at: string;
 }
 const out = (r: Row) => ({
-  id: r.id, name: r.name, channel: r.channel as "email" | "whatsapp" | "both", subjectEn: r.subject_en, subjectAr: r.subject_ar, textEn: r.text_en, textAr: r.text_ar,
+  id: r.id, name: r.name, channel: r.channel as "email" | "whatsapp" | "both", subjectEn: r.subject_en, textEn: r.text_en,
   waTemplateName: r.wa_template_name, waLanguage: r.wa_language, waParams: JSON.parse(r.wa_params_json) as string[], archived: !!r.archived_at,
 });
 export type TemplateOut = ReturnType<typeof out>;
 const row = (db: Db, id: string) => db.get<Row>("SELECT * FROM message_templates WHERE id = ?", [id]);
-const COLS = "name = ?, channel = ?, subject_en = ?, subject_ar = ?, text_en = ?, text_ar = ?, wa_template_name = ?, wa_language = ?, wa_params_json = ?";
+const COLS = "name = ?, channel = ?, subject_en = ?, text_en = ?, wa_template_name = ?, wa_language = ?, wa_params_json = ?";
 const vals = (t: ReturnType<typeof messageTemplateSchema.parse>) =>
-  [t.name, t.channel, t.subjectEn, t.subjectAr, t.textEn, t.textAr, t.waTemplateName, t.waLanguage, JSON.stringify(t.waParams)];
+  [t.name, t.channel, t.subjectEn, t.textEn, t.waTemplateName, t.waLanguage, JSON.stringify(t.waParams)];
 
 /** Active templates for a channel ("both" fits either), by name. */
 export const templatesFor = (db: Db, channel?: "email" | "whatsapp", archived = false) =>
@@ -40,8 +40,8 @@ export function templateRoutes(app: FastifyInstance, db: Db): void {
     const t = messageTemplateSchema.parse(req.body);
     const id = newId();
     const ts = now();
-    db.run(`INSERT INTO message_templates (id, name, channel, subject_en, subject_ar, text_en, text_ar, wa_template_name, wa_language, wa_params_json, created_at, updated_at)
-      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`, [id, ...vals(t), ts, ts]);
+    db.run(`INSERT INTO message_templates (id, name, channel, subject_en, text_en, wa_template_name, wa_language, wa_params_json, created_at, updated_at)
+      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`, [id, ...vals(t), ts, ts]);
     return { template: getTemplate(db, id) };
   });
   app.patch<{ Params: { id: string } }>("/api/message-templates/:id", async (req) => {
