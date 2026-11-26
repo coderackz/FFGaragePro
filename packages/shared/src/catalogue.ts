@@ -1,3 +1,4 @@
+import { nameKey } from "./vehicleNames";
 import { roundFils } from "./money";
 import { z } from "zod";
 
@@ -56,7 +57,8 @@ export type CategoryInput = z.infer<typeof categorySchema>;
 /** Attribute values on a part: text or numbers, by the category's keys. */
 export const attributesSchema = z.record(z.string().regex(/^[a-z][a-z0-9_]{0,30}$/), z.union([z.string().trim().max(60), z.number()])).default({});
 
-const squash = (s: string | null | undefined) => (s ?? "").toUpperCase().replace(/\s+/g, " ").trim();
+/** Makes and models compare without capitals, spaces or punctuation ("Land Cruiser" = "LANDCRUISER"). */
+const squash = nameKey;
 
 /**
  * Does a fitment row cover this vehicle? Make must match; model, years and engine only count when set on the
