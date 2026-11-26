@@ -19,9 +19,13 @@ const testInput = z.object({ to: z.string().trim().regex(/^[^\s@]+@[^\s@]+\.[^\s
 export function messageRoutes(app: FastifyInstance, db: Db, onQueued: () => void = () => {}): void {
   // Payslips carry salaries: only people who run payroll see or send them.
   const seesPayslips = (user: { role: Role }) => can(user.role, "payroll.manage");
+  // Messages to vendors: only people who buy.
+  const seesVendors = (user: { role: Role }) => can(user.role, "purchases.manage");
+  const hidden = (user: { role: Role }, m: { event: string; purchaseOrderId: string | null; supplierId: string | null }) =>
+    (m.event === "payslip" && !seesPayslips(user)) || ((m.purchaseOrderId || m.supplierId) && !seesVendors(user));
   app.get("/api/messages", async (req) => {
     const user = sessionUser(db, req);
-    return { messages: listMessages(db, listQuery.parse(req.query), { payslips: seesPayslips(user) }) };
+    return { messages: listMessages(db, listQuery.parse(req.query), { payslips: seesPayslips(user), vendors: seesVendors(user) }) };
   });
 
   app.get("/api/messages/statements-due", async (req) => {
@@ -32,7 +36,7 @@ export function messageRoutes(app: FastifyInstance, db: Db, onQueued: () => void
   app.get<{ Params: { id: string } }>("/api/messages/:id", async (req) => {
     const user = sessionUser(db, req);
     const m = getMessage(db, req.params.id);
-    if (!m || (m.event === "payslip" && !seesPayslips(user))) throw notFound("Message not found");
+    if (!m || hidden(user, m)) throw notFound("Message not found");
     return { message: m };
   });
 
@@ -50,7 +54,9 @@ export function messageRoutes(app: FastifyInstance, db: Db, onQueued: () => void
   app.post<{ Params: { id: string } }>("/api/messages/:id/retry", async (req) => {
     const user = sessionUser(db, req);
     requireAction(user, "messages.send");
-    if (getMessage(db, req.params.id)?.event === "payslip") requireAction(user, "payroll.manage");
+    const m = getMessage(db, req.params.id);
+    if (m?.event === "payslip") requireAction(user, "payroll.manage");
+    if (m?.purchaseOrderId || m?.supplierId) requireAction(user, "purchases.manage");
     const message = retryMessage(db, req.params.id);
     if (message.status === "queued") onQueued();
     return { message };

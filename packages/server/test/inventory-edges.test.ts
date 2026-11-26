@@ -27,18 +27,17 @@ const getPo = async (app: App, token: string, id: string) => (await call(app, "G
 describe("two PCs on one purchase order (C1)", () => {
   it("a stale save of a PO is refused instead of deleting lines added meanwhile", async () => {
     const { app, accountant, advisor, customer, disc } = await world();
-    const one = await jobCard(app, advisor, customer.id, [line(disc)]);
+    const one = await jobCard(app, advisor, customer.id, [line(disc), line(disc)]);
     const poId = (await request(app, advisor, one.id)).body.document.lines[0].purchaseOrderId;
-    const seen = await getPo(app, accountant, poId); // accountant opens the draft
-    const two = await jobCard(app, advisor, customer.id, [line(disc)]);
-    await request(app, advisor, two.id); // advisor adds to the same draft meanwhile
+    const seen = await getPo(app, accountant, poId); // accountant opens the request
+    await request(app, advisor, one.id, { position: 1 }); // advisor adds the job card's other part meanwhile
     const stale = await call(app, "PATCH", `/api/purchase-orders/${poId}`, accountant, {
-      version: seen.version, lines: seen.lines.map((l: any) => ({ ...l, unitCostFils: 9000 })), status: "sent",
+      version: seen.version, lines: seen.lines.map((l: any) => ({ ...l, unitCostFils: 9000 })),
     });
     expect(stale.status).toBe(409);
     expect(stale.body.error).toMatch(/changed/i);
     expect((await getPo(app, accountant, poId)).lines).toHaveLength(2);
-    expect((await getDoc(app, advisor, two.id)).lines[0].orderStatus).toBe("on_order");
+    expect((await getDoc(app, advisor, one.id)).lines[1].orderStatus).toBe("requested");
   });
 });
 
@@ -49,7 +48,7 @@ describe("the job card's link to its order is kept by the server (I1, M4, M5)", 
     await request(app, advisor, jc.id, { position: 1, description: "Brake disc" });
     // PC-A still has the old copy (no poLineId) and saves an edit.
     const saved = await call(app, "PUT", `/api/documents/${jc.id}/lines`, advisor, { lines: [{ ...labour, qty: 2 }, line(disc)] });
-    expect(saved.body.document.lines[1].orderStatus).toBe("on_order");
+    expect(saved.body.document.lines[1].orderStatus).toBe("requested");
     expect((await request(app, advisor, jc.id, { position: 1 })).body.error).toBe("This line is already requested");
   });
 

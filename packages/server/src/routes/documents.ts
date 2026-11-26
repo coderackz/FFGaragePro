@@ -36,7 +36,7 @@ interface LineRow {
   promo_fils?: number; details?: string | null; unit?: string | null; condition: LineCondition;
   po_condition?: LineCondition | null; po_warranty_days?: number | null; po_purchased_on?: string | null;
   po_line_id: string | null; part_no?: string | null; part_stocked?: number | null; part_on_hand?: number | null; part_unit?: string | null; po_qty?: number | null; po_received?: number | null; po_number?: string | null;
-  po_id?: string | null; po_status?: string | null; unit_ids_json?: string; part_tracking?: string | null; part_is_kit?: number | null; kit_json?: string | null;
+  po_id?: string | null; po_status?: string | null; po_supplier_id?: string | null; unit_ids_json?: string; part_tracking?: string | null; part_is_kit?: number | null; kit_json?: string | null;
 }
 const unitIdsOf = (l: { unit_ids_json?: string }) => JSON.parse(l.unit_ids_json || "[]") as string[];
 
@@ -324,7 +324,7 @@ export function documentRoutes(
     const d = getDoc(id);
     if (!d) throw notFound("Document not found");
     const lines = db.all<LineRow>(
-      `SELECT dl.*, p.part_no, p.name_ar AS part_name_ar, p.stocked AS part_stocked, p.tracking AS part_tracking, p.is_kit AS part_is_kit, p.on_hand AS part_on_hand, p.unit AS part_unit, pl.qty AS po_qty, pl.received_qty AS po_received, po.number AS po_number, po.id AS po_id, po.status AS po_status,
+      `SELECT dl.*, p.part_no, p.name_ar AS part_name_ar, p.stocked AS part_stocked, p.tracking AS part_tracking, p.is_kit AS part_is_kit, p.on_hand AS part_on_hand, p.unit AS part_unit, pl.qty AS po_qty, pl.received_qty AS po_received, po.number AS po_number, po.id AS po_id, po.status AS po_status, po.supplier_id AS po_supplier_id,
          pl.condition AS po_condition, pl.warranty_days AS po_warranty_days,
          (SELECT MAX(g.supplier_invoice_date) FROM goods_receipt_lines gl JOIN goods_receipts g ON g.id = gl.receipt_id WHERE gl.po_line_id = pl.id) AS po_purchased_on
        FROM document_lines dl
@@ -376,7 +376,8 @@ export function documentRoutes(
         partId: l.part_id, partNo: l.part_no ?? null, partNameAr: l.part_name_ar ?? null,
         partStocked: l.part_id ? !!l.part_stocked : null, partOnHand: l.part_id ? l.part_on_hand ?? null : null, partUnit: l.part_unit ?? null, suppliedBy: l.supplied_by, poLineId: l.po_line_id,
         purchaseOrderId: l.po_id ?? null, purchaseOrderNumber: l.po_number ?? null,
-        orderStatus: !l.po_line_id || l.po_status === "cancelled" ? null : (l.po_received ?? 0) >= (l.po_qty ?? 0) ? "received" : "on_order",
+        // Requested: on this job card's order that has no vendor yet (the buyer asks vendors for prices).
+        orderStatus: !l.po_line_id || l.po_status === "cancelled" ? null : !l.po_supplier_id ? "requested" : (l.po_received ?? 0) >= (l.po_qty ?? 0) ? "received" : "on_order",
         receivedQty: !l.po_line_id || l.po_status === "cancelled" ? null : l.po_received ?? 0,
         unitIds: unitIdsOf(l), units: lineUnits(db, l.unit_ids_json),
         partTracking: l.part_id && l.part_stocked ? l.part_tracking ?? "none" : "none", partIsKit: !!l.part_is_kit,

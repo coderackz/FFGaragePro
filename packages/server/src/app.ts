@@ -125,7 +125,12 @@ export async function buildApp(options: AppOptions): Promise<GarageAppInstance> 
   const documents = documentRoutes(app, db, options.numbers, { throttle, clock: now });
   partRoutes(app, db);
   inventoryRoutes(app, db);
-  purchaseRoutes(app, db, documents, options.numbers);
+  // A message just queued here (an email to a customer or a vendor): sent now, not at the next round.
+  const kickOutbox = () => {
+    options.onMessageQueued?.();
+    outbox?.kick();
+  };
+  purchaseRoutes(app, db, documents, options.numbers, kickOutbox);
   syncIssueRoutes(app, db);
   reportRoutes(app, db);
   receiptRoutes(app, db, options.numbers);
@@ -154,11 +159,7 @@ export async function buildApp(options: AppOptions): Promise<GarageAppInstance> 
       }
     });
   }
-  messageRoutes(app, db, () => {
-    options.onMessageQueued?.();
-    // Sent from here: don't wait for the next round.
-    outbox?.kick();
-  });
+  messageRoutes(app, db, kickOutbox);
   // One hook, in this order: the email in flight is finished and written before the database closes.
   if (integrationTimer) app.addHook("onClose", async () => clearInterval(integrationTimer));
   app.addHook("onClose", async () => {

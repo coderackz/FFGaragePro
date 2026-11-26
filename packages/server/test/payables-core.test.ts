@@ -77,6 +77,6 @@ describe("payables core", () => {
     const advisor = await addUser(app, owner, "advisor");
     expect((await call(app, "GET", `/api/suppliers/${supplier.id}/statement`, advisor)).status).toBe(403);
     expect((await call(app, "GET", "/api/reports/payables-aging", advisor)).status).toBe(403);
-    expect((await call(app, "GET", `/api/suppliers/${supplier.id}`, advisor)).body.supplier.balanceFils).toBeUndefined();
+    expect((await call(app, "GET", `/api/suppliers/${supplier.id}`, advisor)).status).toBe(403);
   });
 });

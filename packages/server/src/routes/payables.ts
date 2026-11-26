@@ -31,6 +31,7 @@ export function payablesRoutes(app: FastifyInstance, db: Db, o: PayablesRouteOpt
 
   app.get<{ Params: { id: string } }>("/api/suppliers/:id", async (req) => {
     const user = sessionUser(db, req);
+    requireAction(user, "purchases.manage");
     const s = supplierOut(supplier(req.params.id));
     // Balances are for those who look after paying suppliers.
     return { supplier: can(user.role, "payables.manage") ? { ...s, ...supplierBalance(db, s.id) } : s };

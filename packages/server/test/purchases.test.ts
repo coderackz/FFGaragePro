@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { FLEETFIX_SUPPLIER_ID } from "@ffgp/shared";
-import { addUser, call, createPart, makeApp, onHand, setUp, type App } from "./helpers";
+import { addUser, call, createPart, makeApp, onHand, orderRequest, setUp, type App } from "./helpers";
 
 async function world() {
   const app = await makeApp();
@@ -36,19 +36,18 @@ describe("purchasing", () => {
 
     const requested = await request(app, advisor, jc.id);
     expect(requested.status).toBe(200);
-    expect(requested.body.document.lines[0]).toMatchObject({ orderStatus: "on_order", purchaseOrderNumber: "PO-00001" });
+    expect(requested.body.document.lines[0]).toMatchObject({ orderStatus: "requested", purchaseOrderNumber: "PO-00001" });
     expect((await call(app, "GET", `/api/documents/${jc.id}`, owner)).body.document.costPending).toBe(true);
 
-    const list = (await call(app, "GET", `/api/purchase-orders?supplierId=${FLEETFIX_SUPPLIER_ID}`, accountant)).body.purchaseOrders;
+    const list = (await call(app, "GET", "/api/purchase-orders", accountant)).body.purchaseOrders;
     expect(list).toHaveLength(1);
-    expect(list[0]).toMatchObject({ number: "PO-00001", status: "draft", supplierName: "Fleet Fix" });
+    expect(list[0]).toMatchObject({ number: "PO-00001", status: "draft", supplierName: null });
     const po = (await call(app, "GET", `/api/purchase-orders/${list[0].id}`, accountant)).body.purchaseOrder;
     expect(po.lines[0]).toMatchObject({ partId: disc.id, description: "Brake disc", qty: 1, jobDocumentNumber: jc.number });
 
-    const priced = await call(app, "PATCH", `/api/purchase-orders/${po.id}`, accountant, {
-      lines: [{ id: po.lines[0].id, partId: disc.id, description: "Brake disc", qty: 1, unitCostFils: 12000, jobDocumentId: jc.id }],
-      status: "sent",
-    });
+    await orderRequest(app, accountant, po.id, FLEETFIX_SUPPLIER_ID, 12000);
+    expect((await call(app, "GET", `/api/documents/${jc.id}`, advisor)).body.document.lines[0].orderStatus).toBe("on_order");
+    const priced = await call(app, "PATCH", `/api/purchase-orders/${po.id}`, accountant, { status: "sent" });
     expect(priced.body.purchaseOrder).toMatchObject({ status: "sent", netFils: 12000 });
     expect(priced.body.purchaseOrder.lines[0].id).toBe(po.lines[0].id);
 
@@ -117,7 +116,7 @@ describe("purchasing", () => {
     const disc = await createPart(app, owner, { partNo: "BD-220", name: "Brake disc", stocked: false });
     const jc = await jobCard(app, accountant, customer.id, [partLine(disc, 2)]);
     const poId = (await request(app, accountant, jc.id, { qty: 2 })).body.document.lines[0].purchaseOrderId;
-    const po = (await call(app, "GET", `/api/purchase-orders/${poId}`, accountant)).body.purchaseOrder;
+    const po = await orderRequest(app, accountant, poId, FLEETFIX_SUPPLIER_ID);
     const receive = (unitCostFils: number) =>
       call(app, "POST", `/api/purchase-orders/${poId}/receive`, accountant, { lines: [{ poLineId: po.lines[0].id, qty: 1, unitCostFils }] });
     await receive(3000);
@@ -163,13 +162,11 @@ describe("purchasing", () => {
     expect((await call(app, "GET", `/api/purchase-orders/${draft.id}`, accountant)).body.purchaseOrder.status).toBe("draft");
   });
 
-  it("advisor sees no PO amounts and can't manage POs", async () => {
+  it("advisor can't open, make or receive POs", async () => {
     const { app, accountant, advisor } = await world();
     const po = await newPo(app, accountant, [{ description: "Coolant", qty: 1, unitCostFils: 2500 }]);
-    const seen = (await call(app, "GET", `/api/purchase-orders/${po.id}`, advisor)).body.purchaseOrder;
-    expect(seen).not.toHaveProperty("netFils");
-    expect(seen.lines[0]).not.toHaveProperty("unitCostFils");
-    expect((await call(app, "GET", "/api/purchase-orders", advisor)).body.purchaseOrders[0]).not.toHaveProperty("netFils");
+    expect((await call(app, "GET", `/api/purchase-orders/${po.id}`, advisor)).status).toBe(403);
+    expect((await call(app, "GET", "/api/purchase-orders", advisor)).status).toBe(403);
     expect((await call(app, "POST", "/api/purchase-orders", advisor, { supplierId: FLEETFIX_SUPPLIER_ID, lines: [] })).status).toBe(403);
     expect((await call(app, "POST", `/api/purchase-orders/${po.id}/receive`, advisor, { lines: [{ poLineId: po.lines[0].id, qty: 1, unitCostFils: 1 }] })).status).toBe(403);
   });
@@ -188,14 +185,14 @@ describe("purchasing", () => {
     expect((await request(app, advisor, jc.id, { position: 1 })).status).toBe(400);
   });
 
-  it("the second request to the same supplier joins the open draft PO", async () => {
+  it("each job card has its own request", async () => {
     const { app, owner, advisor, customer } = await world();
     const disc = await createPart(app, owner, { partNo: "BD-220", name: "Brake disc", stocked: false });
     const one = await jobCard(app, advisor, customer.id, [partLine(disc, 1)]);
     const two = await jobCard(app, advisor, customer.id, [partLine(disc, 1)]);
     const a = (await request(app, advisor, one.id)).body.document.lines[0].purchaseOrderId;
     const b = (await request(app, advisor, two.id)).body.document.lines[0].purchaseOrderId;
-    expect(b).toBe(a);
+    expect(b).not.toBe(a);
   });
 
   it("cancelling a PO frees its job lines to be requested again; can't cancel after receiving", async () => {
@@ -208,7 +205,7 @@ describe("purchasing", () => {
     const again = await request(app, advisor, jc.id);
     expect(again.status).toBe(200);
     const po2 = again.body.document.lines[0].purchaseOrderId;
-    const line = (await call(app, "GET", `/api/purchase-orders/${po2}`, accountant)).body.purchaseOrder.lines[0];
+    const line = (await orderRequest(app, accountant, po2, FLEETFIX_SUPPLIER_ID)).lines[0];
     await call(app, "POST", `/api/purchase-orders/${po2}/receive`, accountant, { lines: [{ poLineId: line.id, qty: 1, unitCostFils: 100 }] });
     expect((await call(app, "PATCH", `/api/purchase-orders/${po2}`, accountant, { status: "cancelled" })).status).toBe(409);
   });

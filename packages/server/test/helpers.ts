@@ -86,3 +86,17 @@ export const EMPLOYEE = {
   name: "Ravi Kumar", job: "Mechanic", nationality: "India", joinDate: "2024-01-01", basicFils: 300000, housingFils: 100000, transportFils: 50000,
   payMethod: "bank", iban: "AE070331234567890123456", routingCode: "803320101", personId: "10012345678901",
 };
+
+/** A job card's request ordered from one vendor at one price for every line: the buyer asks, types the price, orders. */
+export async function orderRequest(app: App, token: string, poId: string, supplierId: string, unitCostFils = 0) {
+  const ok = (res: { status: number; body: any }) => {
+    if (res.status !== 200) throw new Error(JSON.stringify(res.body));
+    return res.body;
+  };
+  ok(await call(app, "POST", `/api/purchase-orders/${poId}/quotes`, token, { vendors: [{ supplierId }] }));
+  const lines: { id: string }[] = ok(await call(app, "GET", `/api/purchase-orders/${poId}`, token)).purchaseOrder.lines;
+  const priced = ok(await call(app, "PUT", `/api/purchase-orders/${poId}/quote-prices`, token, { prices: lines.map((l) => ({ supplierId, poLineId: l.id, unitCostFils })) }));
+  return ok(await call(app, "POST", `/api/purchase-orders/${poId}/order`, token, {
+    version: priced.purchaseOrder.version, choices: lines.map((l) => ({ poLineId: l.id, supplierId })),
+  })).purchaseOrders[0];
+}

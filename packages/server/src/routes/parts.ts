@@ -533,8 +533,9 @@ export function partRoutes(app: FastifyInstance, db: Db): void {
 
   // ---- Suppliers ----
 
+  // Vendors are for those who buy: advisors never see them.
   app.get("/api/suppliers", async (req) => {
-    sessionUser(db, req);
+    requireAction(sessionUser(db, req), "purchases.manage");
     const rows = db.all<SupplierRow>("SELECT * FROM suppliers ORDER BY is_fleetfix DESC, name COLLATE NOCASE");
     return { suppliers: rows.map(supplierOut) };
   });

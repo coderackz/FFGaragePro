@@ -3,7 +3,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { FLEETFIX_SUPPLIER_ID, SYSTEM_ACCOUNTS } from "@ffgp/shared";
 import { postPending } from "../src/books/pending";
 import { Db, newId } from "../src/db";
-import { addUser, call, createPart, makeApp, onHand, setUp, tempDir, type App } from "./helpers";
+import { addUser, call, createPart, makeApp, onHand, orderRequest, setUp, tempDir, type App } from "./helpers";
 
 export async function world() {
   const app = await makeApp();
@@ -229,9 +229,10 @@ describe("buying a used part", () => {
     expect(res.body.error).toBe("Use Buy used part");
   });
 
-  it("lists the used parts still to buy, without costs", async () => {
+  it("lists the used parts still to buy, for those who buy", async () => {
     const { app, owner, advisor, jobCard } = await world();
-    const list = async () => (await call(app, "GET", "/api/used-parts-to-buy", advisor)).body.items;
+    const list = async () => (await call(app, "GET", "/api/used-parts-to-buy", owner)).body.items;
+    expect((await call(app, "GET", "/api/used-parts-to-buy", advisor)).status).toBe(403);
     await jobCard([USED], "estimate");
     const a = await jobCard([{ ...USED, description: "Belt", condition: "new" }, USED]);
     const b = await jobCard([USED]);
@@ -401,6 +402,9 @@ describe("minor fixes", () => {
     const { app, owner, jobCard } = await world();
     const jc = await jobCard([{ ...USED, condition: "new", qty: 2 }]);
     await call(app, "POST", "/api/purchase-requests", owner, { documentId: jc.id, position: 0, supplierId: FLEETFIX_SUPPLIER_ID, qty: 2 });
+    const requested = (await call(app, "GET", `/api/documents/${jc.id}`, owner)).body.document.lines[0];
+    expect(requested).toMatchObject({ orderStatus: "requested", receivedQty: 0 });
+    await orderRequest(app, owner, requested.purchaseOrderId, FLEETFIX_SUPPLIER_ID);
     const before = (await call(app, "GET", `/api/documents/${jc.id}`, owner)).body.document.lines[0];
     expect(before).toMatchObject({ orderStatus: "on_order", receivedQty: 0 });
     const got = await call(app, "POST", `/api/purchase-orders/${before.purchaseOrderId}/receive`, owner, { vatFils: 0, lines: [{ poLineId: before.poLineId, qty: 1, unitCostFils: 10000 }] });

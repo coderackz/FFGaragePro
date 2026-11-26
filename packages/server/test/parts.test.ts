@@ -78,13 +78,14 @@ describe("suppliers", () => {
     expect((await call(app, "PATCH", `/api/suppliers/${FLEETFIX_SUPPLIER_ID}`, owner, { name: "Fleet Fix", phone: "800 FLEET" })).body.supplier.phone).toBe("800 FLEET");
   });
 
-  it("accountant adds suppliers; advisor can only read", async () => {
+  it("accountant adds suppliers; advisor can't see them", async () => {
     const app = await makeApp();
     const owner = await setUp(app);
     const accountant = await addUser(app, owner, "accountant");
     const advisor = await addUser(app, owner, "advisor");
     expect((await call(app, "POST", "/api/suppliers", accountant, { name: "Al Futtaim Parts", trn: "100200300400003" })).status).toBe(200);
     expect((await call(app, "POST", "/api/suppliers", advisor, { name: "X" })).status).toBe(403);
-    expect((await call(app, "GET", "/api/suppliers", advisor)).body.suppliers).toHaveLength(2);
+    expect((await call(app, "GET", "/api/suppliers", advisor)).status).toBe(403);
+    expect((await call(app, "GET", "/api/suppliers", accountant)).body.suppliers).toHaveLength(2);
   });
 });

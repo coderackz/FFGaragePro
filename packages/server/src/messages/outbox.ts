@@ -15,7 +15,7 @@ interface MessageRow {
   id: string; customer_id: string | null; employee_id: string | null; contact_id: string | null; document_id: string | null; receipt_id: string | null;
   event: string; channel: string; recipient: string; subject: string | null; body: string; status: string; attempts: number;
   next_attempt_at: string | null; error: string | null; sender_place: string | null; created_at: string; sent_at: string | null;
-  provider_id?: string | null; delivery?: string | null;
+  provider_id?: string | null; delivery?: string | null; po_id?: string | null; supplier_id?: string | null;
   created_by_name?: string | null; file_name?: string | null;
 }
 
@@ -28,6 +28,7 @@ export const messageOut = (m: MessageRow) => ({
   nextAttemptAt: m.next_attempt_at, error: m.error, senderPlace: m.sender_place, createdBy: m.created_by_name ?? null,
   createdAt: m.created_at, sentAt: m.sent_at, fileName: m.file_name ?? null,
   providerId: m.provider_id ?? null, delivery: m.delivery ?? null,
+  purchaseOrderId: m.po_id ?? null, supplierId: m.supplier_id ?? null,
 });
 export type MessageOut = ReturnType<typeof messageOut>;
 
@@ -36,14 +37,21 @@ export function getMessage(db: Db, id: string): MessageOut | null {
   return m ? messageOut(m) : null;
 }
 
-/** Messages, newest first. Payslips (salary details) only when `payslips` is true: for people who run payroll. */
-export function listMessages(db: Db, q: { customerId?: string; documentId?: string; receiptId?: string; status?: string }, o: { payslips: boolean }): MessageOut[] {
+/**
+ * Messages, newest first. Payslips (salary details) only when `payslips` is true: for people who run payroll. Messages
+ * to vendors only when `vendors` is true: for people who buy.
+ */
+export function listMessages(db: Db, q: { customerId?: string; documentId?: string; receiptId?: string; status?: string; purchaseOrderId?: string }, o: { payslips: boolean; vendors?: boolean }): MessageOut[] {
   return db
     .all<MessageRow>(
       `${SELECT} WHERE (:customer IS NULL OR m.customer_id = :customer) AND (:document IS NULL OR m.document_id = :document)
          AND (:receipt IS NULL OR m.receipt_id = :receipt) AND (:status IS NULL OR m.status = :status) AND (:payslips = 1 OR m.event <> 'payslip')
+         AND (:po IS NULL OR m.po_id = :po) AND (:vendors = 1 OR (m.po_id IS NULL AND m.supplier_id IS NULL))
        ORDER BY m.created_at DESC, m.rowid DESC LIMIT 200`,
-      { customer: q.customerId ?? null, document: q.documentId ?? null, receipt: q.receiptId ?? null, status: q.status ?? null, payslips: o.payslips ? 1 : 0 },
+      {
+        customer: q.customerId ?? null, document: q.documentId ?? null, receipt: q.receiptId ?? null, status: q.status ?? null, payslips: o.payslips ? 1 : 0,
+        po: q.purchaseOrderId ?? null, vendors: o.vendors ? 1 : 0,
+      },
     )
     .map(messageOut);
 }
@@ -56,7 +64,11 @@ export const payslipMessages = (db: Db, runId: string): MessageOut[] =>
  * Queues an email (sent by this garage's one sender: the cloud when linked, else its server) or logs a WhatsApp
  * message opened on a PC. The same `dedupeKey` twice returns the first message: automatic messages never go twice.
  */
-export function queueMessage(db: Db, input: Omit<MessageInput, "wa"> & { wa?: MessageInput["wa"] }, userId: string | null): MessageOut {
+export function queueMessage(
+  db: Db,
+  input: Omit<MessageInput, "wa" | "event"> & { event: MessageInput["event"] | VendorEvent; wa?: MessageInput["wa"]; poId?: string | null; supplierId?: string | null },
+  userId: string | null,
+): MessageOut {
   return db.tx(() => {
     if (input.dedupeKey) {
       const existing = db.get<{ id: string; event: string }>("SELECT id, event FROM messages WHERE dedupe_key = ?", [input.dedupeKey]);
@@ -73,9 +85,10 @@ export function queueMessage(db: Db, input: Omit<MessageInput, "wa"> & { wa?: Me
     const queued = input.channel === "email" || !!input.wa;
     db.run(
       `INSERT INTO messages (id, customer_id, employee_id, contact_id, document_id, receipt_id, event, channel, recipient, subject, body, status, dedupe_key,
-         created_by, created_at, sent_at, updated_at, wa_json) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+         created_by, created_at, sent_at, updated_at, wa_json, po_id, supplier_id) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
       [id, input.customerId, input.employeeId, input.contactId, input.documentId, input.receiptId, input.event, input.channel, input.recipient, input.subject,
-        input.body, queued ? "queued" : "opened", input.dedupeKey, userId, t, queued ? null : t, t, input.wa ? JSON.stringify(input.wa) : null],
+        input.body, queued ? "queued" : "opened", input.dedupeKey, userId, t, queued ? null : t, t, input.wa ? JSON.stringify(input.wa) : null,
+        input.poId ?? null, input.supplierId ?? null],
     );
     if (input.attachment) {
       db.run("INSERT INTO message_files (id, message_id, file_name, data_base64, created_at) VALUES (?, ?, ?, ?, ?)", [
@@ -98,6 +111,9 @@ export function retryMessage(db: Db, id: string): MessageOut {
 
 /** Errors that mean the mail server itself can't be used right now: no point trying this garage's other emails. */
 const SERVER_DOWN = new Set(["ECONNECTION", "ETIMEDOUT", "ESOCKET", "EDNS", "EAUTH", "ETLS", "ECONNREFUSED", "ECONNRESET", "ENOTFOUND"]);
+/** Messages to vendors: asking for prices on a request, and sending an order. Seen only by people who buy. */
+export type VendorEvent = "parts_request" | "purchase_order";
+
 export const MAY_HAVE_GONE = "Stopped while sending: it may have gone. Check with the customer before trying again.";
 
 /**
