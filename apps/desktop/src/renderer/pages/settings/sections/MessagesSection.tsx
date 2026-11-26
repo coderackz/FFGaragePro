@@ -26,13 +26,13 @@ const EVENT_HINTS: Record<MessageEvent, string> = {
 
 const REMINDERS: MessageEvent[] = ["payment_due", "payment_overdue"];
 
-/** Settings → Messages: the garage's own mailbox, reminders, and each message's text in English and Arabic. */
+/** Settings → Messages: the garage's own mailbox, reminders, and each message's text. */
 export function MessagesSection() {
   const form = useSectionForm("messages");
   const m = form.value;
   const overview = useApi<{ messages?: { passwordSet: boolean } }>("/api/settings/overview");
   const setEvent = (e: MessageEvent, patch: Partial<MessageEventSettings>) => form.set({ [e]: { ...m[e], ...patch } } as Partial<typeof m>);
-  const badText = MESSAGE_EVENTS.some((e) => [m[e].subjectEn, m[e].subjectAr, m[e].textEn, m[e].textAr].some((t) => unknownPlaceholders(t).length || !t.trim()));
+  const badText = MESSAGE_EVENTS.some((e) => [m[e].subjectEn, m[e].textEn].some((t) => unknownPlaceholders(t).length || !t.trim()));
 
   return (
     <SectionShell
@@ -78,7 +78,7 @@ export function MessagesSection() {
 
       <Card title="Messages and their text">
         <p className="mb-3 text-sm text-zinc-600">
-          You can use {PLACEHOLDERS.map((p) => `{${p}}`).join(" ")}. Each contact gets the text in their language. WhatsApp always waits for someone to press Send.
+          You can use {PLACEHOLDERS.map((p) => `{${p}}`).join(" ")}. WhatsApp always waits for someone to press Send.
         </p>
         <div className="divide-y divide-zinc-100">
           {MESSAGE_EVENTS.map((e) => <EventCard key={e} event={e} value={m[e]} onChange={(patch) => setEvent(e, patch)} />)}
@@ -91,10 +91,10 @@ export function MessagesSection() {
 function EventCard({ event, value: v, onChange }: { event: MessageEvent; value: MessageEventSettings; onChange: (p: Partial<MessageEventSettings>) => void }) {
   const label = EVENT_LABELS[event];
   const reminder = REMINDERS.includes(event);
-  const text = (key: "subjectEn" | "subjectAr" | "textEn" | "textAr", title: string, rtl: boolean, multi: boolean) => {
+  const text = (key: "subjectEn" | "textEn", title: string, multi: boolean) => {
     const unknown = unknownPlaceholders(v[key]);
     const error = !v[key].trim() ? "Enter the text" : unknown.length ? `Unknown placeholder ${unknown.map((n) => `{${n}}`).join(", ")}` : null;
-    const props = { value: v[key], dir: rtl ? "rtl" : undefined, lang: rtl ? "ar" : undefined, "aria-label": `${label} — ${title}`, "aria-invalid": !!error };
+    const props = { value: v[key], "aria-label": `${label} — ${title}`, "aria-invalid": !!error };
     return (
       <div>
         <div className="mb-1 text-xs font-medium text-zinc-600">{title}</div>
@@ -129,15 +129,9 @@ function EventCard({ event, value: v, onChange }: { event: MessageEvent; value: 
             </Select>
           </Field>
         </div>
-        <div className="grid grid-cols-2 gap-4 max-md:grid-cols-1">
-          <div className="space-y-2">
-            {text("subjectEn", "Email subject (English)", false, false)}
-            {text("textEn", "text (English)", false, true)}
-          </div>
-          <div className="space-y-2">
-            {text("subjectAr", "Email subject (Arabic)", true, false)}
-            {text("textAr", "text (Arabic)", true, true)}
-          </div>
+        <div className="space-y-2">
+          {text("subjectEn", "Email subject", false)}
+          {text("textEn", "Text", true)}
         </div>
       </div>
     </details>

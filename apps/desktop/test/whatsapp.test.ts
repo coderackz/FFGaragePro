@@ -19,10 +19,10 @@ describe("uaePhone normalises", () => {
 });
 
 describe("whatsappUrl", () => {
-  it("encodes Arabic and ampersands", () => {
-    const url = whatsappUrl("971501234567", "Tom & Jerry — مرحبا");
+  it("encodes accents and ampersands", () => {
+    const url = whatsappUrl("971501234567", "Tom & Jerry — café");
     expect(url.startsWith("https://wa.me/971501234567?text=")).toBe(true);
-    expect(decodeURIComponent(url.split("?text=")[1]!)).toBe("Tom & Jerry — مرحبا");
+    expect(decodeURIComponent(url.split("?text=")[1]!)).toBe("Tom & Jerry — café");
     expect(url).not.toContain(" ");
     expect(url).not.toMatch(/&(?!$)/);
   });

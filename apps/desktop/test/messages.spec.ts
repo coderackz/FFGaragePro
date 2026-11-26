@@ -63,7 +63,7 @@ test.describe.serial("messages", () => {
 
     // A placeholder that doesn't exist is caught next to the field, before saving.
     await page.getByText("Invoice issued", { exact: true }).click();
-    const textEn = page.getByLabel("Invoice issued — text (English)");
+    const textEn = page.getByLabel("Invoice issued — Text");
     await textEn.fill("Hi {name}, your invoice {doc_number}");
     await expect(page.getByText("Unknown placeholder {name}")).toBeVisible();
     await page.getByRole("button", { name: "Discard" }).click();
@@ -91,14 +91,12 @@ test.describe.serial("messages", () => {
     await page.getByRole("button", { name: "Add contact" }).click();
     await page.getByLabel("Name", { exact: true }).fill("Accounts");
     await page.getByLabel("Email", { exact: true }).fill("accounts@gulffleet.ae");
-    await page.getByLabel("Message language").selectOption("ar");
     await page.getByLabel("Invoices & receipts").check();
     await page.getByLabel("Statements").check();
     await page.getByRole("button", { name: "Save contact" }).click();
     const row = page.getByTestId("contacts").getByRole("row", { name: /Accounts/ });
     await expect(row).toContainText("accounts@gulffleet.ae");
     await expect(row).toContainText("Invoices");
-    await expect(row).toContainText("Arabic");
 
     const jc = (await (await request.post(`${API}/api/documents`, { headers, data: { type: "jobcard", customerId: customer.id } })).json()).document;
     await page.goto(`/#/documents/${jc.id}`);
@@ -196,9 +194,8 @@ test.describe.serial("messages", () => {
     await page.getByRole("button", { name: "New template" }).click();
     const form = page.getByRole("dialog");
     await form.getByLabel("Name", { exact: true }).fill("Thank you note");
-    await form.getByLabel("Subject (English)").fill("Thank you from {garage}");
-    await form.getByLabel("Text (English)").fill("Dear {customer}, thank you for choosing {garage}.");
-    await form.getByLabel("Text (Arabic)").fill("عزيزي {customer}، شكراً لاختياركم {garage}.");
+    await form.getByLabel("Subject", { exact: true }).fill("Thank you from {garage}");
+    await form.getByLabel("Text", { exact: true }).fill("Dear {customer}, thank you for choosing {garage}.");
     await form.getByRole("button", { name: "Save template" }).click();
     await expect(page.getByRole("row", { name: /Thank you note/ })).toBeVisible();
 

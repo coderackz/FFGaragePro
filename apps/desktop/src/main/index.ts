@@ -408,7 +408,7 @@ ipcMain.handle("ffgp:restore", async () => {
   return { ok: true };
 });
 
-/** Renders print HTML in a hidden window (Electron handles Arabic / RTL correctly). */
+/** Renders print HTML in a hidden window. */
 async function withPrintWindow<T>(html: string, fn: (win: BrowserWindow) => Promise<T>): Promise<T> {
   const file = join(app.getPath("temp"), `ffgp-print-${randomUUID()}.html`);
   await writeFile(file, html, "utf8");

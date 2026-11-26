@@ -12,7 +12,6 @@ import { AddressFields, EmailField, firstProblem, OdometerField, PhoneField, Pla
 
 const emptyCustomer = {
   kind: "individual" as Customer["kind"], name: "", phone: "", email: "", trn: "", addressParts: EMPTY_ADDRESS, notes: "",
-  nameAr: "", addressAr: "", docLanguage: "en" as NonNullable<Customer["docLanguage"]>, messageLanguage: "en" as NonNullable<Customer["messageLanguage"]>,
 };
 const emptyCredit = { creditAllowed: false, creditLimitFils: 0, termsDays: "", discountPct: "", lpoRequired: false, openingBalance: "", openingBalanceDate: "" };
 const creditOf = (c: Customer) => ({
@@ -33,7 +32,7 @@ export function CustomerFormModal({ open, customer, initialName, onClose, onSave
     setForm(customer
       ? {
           kind: customer.kind, name: customer.name, phone: customer.phone ?? "", email: customer.email ?? "", trn: customer.trn ?? "", addressParts: customer.addressParts ?? EMPTY_ADDRESS,
-          notes: customer.notes ?? "", nameAr: customer.nameAr ?? "", addressAr: customer.addressAr ?? "", docLanguage: customer.docLanguage ?? "en", messageLanguage: customer.messageLanguage ?? "en",
+          notes: customer.notes ?? "",
         }
       : { ...emptyCustomer, name: initialName ?? "" });
     setCredit(customer ? creditOf(customer) : emptyCredit);
@@ -97,24 +96,6 @@ export function CustomerFormModal({ open, customer, initialName, onClose, onSave
           <TrnField label="Customer TRN" hint="Shown on tax invoices." className="col-span-2" before={customer?.trn} {...box("trn")} />
         )}
         <AddressFields className="col-span-2" value={form.addressParts} onChange={(addressParts) => setForm((x) => ({ ...x, addressParts }))} />
-        <Field label="Document language" hint="What their estimates, invoices and statements print in">
-          <Select {...f("docLanguage")}>
-            <option value="en">English</option>
-            <option value="en_ar">English + Arabic</option>
-          </Select>
-        </Field>
-        <Field label="Message language" hint="WhatsApp and email to their own phone and email">
-          <Select {...f("messageLanguage")}>
-            <option value="en">English</option>
-            <option value="ar">Arabic</option>
-          </Select>
-        </Field>
-        <Field label="Arabic name" hint="Printed on English + Arabic documents">
-          <Input {...f("nameAr")} dir="rtl" lang="ar" />
-        </Field>
-        <Field label="Arabic address" className="col-span-2">
-          <Textarea {...f("addressAr")} rows={2} className="min-h-0" dir="rtl" lang="ar" />
-        </Field>
         <Field label="Notes" className="col-span-2">
           <Textarea {...f("notes")} rows={2} className="min-h-0" />
         </Field>

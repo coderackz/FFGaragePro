@@ -34,7 +34,7 @@ test("integrations: WhatsApp Business API and Zoho Books (fake providers)", asyn
 
   // A template mapped to an approved Meta template: the Send dialog sends through the API.
   await request.post(`${API}/api/message-templates`, { headers, data: {
-    name: "Ready (API)", channel: "whatsapp", textEn: "Dear {customer}, {plate} is ready.", textAr: "عزيزي {customer}، {plate} جاهزة.",
+    name: "Ready (API)", channel: "whatsapp", textEn: "Dear {customer}, {plate} is ready.",
     waTemplateName: "vehicle_ready", waLanguage: "en", waParams: ["customer", "plate"],
   } });
   const customer = (await (await request.post(`${API}/api/customers`, { headers, data: { kind: "individual", name: "Mona Saeed", phone: "050 765 4321" } })).json()).customer;

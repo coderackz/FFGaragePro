@@ -1,10 +1,10 @@
 export interface Employee {
-  id: string; name: string; nameAr: string | null; job: string; nationality: string | null; joinDate: string; leftDate: string | null;
+  id: string; name: string; job: string; nationality: string | null; joinDate: string; leftDate: string | null;
   basicFils: number; housingFils: number; transportFils: number; otherAllowanceFils: number; payMethod: "bank" | "salary_card";
   iban: string | null; cardNumber: string | null; routingCode: string | null; personId: string | null;
   emiratesId: string | null; emiratesIdExpiry: string | null; labourCard: string | null; labourCardExpiry: string | null;
   passport: string | null; passportExpiry: string | null; visa: string | null; visaExpiry: string | null;
-  language: "en" | "en_ar"; phone: string | null; email: string | null;
+  phone: string | null; email: string | null;
   /** Annual leave days owed on a date from before the app. */
   leaveBalanceDays: number | null; leaveBalanceDate: string | null;
 }

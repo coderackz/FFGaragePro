@@ -2,8 +2,8 @@ import { describe, expect, it } from "vitest";
 import { addUser, call, makeApp, setUp } from "./helpers";
 
 const REMINDER = {
-  name: "Service reminder", channel: "both", subjectEn: "Service due for {plate}", subjectAr: "موعد الصيانة {plate}",
-  textEn: "Dear {customer}, {plate} is due for its service. {garage}", textAr: "عزيزي {customer}، حان موعد صيانة {plate}. {garage}",
+  name: "Service reminder", channel: "both", subjectEn: "Service due for {plate}",
+  textEn: "Dear {customer}, {plate} is due for its service. {garage}",
 };
 
 describe("message templates", () => {

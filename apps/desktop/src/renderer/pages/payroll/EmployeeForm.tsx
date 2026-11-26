@@ -9,9 +9,9 @@ import type { Employee } from "./types";
 type Draft = Omit<Employee, "id">;
 const today = () => new Date(Date.now() + 4 * 3_600_000).toISOString().slice(0, 10);
 const blank = (): Draft => ({
-  name: "", nameAr: null, job: "", nationality: null, joinDate: today(), leftDate: null, basicFils: 0, housingFils: 0, transportFils: 0, otherAllowanceFils: 0,
+  name: "", job: "", nationality: null, joinDate: today(), leftDate: null, basicFils: 0, housingFils: 0, transportFils: 0, otherAllowanceFils: 0,
   payMethod: "bank", iban: null, cardNumber: null, routingCode: null, personId: null, emiratesId: null, emiratesIdExpiry: null, labourCard: null,
-  labourCardExpiry: null, passport: null, passportExpiry: null, visa: null, visaExpiry: null, language: "en", phone: null, email: null,
+  labourCardExpiry: null, passport: null, passportExpiry: null, visa: null, visaExpiry: null, phone: null, email: null,
   leaveBalanceDays: null, leaveBalanceDate: null,
 });
 const DOCS = [["emiratesId", "Emirates ID"], ["labourCard", "Labour card"], ["passport", "Passport"], ["visa", "Visa"]] as const;
@@ -45,7 +45,6 @@ export function EmployeeForm({ open, employee, onClose, onSaved }: { open: boole
       footer={<><Button variant="ghost" onClick={onClose}>Cancel</Button><Button variant="primary" busy={busy} onClick={() => void save()}>Save employee</Button></>}>
       <div className="grid grid-cols-3 gap-3 max-md:grid-cols-1">
         {text("name", "Name")}
-        {text("nameAr", "Name in Arabic", { dir: "rtl" })}
         {text("job", "Job")}
         {text("nationality", "Nationality")}
         <Field label="Joined"><Input type="date" value={d.joinDate} onChange={(e) => set({ joinDate: e.target.value })} aria-label="Joined" /></Field>
@@ -88,11 +87,6 @@ export function EmployeeForm({ open, employee, onClose, onSaved }: { open: boole
         <Field label="Owed on"><Input type="date" value={d.leaveBalanceDate ?? ""} onChange={(e) => set({ leaveBalanceDate: e.target.value || null })} aria-label="Owed on" /></Field>
       </div>
       <div className="mt-5 grid grid-cols-3 gap-3 max-md:grid-cols-1">
-        <Field label="Payslip language">
-          <Select value={d.language} onChange={(e) => set({ language: e.target.value as Draft["language"] })} aria-label="Payslip language">
-            <option value="en">English</option><option value="en_ar">English + Arabic</option>
-          </Select>
-        </Field>
         <PhoneField label="Phone" {...box("phone")} />
         <EmailField label="Email" {...box("email")} />
       </div>

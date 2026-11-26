@@ -29,14 +29,9 @@ export function SendPayslips({ open, runId, month, onClose }: { open: boolean; r
   const loaded = !!slips.data && !!people.data && !!sent.data;
   const canEmail = ev.on && ev.channel !== "whatsapp";
   const canWhatsApp = ev.on && ev.channel !== "email";
-  // In the employee's language: English, or English then Arabic.
   const text = (s: Payslip) => {
     const fill = (t: string) => t.replace(/\{contact\}/g, s.employee.name).replace(/\{doc_number\}/g, monthLong(month)).replace(/\{garage\}/g, garage?.name ?? "");
-    const both = s.employee.language === "en_ar";
-    return {
-      subject: both ? `${fill(ev.subjectEn)} / ${fill(ev.subjectAr)}` : fill(ev.subjectEn),
-      body: both ? `${fill(ev.textEn)}\n\n${fill(ev.textAr)}` : fill(ev.textEn),
-    };
+    return { subject: fill(ev.subjectEn), body: fill(ev.textEn) };
   };
   const pdfOf = async (s: Payslip) => ({ fileName: `Payslip ${monthLong(month)} - ${s.employee.name}.pdf`, base64: await makePdf(renderPayslipsHtml([s], garage!, settings!)) });
   const emailAll = async () => {

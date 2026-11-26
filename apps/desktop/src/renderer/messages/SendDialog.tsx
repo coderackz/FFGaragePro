@@ -21,14 +21,13 @@ export function SendDialogHost() {
 
 const optionKey = (r: Recipient, i: number) => `${i}: ${r.name}`;
 
-/** Pick who gets it, check the text (in their language), then email it or open it in WhatsApp. */
+/** Pick who gets it, check the text, then email it or open it in WhatsApp. */
 export function SendDialog({ request: r, onClose }: { request: SendRequest; onClose: () => void }) {
   const { settings } = useAuth();
   const ev = settings!.messages[r.event];
   const channel = r.manual ? "both" : ev.channel;
   const [data, setData] = useState<{ customer: Customer; recipients: Recipient[] } | null>(null);
   const [index, setIndex] = useState(0);
-  const [language, setLanguage] = useState<"en" | "ar">("en");
   const [subject, setSubject] = useState("");
   const [body, setBody] = useState("");
   const [busy, setBusy] = useState<"email" | "whatsapp" | null>(null);
@@ -43,10 +42,7 @@ export function SendDialog({ request: r, onClose }: { request: SendRequest; onCl
   const pdf = useRef<Promise<{ fileName: string; base64: string }> | null>(null);
 
   useEffect(() => {
-    void loadRecipients(r).then((d) => {
-      setData(d);
-      if (d.recipients[0]) setLanguage(d.recipients[0].language);
-    }, (err: Error) => toast.error(err.message));
+    void loadRecipients(r).then(setData, (err: Error) => toast.error(err.message));
   }, [r]);
 
   const to = data?.recipients[index];
@@ -57,12 +53,12 @@ export function SendDialog({ request: r, onClose }: { request: SendRequest; onCl
   useEffect(() => {
     if (!data || !to) return;
     const t = templates.data?.templates.find((x) => x.id === templateId);
-    const texts = t ? { ...ev, subjectEn: t.subjectEn ?? "", subjectAr: t.subjectAr ?? t.subjectEn ?? "", textEn: t.textEn, textAr: t.textAr } : ev;
-    const text = compose(r, texts, to, language, data.customer.balanceFils ?? null);
+    const texts = t ? { subjectEn: t.subjectEn ?? "", textEn: t.textEn } : ev;
+    const text = compose(r, texts, to, data.customer.balanceFils ?? null);
     setSubject(text.subject);
     setBody(text.body);
     // Not on the template list arriving: text typed meanwhile stays (a template can only be picked once it's there).
-  }, [data, to, language, r, ev, templateId]); // eslint-disable-line react-hooks/exhaustive-deps
+  }, [data, to, r, ev, templateId]); // eslint-disable-line react-hooks/exhaustive-deps
 
   const attachment = () => {
     if (!r.pdf) return Promise.resolve(null);
@@ -96,7 +92,7 @@ export function SendDialog({ request: r, onClose }: { request: SendRequest; onCl
     setBusy("whatsapp");
     if (waApi && chosen?.waTemplateName) {
       try {
-        await queueWhatsAppApi(r, to, phone, body, await attachment(), { waTemplateName: chosen.waTemplateName, waLanguage: chosen.waLanguage, waParams: chosen.waParams }, language, data?.customer.balanceFils ?? null);
+        await queueWhatsAppApi(r, to, phone, body, await attachment(), { waTemplateName: chosen.waTemplateName, waLanguage: chosen.waLanguage, waParams: chosen.waParams }, data?.customer.balanceFils ?? null);
         toast.success(`WhatsApp to ${to.name} is on its way`);
         setDone((d) => ({ ...d, whatsapp: true }));
       } catch (err) {
@@ -140,18 +136,12 @@ export function SendDialog({ request: r, onClose }: { request: SendRequest; onCl
         </p>
       ) : (
         <div className="space-y-4">
-          <div className="grid grid-cols-[1fr_140px] gap-3">
+          <div>
             <Field label="Send to">
               <Select value={optionKey(to, index)} onChange={(e) => setIndex(Number.parseInt(e.target.value, 10))} aria-label="Send to">
                 {data.recipients.map((x, i) => (
                   <option key={optionKey(x, i)} value={optionKey(x, i)}>{[x.name, x.phone, x.email].filter(Boolean).join(" · ")}</option>
                 ))}
-              </Select>
-            </Field>
-            <Field label="Language">
-              <Select value={language} onChange={(e) => setLanguage(e.target.value as "en" | "ar")} aria-label="Language">
-                <option value="en">English</option>
-                <option value="ar">Arabic</option>
               </Select>
             </Field>
           </div>
@@ -162,9 +152,9 @@ export function SendDialog({ request: r, onClose }: { request: SendRequest; onCl
                 .map((t) => <option key={t.id} value={t.id}>{t.name}</option>)}
             </Select>
           </Field>
-          {canEmail && <Field label="Subject"><Input value={subject} onChange={(e) => setSubject(e.target.value)} aria-label="Subject" dir={language === "ar" ? "rtl" : undefined} /></Field>}
+          {canEmail && <Field label="Subject"><Input value={subject} onChange={(e) => setSubject(e.target.value)} aria-label="Subject" /></Field>}
           <Field label="Message">
-            <Textarea rows={5} value={body} onChange={(e) => setBody(e.target.value)} aria-label="Message" dir={language === "ar" ? "rtl" : undefined} lang={language} />
+            <Textarea rows={5} value={body} onChange={(e) => setBody(e.target.value)} aria-label="Message" />
           </Field>
           {r.pdf && <p className="text-xs text-zinc-500">Attached: {r.pdf.fileName}{canWhatsApp && !waApi ? ". For WhatsApp it's saved for you to drag into the chat." : ""}</p>}
           {emptyParams.length > 0 && (

@@ -17,7 +17,7 @@ const GETS: { key: "getsApprovals" | "getsInvoices" | "getsReady" | "getsStateme
 ];
 
 const blank: ContactInput = {
-  name: "", phone: null, email: null, language: "en", getsApprovals: false, getsInvoices: false, getsReady: false, getsStatements: false, marketingConsent: false,
+  name: "", phone: null, email: null, getsApprovals: false, getsInvoices: false, getsReady: false, getsStatements: false, marketingConsent: false,
 };
 
 /** A customer's contacts: who gets approvals, invoices, "vehicle ready" and statements. */
@@ -40,7 +40,6 @@ export function ContactsPanel({ customerId }: { customerId: string }) {
             { header: "Name", cell: (c) => <span className="font-medium">{c.name}</span> },
             { header: "Phone", cell: (c) => c.phone ?? "—" },
             { header: "Email", cell: (c) => c.email ?? "—" },
-            { header: "Language", cell: (c) => (c.language === "ar" ? "Arabic" : "English") },
             { header: "Gets", cell: (c) => GETS.filter((g) => c[g.key]).map((g) => g.short).join(" · ") || "—" },
             { header: "Marketing", cell: (c) => (c.marketingConsentAt ? `Yes, since ${formatDate(c.marketingConsentAt)}` : "No") },
           ]}
@@ -103,12 +102,6 @@ function ContactModal({ customerId, contact, open, onClose, onSaved }: {
         <Field label="Name" className="col-span-2"><Input value={v.name} onChange={(e) => set({ name: e.target.value })} aria-label="Name" autoFocus /></Field>
         <PhoneField label="Phone" hint="WhatsApp number, e.g. 050 123 4567" before={contact?.phone} value={v.phone ?? ""} onChange={(x) => set({ phone: x || null })} />
         <EmailField label="Email" before={contact?.email} value={v.email ?? ""} onChange={(x) => set({ email: x || null })} />
-        <Field label="Message language">
-          <Select value={v.language} onChange={(e) => set({ language: e.target.value as ContactInput["language"] })} aria-label="Message language">
-            <option value="en">English</option>
-            <option value="ar">Arabic</option>
-          </Select>
-        </Field>
         <fieldset className="col-span-2">
           <legend className="mb-1.5 text-sm font-medium text-zinc-800">Gets</legend>
           <div className="grid grid-cols-2 gap-2">

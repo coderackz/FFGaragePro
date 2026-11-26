@@ -12,7 +12,7 @@ export const SAMPLE_GARAGE: Garage = {
 };
 
 const LINES: DocLine[] = [
-  { kind: "part", description: "Oil filter", qty: 1, unitPriceFils: 3500, discountPct: 0, partNo: "90915-YZZE1", partNameAr: "فلتر زيت", suppliedBy: "garage" },
+  { kind: "part", description: "Oil filter", qty: 1, unitPriceFils: 3500, discountPct: 0, partNo: "90915-YZZE1", suppliedBy: "garage" },
   { kind: "part", description: "Engine oil 5W-30 (litre)", qty: 7, unitPriceFils: 3500, discountPct: 0, partNo: "08880-83716", suppliedBy: "garage" },
   { kind: "labour", description: "Minor service", qty: 1.5, unitPriceFils: 18000, discountPct: 0, suppliedBy: "garage" },
 ];
@@ -25,7 +25,7 @@ function sample(type: DocumentFull["type"], number: string, status: string): Doc
     createdAt: at, updatedAt: at, createdBy: null, editable: false, pricesIncludeVat: false,
     customer: {
       id: "sample-customer", kind: "individual", name: "Mohammed Al Marri", phone: "050 123 4567", email: null, trn: null,
-      address: "Al Barsha 1, Dubai", notes: null, createdAt: at, nameAr: "محمد المري", addressAr: "البرشاء 1، دبي",
+      address: "Al Barsha 1, Dubai", notes: null, createdAt: at,
     },
     vehicle: {
       id: "sample-vehicle", customerId: "sample-customer", plate: "DUBAI A 12345", make: "Toyota", model: "Land Cruiser", year: 2021,

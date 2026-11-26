@@ -8,12 +8,12 @@ import { useApi } from "../../../lib/useApi";
 import { SectionShell } from "../SectionShell";
 
 export interface MessageTemplate {
-  id: string; name: string; channel: "email" | "whatsapp" | "both"; subjectEn: string | null; subjectAr: string | null; textEn: string; textAr: string;
+  id: string; name: string; channel: "email" | "whatsapp" | "both"; subjectEn: string | null; textEn: string;
   waTemplateName: string | null; waLanguage: string | null; waParams: string[]; archived: boolean;
 }
 const CHANNEL: Record<string, string> = { email: "Email", whatsapp: "WhatsApp", both: "Email and WhatsApp" };
 type Draft = Omit<MessageTemplate, "id" | "archived">;
-const blank = (): Draft => ({ name: "", channel: "both", subjectEn: "", subjectAr: "", textEn: "", textAr: "", waTemplateName: null, waLanguage: null, waParams: [] });
+const blank = (): Draft => ({ name: "", channel: "both", subjectEn: "", textEn: "", waTemplateName: null, waLanguage: null, waParams: [] });
 
 /** Settings → Message templates: the garage's own texts, picked in the Send dialog (the per-message texts stay the default). */
 export function TemplatesSection() {
@@ -64,10 +64,8 @@ function TemplateForm({ template, onClose, onSaved }: { template: MessageTemplat
             {TEMPLATE_CHANNELS.map((c) => <option key={c} value={c}>{CHANNEL[c]}</option>)}
           </Select>
         </Field>
-        {email && <Field label="Subject (English)"><Input value={d.subjectEn ?? ""} onChange={(e) => set({ subjectEn: e.target.value })} aria-label="Subject (English)" /></Field>}
-        {email && <Field label="Subject (Arabic)"><Input dir="rtl" value={d.subjectAr ?? ""} onChange={(e) => set({ subjectAr: e.target.value })} aria-label="Subject (Arabic)" /></Field>}
-        <Field label="Text (English)" className="col-span-2"><Textarea rows={4} value={d.textEn} onChange={(e) => set({ textEn: e.target.value })} aria-label="Text (English)" /></Field>
-        <Field label="Text (Arabic)" className="col-span-2"><Textarea rows={4} dir="rtl" value={d.textAr} onChange={(e) => set({ textAr: e.target.value })} aria-label="Text (Arabic)" /></Field>
+        {email && <Field label="Subject" className="col-span-2"><Input value={d.subjectEn ?? ""} onChange={(e) => set({ subjectEn: e.target.value })} aria-label="Subject" /></Field>}
+        <Field label="Text" className="col-span-2"><Textarea rows={4} value={d.textEn} onChange={(e) => set({ textEn: e.target.value })} aria-label="Text" /></Field>
       </div>
       <p className="mt-2 text-xs text-zinc-500">Placeholders: {PLACEHOLDERS.map((p) => `{${p}}`).join(" ")}</p>
       {d.channel !== "email" && (

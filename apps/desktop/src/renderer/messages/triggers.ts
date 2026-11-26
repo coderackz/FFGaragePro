@@ -90,18 +90,17 @@ export async function loadRecipients(r: SendRequest): Promise<{ customer: Custom
   ]);
   const recipients = recipientsFor(
     r.event,
-    { kind: customer.kind, name: customer.name, phone: customer.phone, email: customer.email, messageLanguage: customer.messageLanguage ?? "en" },
+    { kind: customer.kind, name: customer.name, phone: customer.phone, email: customer.email },
     contacts,
     r.driver,
   );
   return { customer, recipients };
 }
 
-/** Subject and text in `language`, filled for `to`. */
-export function compose(r: SendRequest, ev: MessageEventSettings, to: Recipient, language: "en" | "ar", balanceFils: number | null) {
+/** Subject and text, filled for `to`. */
+export function compose(r: SendRequest, ev: Pick<MessageEventSettings, "subjectEn" | "textEn">, to: Recipient, balanceFils: number | null) {
   const values = messageValues({ ...r.values, contactName: to.name, balanceFils });
-  const ar = language === "ar";
-  return { subject: fillTemplate(ar ? ev.subjectAr : ev.subjectEn, values), body: fillTemplate(ar ? ev.textAr : ev.textEn, values) };
+  return { subject: fillTemplate(ev.subjectEn, values), body: fillTemplate(ev.textEn, values) };
 }
 
 export async function queueEmail(
@@ -122,13 +121,13 @@ export async function queueEmail(
  */
 export async function queueWhatsAppApi(
   r: SendRequest, to: Recipient, phone: string, body: string, pdf: { fileName: string; base64: string } | null,
-  t: { waTemplateName: string; waLanguage: string | null; waParams: string[] }, language: "en" | "ar", balanceFils: number | null,
+  t: { waTemplateName: string; waLanguage: string | null; waParams: string[] }, balanceFils: number | null,
 ): Promise<Message> {
   const values = messageValues({ ...r.values, contactName: to.name, balanceFils });
   const { message } = await post<{ message: Message }>("/api/messages", {
     event: r.event, channel: "whatsapp", customerId: r.customerId, contactId: to.contactId, documentId: r.documentId ?? null, receiptId: r.receiptId ?? null,
     recipient: phone, body, attachment: pdf,
-    wa: { name: t.waTemplateName, language: t.waLanguage ?? language, params: t.waParams.map((p) => values[p as keyof typeof values] ?? "") },
+    wa: { name: t.waTemplateName, language: t.waLanguage ?? "en", params: t.waParams.map((p) => values[p as keyof typeof values] ?? "") },
   });
   messagesChanged();
   return message;
@@ -160,7 +159,7 @@ export async function afterAction(r: SendRequest, settings: Settings): Promise<v
       const emails = recipients.filter((x): x is Recipient & { email: string } => !!x.email);
       if (emails.length) {
         const pdf = r.pdf ? { fileName: r.pdf.fileName, base64: await makePdf(r.pdf.html()) } : null;
-        for (const to of emails) await queueEmail(r, to, compose(r, ev, to, to.language, customer.balanceFils ?? null), pdf, true);
+        for (const to of emails) await queueEmail(r, to, compose(r, ev, to, customer.balanceFils ?? null), pdf, true);
         toast.success(`Emailed to ${emails.map((x) => x.name).join(", ")}`);
       } else {
         toast.warning(`No email address on file for ${customer.name}: the email wasn't sent`);
@@ -202,6 +201,6 @@ export async function emailStatement(customerId: string, garage: Garage, setting
   const emails = recipients.filter((x): x is Recipient & { email: string } => !!x.email);
   if (!emails.length) return 0;
   const pdf = { fileName: r.pdf!.fileName, base64: await makePdf(r.pdf!.html()) };
-  for (const to of emails) await queueEmail(r, to, compose(r, settings.messages.statement, to, to.language, customer.balanceFils ?? null), pdf, false);
+  for (const to of emails) await queueEmail(r, to, compose(r, settings.messages.statement, to, customer.balanceFils ?? null), pdf, false);
   return emails.length;
 }

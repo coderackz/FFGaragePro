@@ -35,7 +35,7 @@ export function SettlementPage() {
   };
   const print = async () => {
     const e = (await get<{ employee: EmployeeFull }>(`/api/employees/${id}`)).employee;
-    const letter: SettlementLetter = { employeeId: e.id, name: s.name, nameAr: e.nameAr, job: s.job, language: e.language, joinDate: s.joinDate, lastDay: s.lastDay, items: s.items, totalFils: s.totalFils, draft };
+    const letter: SettlementLetter = { employeeId: e.id, name: s.name, job: s.job, joinDate: s.joinDate, lastDay: s.lastDay, items: s.items, totalFils: s.totalFils, draft };
     await printSettlement(letter, garage, settings, "print");
   };
   return (

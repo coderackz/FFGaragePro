@@ -1,4 +1,4 @@
-import type { DocLanguage, DocType } from "@ffgp/shared";
+import type { DocType } from "@ffgp/shared";
 import clsx from "clsx";
 import { Printer } from "lucide-react";
 import { useEffect, useMemo, useRef, useState } from "react";
@@ -26,10 +26,9 @@ export function DocumentsSection() {
   const form = useSectionForm("documents");
   const d = form.value;
   const [kind, setKind] = useState<DocType>("invoice");
-  const [language, setLanguage] = useState<DocLanguage>("en");
   const html = useMemo(
-    () => renderDocumentHtml({ ...SAMPLE_DOCUMENTS[kind], language }, garage!, { ...settings!, documents: d }),
-    [kind, language, garage, settings, d],
+    () => renderDocumentHtml(SAMPLE_DOCUMENTS[kind], garage!, { ...settings!, documents: d }),
+    [kind, garage, settings, d],
   );
 
   const preview = (
@@ -50,19 +49,6 @@ export function DocumentsSection() {
             </button>
           ))}
         </div>
-      </div>
-      <div className="mb-2 flex rounded-md bg-zinc-100 p-0.5 text-xs" aria-label="Preview language">
-        {([["en", "English"], ["en_ar", "English + Arabic"]] as const).map(([value, label]) => (
-          <button
-            key={value}
-            type="button"
-            aria-pressed={language === value}
-            onClick={() => setLanguage(value)}
-            className={clsx("flex-1 rounded px-2 py-1", language === value ? "bg-white font-medium text-zinc-900 shadow-xs" : "text-zinc-600 hover:text-zinc-900")}
-          >
-            {label}
-          </button>
-        ))}
       </div>
       <A4Preview html={html} />
       <div className="mt-2 flex items-center justify-between text-xs text-zinc-600">
@@ -103,15 +89,9 @@ export function DocumentsSection() {
           <Field label="Invoice terms & footer" hint="Printed at the foot of invoices, under your bank details">
             <Textarea rows={3} value={d.terms ?? ""} onChange={(e) => form.set({ terms: e.target.value })} placeholder="e.g. Payment due within 30 days. Cheques payable to …" />
           </Field>
-          <Field label="Arabic terms" hint="Under the English terms, on English + Arabic invoices">
-            <Textarea rows={2} value={d.termsAr ?? ""} onChange={(e) => form.set({ termsAr: e.target.value })} dir="rtl" lang="ar" />
-          </Field>
           <div className="grid gap-4 sm:grid-cols-2">
             <Field label="Warranty line" hint="Printed on invoices">
               <Textarea rows={2} value={d.warranty ?? ""} onChange={(e) => form.set({ warranty: e.target.value })} placeholder="e.g. Labour: 3 months / 5,000 km" />
-            </Field>
-            <Field label="Arabic warranty line" hint="On English + Arabic invoices">
-              <Textarea rows={2} value={d.warrantyAr ?? ""} onChange={(e) => form.set({ warrantyAr: e.target.value })} dir="rtl" lang="ar" />
             </Field>
             <Field label="Estimates valid for (days)">
               <NumberInput value={d.estimateValidDays} min={1} step={1} onChange={(n) => form.set({ estimateValidDays: Math.min(365, Math.max(1, Math.round(n))) })} aria-label="Estimates valid for" />

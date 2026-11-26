@@ -11,7 +11,7 @@ import { Button, Field, Input, Modal, MoneyInput, NumberInput, Select, Textarea 
 import { AddressFields, EmailField, firstProblem, PhoneField, TrnField } from "./fields";
 
 const emptyPart = {
-  partNo: "", name: "", nameAr: "", brand: "", unit: "each", stocked: true, sellPriceFils: 0, reorderLevel: 0, location: "", fits: "", active: true,
+  partNo: "", name: "", brand: "", unit: "each", stocked: true, sellPriceFils: 0, reorderLevel: 0, location: "", fits: "", active: true,
   categoryId: null as string | null, attributes: {} as Record<string, string | number>, numbers: [] as Numbers, fitments: [] as Fitments, packs: [] as Packs,
   tracking: "none" as Tracking, warrantyMonths: 0, isKit: false, components: [] as KitRow[],
   maxLevel: 0, preferredSupplierId: null as string | null, leadTimeDays: 7, coreFils: 0,
@@ -25,7 +25,7 @@ export function PartFormModal({ open, part, onClose, onSaved }: { open: boolean;
     if (!open) return;
     setForm(part
       ? {
-        partNo: part.partNo, name: part.name, nameAr: part.nameAr ?? "", brand: part.brand ?? "", unit: part.unit, stocked: part.stocked, sellPriceFils: part.sellPriceFils, reorderLevel: part.reorderLevel, location: part.location ?? "", fits: part.fits ?? "", active: part.active,
+        partNo: part.partNo, name: part.name, brand: part.brand ?? "", unit: part.unit, stocked: part.stocked, sellPriceFils: part.sellPriceFils, reorderLevel: part.reorderLevel, location: part.location ?? "", fits: part.fits ?? "", active: part.active,
         categoryId: part.categoryId ?? null, attributes: part.attributes ?? {}, numbers: part.numbers ?? [], fitments: part.fitments ?? [], packs: part.packs ?? [],
         tracking: part.tracking ?? "none", warrantyMonths: part.warrantyMonths ?? 0, isKit: !!part.isKit,
         components: (part.components ?? []).map((c) => ({ partId: c.partId, partNo: c.partNo, qty: c.qty })),
@@ -75,9 +75,6 @@ export function PartFormModal({ open, part, onClose, onSaved }: { open: boolean;
         <Field label="Part number"><Input value={form.partNo} onChange={(e) => set("partNo", e.target.value)} required autoFocus /></Field>
         <Field label="Brand"><Input value={form.brand} onChange={(e) => set("brand", e.target.value)} /></Field>
         <Field label="Name" className="col-span-2"><Input value={form.name} onChange={(e) => set("name", e.target.value)} required /></Field>
-        <Field label="Arabic name" hint="Printed under the name on English + Arabic documents" className="col-span-2">
-          <Input value={form.nameAr} onChange={(e) => set("nameAr", e.target.value)} dir="rtl" lang="ar" />
-        </Field>
         <Field label="Selling price (AED, before VAT)">
           <MoneyInput fils={form.sellPriceFils} onChange={(v) => set("sellPriceFils", v)} />
           {suggested != null && suggested !== form.sellPriceFils && (

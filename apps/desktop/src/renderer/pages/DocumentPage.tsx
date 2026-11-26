@@ -41,8 +41,6 @@ interface Draft {
   lines: DocLine[];
   /** Invoices: the customer's LPO number. */
   lpoNumber: string;
-  /** What it prints in (from the customer when it was created; can change while editable). */
-  language: "en" | "en_ar";
   /** Job cards: the driver who gets "vehicle received/ready" messages. */
   driverName: string;
   driverPhone: string;
@@ -86,7 +84,7 @@ function DocumentScreen() {
   const type = (doc?.type ?? params.type) as DocType;
   const label = DOC_LABELS[type] ?? "Document";
 
-  const [draft, setDraft] = useState<Draft>({ customer: null, vehicleId: null, odometer: null, notes: "", lines: [blankLine("labour", settings?.pricing.labourRateFils)], lpoNumber: "", language: "en", driverName: "", driverPhone: "" });
+  const [draft, setDraft] = useState<Draft>({ customer: null, vehicleId: null, odometer: null, notes: "", lines: [blankLine("labour", settings?.pricing.labourRateFils)], lpoNumber: "", driverName: "", driverPhone: "" });
   const [crediting, setCrediting] = useState(false);
   const approval = useOwnerApproval();
   const [dirty, setDirty] = useState(false);
@@ -132,7 +130,6 @@ function DocumentScreen() {
     notes: d.notes ?? "",
     lines: d.lines.length ? d.lines : d.editable ? [blankLine("labour", settings?.pricing.labourRateFils)] : [],
     lpoNumber: d.lpoNumber ?? "",
-    language: d.language ?? "en",
     driverName: d.driverName ?? "",
     driverPhone: d.driverPhone ?? "",
   });

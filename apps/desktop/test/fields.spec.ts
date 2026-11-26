@@ -230,7 +230,6 @@ test.describe.serial("form fields", () => {
     await page.goto(`/#/customers/${c.id}`);
     await page.getByRole("button", { name: "Edit" }).first().click();
     await expect(form.getByLabel("Street")).toHaveValue("Street 12");
-    await expect(form.getByLabel("Arabic address")).toBeVisible();
   });
 
   test("a supplier abroad has a country, and no emirate", async ({ page, request }) => {

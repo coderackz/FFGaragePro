@@ -149,27 +149,19 @@ set. Each tile opens its section with its own Save; every change goes to the Act
 - **Statements of account** (any range, print or PDF) and the **Aging** report come from one ledger, so they agree with
   the balance on screen. Existing payments became receipts in the upgrade (migration 8).
 
-    npm run e2e:credit                              # credit customer, one transfer across invoices, credit note, refund, English + Arabic invoice
+    npm run e2e:credit                              # credit customer, one transfer across invoices, credit note, refund
 
-**English + Arabic documents (Settings Part 3a):**
-- A customer's **Document language** is English or English + Arabic. A document copies it when it's made (a credit note
-  copies its invoice), so a reprint never changes; it can be switched while the document is still editable.
-- English + Arabic documents, receipts and statements show every label in both languages, the garage's Arabic name,
-  address, terms and warranty (Settings → Garage details / Documents & printing), customers' Arabic names and
-  addresses, and parts' Arabic names under the English. Lines typed by hand print as typed.
-- Invoices, credit notes and receipts print the total in words (English; Arabic too on bilingual ones).
-- The Arabic font (Noto Naskh Arabic, OFL) is built in, so PDFs look the same on every PC and offline. Screens stay
-  English; numbers stay 0–9.
+**Documents are English only.** Invoices, credit notes and receipts print the total in words. (Arabic documents,
+names and messages were removed on 2026-11-27; migration 30 deleted the Arabic saved before.)
 
 **Messages: WhatsApp and email (Settings Part 3b):**
-- **Contacts** on the customer page say who gets approvals, invoices and receipts, "vehicle ready" and statements, in
-  English or Arabic. A job card can name its **driver**, who gets "vehicle received/ready".
+- **Contacts** on the customer page say who gets approvals, invoices and receipts, "vehicle ready" and statements. A job card can name its **driver**, who gets "vehicle received/ready".
 - **Email goes out from the garage's own mailbox** (Settings → Messages: mail server, port, security, username, a
   password that is never shown again, and from name and address). "Send test email" sends a real message the normal
   way.
 - **Each message** (vehicle received, estimate ready, extra work, vehicle ready, invoice issued, payment received,
   payment due/overdue, monthly statement) can be on or off, automatic or ask first, by WhatsApp, email or both, with its
-  text in English and Arabic. Unknown `{placeholders}` are refused.
+  text. Unknown `{placeholders}` are refused.
 - **WhatsApp is click-to-send:** the chat opens with the message typed in, and the PDF is saved (on a PC, to
   Documents/Fleetfix Garage Pro/Sent) ready to drag in. Nothing goes on WhatsApp without someone pressing Send.
 - **One sender per garage:** the cloud when the garage is linked to it, otherwise the PC that holds the garage (or the
@@ -250,7 +242,7 @@ set. Each tile opens its section with its own Save; every change goes to the Act
   - **Download WPS file** (the MOHRE SIF);
   - **Mark WPS paid** from the bank;
   - **Print bonus voucher** for signatures, and **Mark bonus paid** from cash;
-  - **Print payslips** in English, or English + Arabic.
+  - **Print payslips**.
 
     npm run e2e:payroll                             # settings → employees → advance → run → approve → WPS file → paid → payslips → books health
 
@@ -263,7 +255,7 @@ set. Each tile opens its section with its own Save; every change goes to the Act
     - less advances still owed.
   - The accountant can change an amount, giving a reason, which is kept and printed.
   - The owner approves. It posts (the gratuity provision is released) and is marked paid from a bank or cash box.
-  - A settlement letter prints in English or English + Arabic.
+  - A settlement letter prints with each amount and how it was worked out.
   - Later payrolls leave the person out.
 - **Send payslips** (on an approved payroll):
   - emails each payslip PDF to everyone with an email address;
@@ -289,7 +281,7 @@ The accounting module (books, payables and bank, VAT return, payroll, fixed asse
 - **The menu** is grouped under Operations, Finance, Accounts, HR & Payroll, Inventory, Reports, Knowledge and Settings.
   Each role sees only what it can use.
 - **Knowledge → Help & guides:** short how-to pages for each part of the app, with search. They work offline.
-- **Settings → Message templates:** the garage's own email and WhatsApp texts, in English and Arabic, with the same
+- **Settings → Message templates:** the garage's own email and WhatsApp texts, with the same
   placeholders as the event messages. Pick one in the Send dialog's **Template** box. The per-event texts in
   Settings → Messages stay the default.
 - **Settings → Promo codes:** % or AED off, on labour, parts or both, with valid dates, a minimum bill, maximum uses and

@@ -160,7 +160,7 @@ Enter the last day on the employee, then Final settlement: salary to the last da
 - Texts use placeholders such as {customer}, {plate}, {doc_number} and {amount}.
 
 ## Templates
-Settings → Message templates: write your own texts (in English and Arabic) and pick one in the Send dialog. The text can still be edited before sending.`,
+Settings → Message templates: write your own texts and pick one in the Send dialog. The text can still be edited before sending.`,
   },
   {
     slug: "promo-codes", title: "Promo codes", area: "Operations",
