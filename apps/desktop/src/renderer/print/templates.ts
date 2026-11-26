@@ -309,6 +309,47 @@ export function renderPurchaseOrderHtml(po: PurchaseOrder, garage: Garage, setti
 }
 
 
+/** A vehicle as a vendor sees it: make, model, year and engine; never the customer or the plate. */
+export const vendorVehicle = (v: NonNullable<NonNullable<PurchaseOrder["job"]>["vehicle"]>) =>
+  [[v.make, v.model, v.year].filter(Boolean).join(" "), v.engine].filter(Boolean).join(" · ");
+
+/**
+ * "Request for prices" sent to vendors: the parts and quantities, the vehicle and its VIN, and the Mulkiya photos
+ * when the buyer chose to attach them. No customer, no plate, no prices.
+ */
+export function renderPriceRequestHtml(po: PurchaseOrder, garage: Garage, settings: Settings, photos: { label: string; base64: string }[] = []): string {
+  const v = po.job?.vehicle ?? null;
+  const rows = po.lines
+    .map((l, i) => `<tr><td class="n">${i + 1}</td><td class="mono">${esc(l.partNo ?? "")}</td><td>${esc(l.description)}</td><td class="r">${l.qty}</td><td class="r"></td><td class="r"></td></tr>`)
+    .join("");
+  const titleHtml = `<div class="title">
+      <div class="en">REQUEST FOR PRICES</div>
+      <div class="ar">طلب أسعار</div>
+      <div class="num">${esc(po.number)}</div>
+      <div class="meta">Date: ${date(new Date().toISOString())}</div>
+    </div>`;
+  return `<!doctype html><html lang="en"><head><meta charset="utf-8"><title>${esc(po.number)}</title><style>${PAGE_CSS} .mono { font-family: Consolas, "SF Mono", monospace; font-size: 9pt; }
+    .photos { display: grid; grid-template-columns: 1fr 1fr; gap: 4mm; margin-top: 6mm; } .photos img { width: 100%; border: 1px solid #e4e4e7; border-radius: 2mm; } .photos div { font-size: 8.5pt; color: #52525b; }</style></head><body><div class="page">
+  ${garageHeader(garage, settings, titleHtml)}
+  <div class="parties">
+    <div class="party">
+      <h3>Vehicle</h3>
+      <div class="main">${esc(v ? vendorVehicle(v) || "—" : "—")}</div>
+      ${v?.vin ? `<div class="line"><b>VIN:</b> <span class="mono">${esc(v.vin)}</span></div>` : ""}
+    </div>
+    <div class="party">
+      <h3>From</h3>
+      <div class="main">${esc(garage.name)}</div>
+      <div class="line">${esc([garage.address, garage.phone].filter(Boolean).join("\n"))}</div>
+    </div>
+  </div>
+  <table class="items"><thead><tr><th class="n">#</th><th>Part no</th><th>Description</th><th class="r">Qty</th><th class="r">Your price</th><th class="r">Available</th></tr></thead><tbody>${rows}</tbody></table>
+  <div class="bottom"><div class="notes">Please send your price and availability for each part, quoting ${esc(po.number)}.</div></div>
+  ${photos.length ? `<div class="photos">${photos.map((p) => `<div><img src="data:image/jpeg;base64,${p.base64}" alt="">${esc(p.label)}</div>`).join("")}</div>` : ""}
+  <footer><span>${esc(po.number)} · ${date(new Date().toISOString())}</span><span>Powered by Fleetfix Garage Pro</span></footer>
+</div></body></html>`;
+}
+
 const METHOD: Record<string, string> = { cash: "Cash", card: "Card", bank_transfer: "Bank transfer", cheque: "Cheque" };
 const ymdDate = (ymd: string) => date(`${ymd}T00:00:00.000Z`);
 const bankLine = (s: Settings) => [s.garage.bankName, s.garage.accountName, s.garage.iban ? `IBAN ${s.garage.iban}` : null].filter(Boolean).join("  ·  ");

@@ -1,10 +1,12 @@
-import { ArrowLeft, Ban, FileDown, PackageCheck, Plus, Printer, Save, Send, Trash2 } from "lucide-react";
+import { ArrowLeft, Ban, FileDown, MessageCircle, PackageCheck, Plus, Printer, Save, Send, Trash2 } from "lucide-react";
 import { useEffect, useState } from "react";
 import { Link, useNavigate, useParams } from "react-router";
 import { toast } from "sonner";
 import { DEFAULT_SETTINGS, poLineNetFils } from "@ffgp/shared";
 import { PartLink, PartPicker } from "../components/PartPicker";
 import { ReceiveDialog } from "../components/ReceiveDialog";
+import { SendToVendorDialog } from "../components/SendToVendorDialog";
+import { PartsRequestView, VendorMessages } from "./PartsRequestView";
 import { Badge, Button, Card, Empty, Field, MoneyInput, NumberInput, PageHeader, Select, Spinner, StatusBadge, Table, Textarea } from "../components/ui";
 import { get, patch, post } from "../lib/api";
 import { useAuth } from "../lib/auth";
@@ -30,6 +32,7 @@ export function PurchaseOrderPage() {
   const [dirty, setDirty] = useState(false);
   const [busy, setBusy] = useState<string | null>(null);
   const [receiving, setReceiving] = useState(false);
+  const [sending, setSending] = useState(false);
   const manage = can("purchases.manage");
   const showCost = can("costs.view");
   const editable = manage && (isNew || (po?.editable ?? false));
@@ -94,6 +97,17 @@ export function PurchaseOrderPage() {
 
   if (!isNew && poQuery.error) return <Empty title="Purchase order not found">{poQuery.error}</Empty>;
   if (!isNew && !po) return <Spinner />;
+  if (po?.request) {
+    return (
+      <PartsRequestView po={po} onChange={(p) => poQuery.setData({ purchaseOrder: p })}
+        onOrdered={(pos) => {
+          poQuery.setData({ purchaseOrder: pos[0]! });
+          const ordered = pos.filter((p) => p.supplier);
+          toast.success(`Ordered: ${ordered.map((p) => `${p.number} from ${p.supplier!.name}`).join(", ")}. Send each to its vendor.`, { duration: 10_000 });
+          setSending(true);
+        }} />
+    );
+  }
   const canReceive = manage && po && ["draft", "sent", "part_received"].includes(po.status) && po.lines.length > 0;
   const nothingReceived = po?.lines.every((l) => (l.receivedQty ?? 0) === 0);
 
@@ -109,6 +123,7 @@ export function PurchaseOrderPage() {
             {po && <Button icon={<FileDown className="size-4" />} busy={busy === "pdf"} onClick={() => onPrint("pdf")}>PDF</Button>}
             {po && manage && nothingReceived && po.status !== "cancelled" && <Button variant="danger" icon={<Ban className="size-4" />} busy={busy === "cancelled"} onClick={() => setStatus("cancelled")}>Cancel order</Button>}
             {editable && <Button icon={<Save className="size-4" />} busy={busy === "save"} onClick={() => run("save", async () => { await save(); toast.success("Saved"); })}>Save</Button>}
+            {po?.supplier && manage && po.status !== "cancelled" && <Button icon={<MessageCircle className="size-4" />} onClick={() => run("send", async () => { await save(); setSending(true); })}>Send to vendor</Button>}
             {po?.status === "draft" && manage && <Button icon={<Send className="size-4" />} busy={busy === "sent"} onClick={() => setStatus("sent")}>Mark as sent</Button>}
             {canReceive && <Button variant="primary" icon={<PackageCheck className="size-4" />} onClick={() => run("receive", async () => { await save(); setReceiving(true); })}>Receive delivery</Button>}
           </>
@@ -189,6 +204,8 @@ export function PurchaseOrderPage() {
           </Card>
         )}
       </div>
+      {po && !!po.messages?.length && <div className="mt-5"><VendorMessages po={po} /></div>}
+      {po && <SendToVendorDialog po={po} open={sending} onClose={() => setSending(false)} onSent={(p) => poQuery.setData({ purchaseOrder: p })} />}
       {po && <ReceiveDialog po={po} open={receiving} onClose={() => setReceiving(false)} onDone={(p) => poQuery.setData({ purchaseOrder: p })} />}
     </>
   );

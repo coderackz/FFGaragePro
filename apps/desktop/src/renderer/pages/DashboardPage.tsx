@@ -1,4 +1,4 @@
-import { FileText, Package, Plus, Receipt, Wrench } from "lucide-react";
+import { FileText, Package, Plus, Receipt, ShoppingCart, Wrench } from "lucide-react";
 import { useEffect, useMemo, useState } from "react";
 import { Link, useNavigate } from "react-router";
 import { FailedMessagesCard, StatementsDueCard } from "../components/MessageCards";
@@ -85,6 +85,7 @@ export function DashboardPage() {
           <span className="ml-auto font-medium">View</span>
         </Link>
       )}
+      {canSee("purchases.manage") && <RequestsWaiting />}
       {canSee("payroll.manage") && <ExpiringDocuments />}
       <Card title="Workshop now" padded={false} actions={<Link to="/jobcards" className="text-sm text-brand-700 hover:underline">All job cards</Link>}>
         <Table
@@ -137,3 +138,18 @@ function ExpiringDocuments() {
   );
 }
 
+
+/** Parts requested on job cards that no vendor has been chosen for yet: the buyer's to-do, so none is forgotten. */
+function RequestsWaiting() {
+  const { data } = useApi<{ requests: { id: string; asked: number }[] }>("/api/parts-requests");
+  const n = data?.requests.length ?? 0;
+  if (!n) return null;
+  const notSent = data!.requests.filter((r) => !r.asked).length;
+  return (
+    <Link to="/purchase-orders" data-testid="requests-waiting" className="mb-5 flex items-center gap-2 rounded-lg border border-amber-200 bg-amber-50 px-4 py-2.5 text-sm text-amber-900 hover:bg-amber-100">
+      <ShoppingCart className="size-4" />
+      <span><b>Parts requests: {n}</b> waiting for a vendor{notSent ? `, ${notSent} not sent to vendors yet` : ""}.</span>
+      <span className="ml-auto font-medium">Open</span>
+    </Link>
+  );
+}
