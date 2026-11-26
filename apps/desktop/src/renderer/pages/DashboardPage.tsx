@@ -5,7 +5,7 @@ import { FailedMessagesCard, StatementsDueCard } from "../components/MessageCard
 import { Button, Card, Empty, PageHeader, StatusBadge, Table } from "../components/ui";
 import { useAuth } from "../lib/auth";
 import { formatAED, formatDate } from "../lib/format";
-import type { BackupStatus, DocumentSummary, Part } from "../lib/types";
+import type { BackupStatus, DocumentSummary, Part, BuyerList } from "../lib/types";
 import { useApi } from "../lib/useApi";
 
 /** PC holding the garage: a red notice when backups have stopped (folder gone, or nothing for over 3 days). */
@@ -139,16 +139,23 @@ function ExpiringDocuments() {
 }
 
 
-/** Parts requested on job cards that no vendor has been chosen for yet: the buyer's to-do, so none is forgotten. */
+/** The buyer's to-do for job cards, so no part is forgotten: requests, orders not sent, parts added after ordering. */
 function RequestsWaiting() {
-  const { data } = useApi<{ requests: { id: string; asked: number }[] }>("/api/parts-requests");
-  const n = data?.requests.length ?? 0;
-  if (!n) return null;
-  const notSent = data!.requests.filter((r) => !r.asked).length;
+  const { data } = useApi<BuyerList>("/api/parts-requests");
+  const requests = data?.requests.length ?? 0;
+  const unsent = data?.unsent.length ?? 0;
+  const late = data?.late.length ?? 0;
+  if (!requests && !unsent && !late) return null;
+  const notAsked = data!.requests.filter((r) => !r.asked).length;
+  const parts = [
+    requests ? `${requests} waiting for a vendor${notAsked ? ` (${notAsked} not sent to vendors yet)` : ""}` : null,
+    unsent ? `${unsent} ordered, not sent` : null,
+    late ? `${late} added after ordering` : null,
+  ].filter(Boolean);
   return (
     <Link to="/purchase-orders" data-testid="requests-waiting" className="mb-5 flex items-center gap-2 rounded-lg border border-amber-200 bg-amber-50 px-4 py-2.5 text-sm text-amber-900 hover:bg-amber-100">
       <ShoppingCart className="size-4" />
-      <span><b>Parts requests: {n}</b> waiting for a vendor{notSent ? `, ${notSent} not sent to vendors yet` : ""}.</span>
+      <span><b>Parts requests:</b> {parts.join(" · ")}.</span>
       <span className="ml-auto font-medium">Open</span>
     </Link>
   );

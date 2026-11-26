@@ -147,6 +147,9 @@ export interface PoLine {
   coreFils?: number;
   /** Still on its job card (a part taken off the job card after it was requested isn't). */
   onJob?: boolean;
+  requestedAt?: string | null;
+  /** Requested for a job and on this order, but never ordered from the vendor: it reached the order after it was placed. */
+  late?: boolean;
 }
 export interface GoodsReceipt {
   id: string; supplierInvoiceNo: string | null; supplierInvoiceDate: string | null; netFils: number; vatFils: number; grossFils: number;
@@ -171,12 +174,21 @@ export interface RequestJob {
 /** A vendor asked for prices on a request; prices for those who see costs (null: they don't have it). */
 export interface Quote {
   supplierId: string; name: string; phone: string | null; email: string | null; askedAt: string | null;
+  /** Parts requested after this vendor was last sent the request: they haven't seen them. */
+  notSent?: string[];
   prices?: { poLineId: string; unitCostFils: number | null }[];
 }
 export interface PartsRequest {
   id: string; number: string; createdAt: string; jobDocumentId: string | null; jobDocumentNumber: string | null;
   vehicle: { plate: string; make: string | null; model: string | null; year: number | null } | null; lineCount: number; asked: number; priced: number;
+  /** Parts not yet sent to every vendor asked. */
+  notSent?: number;
 }
+/** Ordered from a request but not sent to the vendor yet. */
+export interface UnsentOrder { id: string; number: string; supplierName: string; lineCount: number; createdAt: string; jobDocumentNumber: string | null }
+/** A part that reached an order after it was placed, never ordered from the vendor. */
+export interface LatePart { poLineId: string; purchaseOrderId: string; purchaseOrderNumber: string; supplierName: string; description: string; qty: number; jobDocumentNumber: string | null }
+export interface BuyerList { requests: PartsRequest[]; unsent: UnsentOrder[]; late: LatePart[] }
 export interface PurchaseOrderSummary {
   id: string; number: string; status: string; supplierId: string | null; supplierName: string | null; lineCount: number; usedPart?: boolean; createdAt: string; netFils?: number;
 }

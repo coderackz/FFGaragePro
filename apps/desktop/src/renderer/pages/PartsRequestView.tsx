@@ -161,6 +161,7 @@ export function PartsRequestView({ po, onChange, onOrdered }: { po: PurchaseOrde
                       {quotes.map((q) => {
                         const k = key(q.supplierId, l.id!);
                         const has = parseAED(prices[k] ?? "") !== null;
+                        const notSent = (q.notSent ?? []).includes(l.id!);
                         return (
                           <td key={q.supplierId} className="px-2 py-1.5">
                             <div className="flex items-center gap-2">
@@ -169,6 +170,7 @@ export function PartsRequestView({ po, onChange, onOrdered }: { po: PurchaseOrde
                               <Input value={prices[k] ?? ""} placeholder="—" inputMode="decimal" className="h-8 text-right tabular" aria-label={`${q.name} price for ${l.description}`}
                                 onChange={(e) => setPrice(l.id!, q.supplierId, e.target.value)} />
                             </div>
+                            {notSent && !has && <div className="mt-0.5 pl-6 text-[11px] text-amber-700">Not sent to them yet</div>}
                           </td>
                         );
                       })}
@@ -182,7 +184,10 @@ export function PartsRequestView({ po, onChange, onOrdered }: { po: PurchaseOrde
             </div>
           )}
           <div className="flex flex-wrap items-center justify-between gap-3 border-t border-zinc-100 px-4 py-2.5 text-sm">
-            <span className="text-zinc-500">{quotes.length ? "Type each vendor's price per part (blank: they don't have it). The cheapest is chosen; choose another with its button." : "Ask vendors for prices to compare them here."}</span>
+            <span className="text-zinc-500">
+              {quotes.length ? "Type each vendor's price per part (blank: they don't have it). The cheapest is chosen; choose another with its button." : "Ask vendors for prices to compare them here."}
+              {quotes.some((q) => q.notSent?.length) && <span className="ml-1 text-amber-700">Some parts were requested after vendors were asked: send the request again to include them.</span>}
+            </span>
             {byVendor.length > 0 && <span className="flex flex-wrap gap-4" data-testid="order-summary">{byVendor.map((g) => <span key={g.q.supplierId}><Check className="mr-1 inline size-3.5 text-emerald-600" />{g.q.name}: <b className="tabular">{formatAED(g.fils)}</b></span>)}</span>}
           </div>
         </Card>

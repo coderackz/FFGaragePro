@@ -1619,6 +1619,11 @@ CREATE INDEX vehicle_files_vehicle ON vehicle_files(vehicle_id);
 
 ALTER TABLE messages ADD COLUMN po_id TEXT;
 ALTER TABLE messages ADD COLUMN supplier_id TEXT;
+
+-- A job card's part: when it was requested, and when the buyer ordered it from a vendor. Requested and on an order with
+-- a vendor but never ordered = it reached the order after it was placed (another computer requested it meanwhile).
+ALTER TABLE po_lines ADD COLUMN requested_at TEXT;
+ALTER TABLE po_lines ADD COLUMN ordered_at TEXT;
 `,
   },
 ];

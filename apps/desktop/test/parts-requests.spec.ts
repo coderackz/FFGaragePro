@@ -105,12 +105,18 @@ test.describe.serial("parts requests", () => {
     await expect.poll(() => dialogs[0]).toBe("Order 1 part from Sajaa Spares (AED 165.00) and 1 part from Gulf Parts (AED 840.00)?");
     await expect(page.getByRole("dialog").getByText("Send PO-00001 to Sajaa Spares")).toBeVisible();
     await page.getByRole("dialog").getByRole("button", { name: "WhatsApp" }).click();
+    // Then the next vendor's order is offered: left for later, it waits on the buyer's list.
+    await expect(page.getByRole("dialog").getByText("Send PO-00002 to Gulf Parts")).toBeVisible();
+    await page.getByRole("dialog").getByRole("button", { name: "Cancel" }).click();
     await expect(page.getByRole("dialog")).toHaveCount(0);
     await expect(page.getByText("Sent", { exact: true }).first()).toBeVisible();
     await expect(page.getByTestId("vendor-messages")).toContainText("Order sent: Sajaa Spares");
     await page.goto("/#/purchase-orders");
     await expect(page.getByTestId("parts-requests")).toHaveCount(0);
-    await expect(page.getByRole("row", { name: /PO-00002/ })).toContainText("Gulf Parts");
+    await expect(page.getByTestId("unsent-orders")).toContainText("PO-00002");
+    await expect(page.getByTestId("unsent-orders")).toContainText("Gulf Parts");
+    await page.goto("/");
+    await expect(page.getByTestId("requests-waiting")).toContainText("1 ordered, not sent");
   });
 
   test("delivered, the advisor's job card says Received, still without a vendor", async ({ page, request }) => {
@@ -122,7 +128,7 @@ test.describe.serial("parts requests", () => {
     await signIn(page, SARA);
     await page.goto(`/#/documents/${jobId}`);
     await expect(page.getByText("Received · PO-00001")).toBeVisible();
-    await expect(page.getByText("On order · PO-00002")).toBeVisible();
+    await expect(page.getByText("Requested · PO-00002")).toBeVisible(); // ordered, not sent to the vendor yet
     await expect(page.getByText("Sajaa")).toHaveCount(0);
   });
 });

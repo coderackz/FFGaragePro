@@ -15,7 +15,7 @@ import { getSettings } from "../settings";
 import { reserveNumber, takeNumber, type NumberSource, type Reserved } from "../numbering";
 import { garage } from "./setup";
 import { queueMessage } from "../messages/outbox";
-import { openRequests, requestJob, requestQuotes, resolveVendor, vendorMessages } from "../requests";
+import { lateParts, openRequests, requestJob, requestQuotes, resolveVendor, unsentOrders, vendorMessages } from "../requests";
 
 interface PoRow {
   /** Null: a request for a job card, its vendor not chosen yet. */
@@ -25,7 +25,7 @@ interface PoRow {
 interface PoLineRow {
   id: string; po_id: string; position: number; part_id: string | null; description: string; qty: number; received_qty: number;
   unit_cost_fils: number; job_document_id: string | null; pack_name?: string | null; pack_size?: number | null; pack_cost_fils?: number | null;
-  condition?: string; warranty_days?: number | null;
+  condition?: string; warranty_days?: number | null; requested_at?: string | null; ordered_at?: string | null;
 }
 type PoLineInput = z.infer<typeof poSchema>["lines"][number] & { id?: string };
 type ReceiveInput = z.infer<typeof receiveSchema>;
@@ -152,6 +152,8 @@ export function purchaseRoutes(app: FastifyInstance, db: Db, docs: { full: Docum
       if (db.get("SELECT 1 FROM document_lines WHERE po_line_id = ?", [id])) {
         throw conflict(`${existing.get(id)!.description} is on an invoiced job, so it can't be removed`);
       }
+      // Vendors' prices for it go with it.
+      db.run("DELETE FROM po_quote_prices WHERE po_line_id = ?", [id]);
       db.run("DELETE FROM po_lines WHERE id = ?", [id]);
     }
   }
@@ -258,6 +260,9 @@ export function purchaseRoutes(app: FastifyInstance, db: Db, docs: { full: Docum
       lines: lines.map((l) => ({
         id: l.id, partId: l.part_id, partNo: l.part_no, stocked: l.stocked === null ? null : !!l.stocked, description: l.description,
         qty: l.qty, receivedQty: l.received_qty, jobDocumentId: l.job_document_id, jobDocumentNumber: l.job_number, onJob: !!l.on_job,
+        requestedAt: l.requested_at ?? null,
+        /** Requested for a job, on an order with a vendor, never ordered: it reached the order after it was placed. */
+        late: !!po.supplier_id && po.status !== "cancelled" && !!l.requested_at && !l.ordered_at && l.received_qty === 0,
         condition: l.condition ?? "new", warrantyDays: l.warranty_days ?? null,
         packName: l.pack_name ?? null, packSize: l.pack_size ?? null, partTracking: l.part_id && l.stocked ? l.tracking ?? "none" : "none",
         ...(showCost ? { unitCostFils: l.unit_cost_fils, packCostFils: l.pack_cost_fils ?? null, netFils: lineTotal(l), coreFils: l.core_fils ?? 0 } : {}),
@@ -410,6 +415,7 @@ export function purchaseRoutes(app: FastifyInstance, db: Db, docs: { full: Docum
     const poLineId = addLine(poId, {
       partId: line.part_id, description: line.description, qty, unitCostFils: 0, jobDocumentId: docId, packName: null, packSize: null, packCostFils: null,
     });
+    db.run("UPDATE po_lines SET requested_at = ? WHERE id = ?", [now(), poLineId]);
     db.run("UPDATE document_lines SET po_line_id = ? WHERE id = ?", [poLineId, line.id]);
     updateNet(poId);
   }
@@ -532,7 +538,7 @@ export function purchaseRoutes(app: FastifyInstance, db: Db, docs: { full: Docum
   /** Requests waiting for a vendor, oldest first: nothing requested is forgotten. */
   app.get("/api/parts-requests", async (req) => {
     requireAction(sessionUser(db, req), "purchases.manage");
-    return { requests: openRequests(db) };
+    return { requests: openRequests(db), unsent: unsentOrders(db), late: lateParts(db) };
   });
 
   /** Vendors to ask for prices on a request (new ones are saved); asking one twice is the same vendor. */
@@ -618,8 +624,13 @@ export function purchaseRoutes(app: FastifyInstance, db: Db, docs: { full: Docum
       if (groups.length + (left.length ? 1 : 0) - 1 > reserved.length) throw conflict(`${po.number} was changed on another PC. Reload it and try again.`);
       const t = now();
       const made: string[] = [];
+      // Ordered (priced): marked so; a part reaching the order later without that mark is flagged as never ordered.
       const move = (poId: string, line: PoLineRow, position: number, costFils: number | null) =>
-        db.run("UPDATE po_lines SET po_id = ?, position = ?, unit_cost_fils = COALESCE(?, unit_cost_fils), pack_cost_fils = NULL, updated_at = ? WHERE id = ?", [poId, position, costFils, t, line.id]);
+        db.run(
+          `UPDATE po_lines SET po_id = ?, position = ?, unit_cost_fils = COALESCE(?, unit_cost_fils), pack_cost_fils = NULL,
+             ordered_at = CASE WHEN ? IS NULL THEN NULL ELSE ? END, updated_at = ? WHERE id = ?`,
+          [poId, position, costFils, costFils, t, t, line.id],
+        );
       groups.forEach(([supplierId, ls], g) => {
         const poId = g === 0 ? po.id : createPo(user, supplierId, null, reserved.shift() ?? null, po.job_document_id);
         if (g === 0) db.run("UPDATE purchase_orders SET supplier_id = ?, updated_at = ? WHERE id = ?", [supplierId, t, po.id]);
@@ -636,6 +647,42 @@ export function purchaseRoutes(app: FastifyInstance, db: Db, docs: { full: Docum
       return made;
     });
     return { purchaseOrders: ids.map((id) => full(id, user)) };
+  });
+
+  /**
+   * A part that reached an order after it was placed (requested on another computer meanwhile) goes back on its job
+   * card's request, to be asked and ordered like any other.
+   */
+  app.post<{ Params: { id: string; lineId: string } }>("/api/purchase-orders/:id/lines/:lineId/request-again", async (req) => {
+    const user = sessionUser(db, req);
+    requireAction(user, "purchases.manage");
+    const lateLine = () => {
+      const po = getPo(req.params.id);
+      if (!po) throw notFound("Purchase order not found");
+      const line = poLines(po.id).find((l) => l.id === req.params.lineId);
+      if (!line) throw notFound("That line isn't on this purchase order");
+      if (!po.supplier_id || po.status === "cancelled" || !line.requested_at || line.ordered_at || line.received_qty > 0) throw conflict(`${line.description} was ordered on ${po.number}`);
+      if (!line.job_document_id) throw badRequest("That part isn't for a job card");
+      requestableJob(line.job_document_id);
+      return { po, line, job: line.job_document_id };
+    };
+    const first = lateLine();
+    const reserved = openRequest(first.job) ? null : await reserveNumber(numbers, "purchase_order");
+    db.tx(() => {
+      const { po, line, job } = lateLine();
+      const requestId = openRequest(job)?.id ?? createPo(user, null, null, reserved, job);
+      const position = (db.get<{ n: number | null }>("SELECT MAX(position) AS n FROM po_lines WHERE po_id = ?", [requestId])?.n ?? -1) + 1;
+      const t = now();
+      db.run("DELETE FROM po_quote_prices WHERE po_line_id = ?", [line.id]);
+      db.run(
+        "UPDATE po_lines SET po_id = ?, position = ?, unit_cost_fils = 0, pack_cost_fils = NULL, requested_at = ?, ordered_at = NULL, updated_at = ? WHERE id = ?",
+        [requestId, position, t, t, line.id],
+      );
+      updateNet(po.id);
+      updateNet(requestId);
+      touchDocument(job);
+    });
+    return { purchaseOrder: full(req.params.id, user) };
   });
 
   app.get("/api/used-parts-to-buy", async (req) => {

@@ -46,8 +46,10 @@ describe("purchasing", () => {
     expect(po.lines[0]).toMatchObject({ partId: disc.id, description: "Brake disc", qty: 1, jobDocumentNumber: jc.number });
 
     await orderRequest(app, accountant, po.id, FLEETFIX_SUPPLIER_ID, 12000);
-    expect((await call(app, "GET", `/api/documents/${jc.id}`, advisor)).body.document.lines[0].orderStatus).toBe("on_order");
+    // Ordered but not sent yet: still a request to the advisor.
+    expect((await call(app, "GET", `/api/documents/${jc.id}`, advisor)).body.document.lines[0].orderStatus).toBe("requested");
     const priced = await call(app, "PATCH", `/api/purchase-orders/${po.id}`, accountant, { status: "sent" });
+    expect((await call(app, "GET", `/api/documents/${jc.id}`, advisor)).body.document.lines[0].orderStatus).toBe("on_order");
     expect(priced.body.purchaseOrder).toMatchObject({ status: "sent", netFils: 12000 });
     expect(priced.body.purchaseOrder.lines[0].id).toBe(po.lines[0].id);
 

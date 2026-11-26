@@ -36,9 +36,16 @@ interface LineRow {
   promo_fils?: number; details?: string | null; unit?: string | null; condition: LineCondition;
   po_condition?: LineCondition | null; po_warranty_days?: number | null; po_purchased_on?: string | null;
   po_line_id: string | null; part_no?: string | null; part_stocked?: number | null; part_on_hand?: number | null; part_unit?: string | null; po_qty?: number | null; po_received?: number | null; po_number?: string | null;
-  po_id?: string | null; po_status?: string | null; po_supplier_id?: string | null; unit_ids_json?: string; part_tracking?: string | null; part_is_kit?: number | null; kit_json?: string | null;
+  po_id?: string | null; po_status?: string | null; po_supplier_id?: string | null; po_requested_at?: string | null; po_ordered_at?: string | null; unit_ids_json?: string; part_tracking?: string | null; part_is_kit?: number | null; kit_json?: string | null;
 }
 const unitIdsOf = (l: { unit_ids_json?: string }) => JSON.parse(l.unit_ids_json || "[]") as string[];
+
+/**
+ * A job's part not yet with a vendor: on a request (no vendor), on an order not sent yet, or one that reached an order
+ * after it was placed. The advisor sees "Requested" until the vendor has it.
+ */
+const awaitingVendor = (l: LineRow) =>
+  !l.po_supplier_id || l.po_status === "draft" || (!!l.po_requested_at && !l.po_ordered_at && (l.po_received ?? 0) === 0);
 
 /** Statuses a user may set by hand; the rest come from convert / issue / payments. */
 const MANUAL_STATUSES: Record<DocType, readonly string[]> = {
@@ -324,7 +331,7 @@ export function documentRoutes(
     const d = getDoc(id);
     if (!d) throw notFound("Document not found");
     const lines = db.all<LineRow>(
-      `SELECT dl.*, p.part_no, p.name_ar AS part_name_ar, p.stocked AS part_stocked, p.tracking AS part_tracking, p.is_kit AS part_is_kit, p.on_hand AS part_on_hand, p.unit AS part_unit, pl.qty AS po_qty, pl.received_qty AS po_received, po.number AS po_number, po.id AS po_id, po.status AS po_status, po.supplier_id AS po_supplier_id,
+      `SELECT dl.*, p.part_no, p.name_ar AS part_name_ar, p.stocked AS part_stocked, p.tracking AS part_tracking, p.is_kit AS part_is_kit, p.on_hand AS part_on_hand, p.unit AS part_unit, pl.qty AS po_qty, pl.received_qty AS po_received, po.number AS po_number, po.id AS po_id, po.status AS po_status, po.supplier_id AS po_supplier_id, pl.requested_at AS po_requested_at, pl.ordered_at AS po_ordered_at,
          pl.condition AS po_condition, pl.warranty_days AS po_warranty_days,
          (SELECT MAX(g.supplier_invoice_date) FROM goods_receipt_lines gl JOIN goods_receipts g ON g.id = gl.receipt_id WHERE gl.po_line_id = pl.id) AS po_purchased_on
        FROM document_lines dl
@@ -376,8 +383,7 @@ export function documentRoutes(
         partId: l.part_id, partNo: l.part_no ?? null, partNameAr: l.part_name_ar ?? null,
         partStocked: l.part_id ? !!l.part_stocked : null, partOnHand: l.part_id ? l.part_on_hand ?? null : null, partUnit: l.part_unit ?? null, suppliedBy: l.supplied_by, poLineId: l.po_line_id,
         purchaseOrderId: l.po_id ?? null, purchaseOrderNumber: l.po_number ?? null,
-        // Requested: on this job card's order that has no vendor yet (the buyer asks vendors for prices).
-        orderStatus: !l.po_line_id || l.po_status === "cancelled" ? null : !l.po_supplier_id ? "requested" : (l.po_received ?? 0) >= (l.po_qty ?? 0) ? "received" : "on_order",
+        orderStatus: !l.po_line_id || l.po_status === "cancelled" ? null : (l.po_received ?? 0) >= (l.po_qty ?? 0) && (l.po_qty ?? 0) > 0 ? "received" : awaitingVendor(l) ? "requested" : "on_order",
         receivedQty: !l.po_line_id || l.po_status === "cancelled" ? null : l.po_received ?? 0,
         unitIds: unitIdsOf(l), units: lineUnits(db, l.unit_ids_json),
         partTracking: l.part_id && l.part_stocked ? l.part_tracking ?? "none" : "none", partIsKit: !!l.part_is_kit,

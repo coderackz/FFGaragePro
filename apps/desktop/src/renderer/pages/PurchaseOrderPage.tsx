@@ -33,6 +33,8 @@ export function PurchaseOrderPage() {
   const [busy, setBusy] = useState<string | null>(null);
   const [receiving, setReceiving] = useState(false);
   const [sending, setSending] = useState(false);
+  // After ordering a request: each vendor's order offered for sending in turn.
+  const [toSend, setToSend] = useState<PurchaseOrder[]>([]);
   const manage = can("purchases.manage");
   const showCost = can("costs.view");
   const editable = manage && (isNew || (po?.editable ?? false));
@@ -104,7 +106,7 @@ export function PurchaseOrderPage() {
           poQuery.setData({ purchaseOrder: pos[0]! });
           const ordered = pos.filter((p) => p.supplier);
           toast.success(`Ordered: ${ordered.map((p) => `${p.number} from ${p.supplier!.name}`).join(", ")}. Send each to its vendor.`, { duration: 10_000 });
-          setSending(true);
+          setToSend(ordered);
         }} />
     );
   }
@@ -164,6 +166,15 @@ export function PurchaseOrderPage() {
                             onChange={(p) => change(i, { description: p.description ?? l.description, ...(p.partId !== undefined ? { partId: p.partId, partNo: p.partNo, stocked: p.partStocked, ...(p.partId !== l.partId ? { packName: null, packSize: null, packCostFils: null } : {}) } : {}) })}
                             onPick={(part) => !l.unitCostFils && part.avgCostFils && change(i, { unitCostFils: part.avgCostFils })} />
                         ) : <div className="py-1">{l.description}</div>}
+                        {l.late && manage && (
+                          <div className="mt-1 flex flex-wrap items-center gap-2 text-xs text-amber-800">
+                            Added after this was ordered: {po?.supplier?.name ?? "the vendor"} wasn't asked for it.
+                            <button type="button" className="font-medium text-brand-700 hover:underline"
+                              onClick={() => void run(`again:${l.id}`, async () => { poQuery.setData(await post<{ purchaseOrder: PurchaseOrder }>(`/api/purchase-orders/${po!.id}/lines/${l.id}/request-again`, {})); toast.success("Back on a request"); })}>
+                              Request again
+                            </button>
+                          </div>
+                        )}
                         {l.partId && <div className="mt-1"><PartLink line={asDocLine} editable={editable} onUnlink={() => change(i, { partId: null, partNo: null, stocked: null, packName: null, packSize: null, packCostFils: null })} /></div>}
                         {l.partId && editable && <PackChooser line={l} showCost={showCost} onChange={(p) => change(i, p)} />}
                         {l.packName && l.packSize && !editable && <div className="mt-1 text-xs text-zinc-500">{Math.round(l.qty / l.packSize)} × {l.packName}</div>}
@@ -206,6 +217,10 @@ export function PurchaseOrderPage() {
       </div>
       {po && !!po.messages?.length && <div className="mt-5"><VendorMessages po={po} /></div>}
       {po && <SendToVendorDialog po={po} open={sending} onClose={() => setSending(false)} onSent={(p) => poQuery.setData({ purchaseOrder: p })} />}
+      {toSend[0] && (
+        <SendToVendorDialog key={toSend[0].id} po={toSend[0]} open onClose={() => setToSend((q) => q.slice(1))}
+          onSent={(p) => { if (p.id === po?.id) poQuery.setData({ purchaseOrder: p }); }} />
+      )}
       {po && <ReceiveDialog po={po} open={receiving} onClose={() => setReceiving(false)} onDone={(p) => poQuery.setData({ purchaseOrder: p })} />}
     </>
   );

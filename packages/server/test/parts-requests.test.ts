@@ -1,8 +1,8 @@
 import { join } from "node:path";
-import { describe, expect, it } from "vitest";
+import { afterEach, describe, expect, it, vi } from "vitest";
 import { FLEETFIX_SUPPLIER_ID } from "@ffgp/shared";
 import { Db } from "../src/db";
-import { addUser, call, createPart, makeApp, setUp, tempDir } from "./helpers";
+import { addUser, call, createPart, makeApp, orderRequest, setUp, tempDir } from "./helpers";
 
 const PART = { kind: "part", description: "Front brake pads", qty: 1, unitPriceFils: 30000, discountPct: 0 };
 
@@ -160,7 +160,8 @@ describe("vendors' prices and ordering", () => {
     ]);
     expect(pos[2].request).toBe(true);
     const doc = (await call(app, "GET", `/api/documents/${jc.id}`, advisor)).body.document;
-    expect(doc.lines.map((l: any) => [l.orderStatus, l.purchaseOrderNumber])).toEqual([["on_order", "PO-00001"], ["on_order", "PO-00002"], ["requested", "PO-00003"]]);
+    // Ordered but not sent yet: still a request to the advisor until it goes to the vendor.
+    expect(doc.lines.map((l: any) => [l.orderStatus, l.purchaseOrderNumber])).toEqual([["requested", "PO-00001"], ["requested", "PO-00002"], ["requested", "PO-00003"]]);
     expect(doc).not.toHaveProperty("lines.0.supplierName");
     expect(JSON.stringify(doc)).not.toContain("Gulf");
     expect((await call(app, "POST", `/api/purchase-orders/${id}/quotes`, owner, { vendors: [{ supplierId: gulf.id }] })).body.error).toBe("PO-00001 isn't a request any more");
@@ -212,5 +213,93 @@ describe("Mulkiya on the vehicle", () => {
     expect((await call(app, "DELETE", path("mulkiya_front"), advisor)).status).toBe(200);
     expect((await call(app, "GET", `/api/vehicles/${vehicle.id}`, advisor)).body.vehicle.mulkiya).toEqual({ front: false, back: false });
     expect(app.db.all("SELECT id FROM vehicle_files")).toEqual([]);
+  });
+});
+
+describe("verifier's findings", () => {
+  afterEach(() => { vi.useRealTimers(); });
+  const at = (iso: string) => { vi.useFakeTimers({ toFake: ["Date"] }); vi.setSystemTime(new Date(iso)); };
+  const requestAll = async (w: Awaited<ReturnType<typeof world>>, lines: unknown[]) => {
+    const jc = await w.jobCard(lines);
+    const doc = (await call(w.app, "POST", "/api/purchase-requests/all", w.advisor, { documentId: jc.id })).body.document;
+    return { jc, poId: doc.lines[0].purchaseOrderId as string };
+  };
+  const linesOf = (po: any) => po.lines.map((l: any) => ({ id: l.id, partId: l.partId, description: l.description, qty: l.qty, unitCostFils: l.unitCostFils ?? 0, jobDocumentId: l.jobDocumentId }));
+
+  it("a line with vendors' prices can be taken off the request, and off the order made from it", async () => {
+    const w = await world();
+    const { app, owner } = w;
+    const { poId } = await requestAll(w, [PART, { ...PART, description: "Rear shocks" }, { ...PART, description: "Coolant" }]);
+    const gulf = await w.vendor("Gulf Parts");
+    await call(app, "POST", `/api/purchase-orders/${poId}/quotes`, owner, { vendors: [{ supplierId: gulf.id }] });
+    let po = (await call(app, "GET", `/api/purchase-orders/${poId}`, owner)).body.purchaseOrder;
+    await call(app, "PUT", `/api/purchase-orders/${poId}/quote-prices`, owner, { prices: po.lines.map((l: any, i: number) => ({ supplierId: gulf.id, poLineId: l.id, unitCostFils: i === 2 ? null : 1000 })) });
+    po = (await call(app, "GET", `/api/purchase-orders/${poId}`, owner)).body.purchaseOrder;
+    const off = await call(app, "PATCH", `/api/purchase-orders/${poId}`, owner, { version: po.version, lines: linesOf(po).slice(1) });
+    expect(off.status).toBe(200);
+    expect(off.body.purchaseOrder.lines.map((l: any) => l.description)).toEqual(["Rear shocks", "Coolant"]);
+    const ordered = (await call(app, "POST", `/api/purchase-orders/${poId}/order`, owner, { version: off.body.purchaseOrder.version, choices: [{ poLineId: off.body.purchaseOrder.lines[0].id, supplierId: gulf.id }] })).body.purchaseOrders;
+    const again = ordered[1];
+    expect((await call(app, "PATCH", `/api/purchase-orders/${again.id}`, owner, { version: again.version, lines: [] })).status).toBe(200);
+    const order = ordered[0];
+    expect((await call(app, "PATCH", `/api/purchase-orders/${order.id}`, owner, { version: order.version, lines: [] })).status).toBe(200);
+  });
+
+  it("a part requested after vendors were asked says which vendors haven't been sent it", async () => {
+    const w = await world();
+    const { app, owner, advisor } = w;
+    at("2026-11-26T08:00:00Z");
+    const { jc, poId } = await requestAll(w, [PART, { ...PART, description: "Wiper blades" }]);
+    const gulf = await w.vendor("Gulf Parts", { phone: "0501112222" });
+    at("2026-11-26T08:05:00Z");
+    await call(app, "POST", `/api/purchase-orders/${poId}/messages`, owner, { supplierId: gulf.id, channel: "whatsapp", recipient: "971501112222", body: "Prices please" });
+    at("2026-11-26T08:10:00Z");
+    await call(app, "PUT", `/api/documents/${jc.id}/lines`, advisor, { lines: [...(await call(app, "GET", `/api/documents/${jc.id}`, advisor)).body.document.lines, { ...PART, description: "Coolant" }] });
+    await call(app, "POST", "/api/purchase-requests", advisor, { documentId: jc.id, position: 2, qty: 1 });
+    const po = (await call(app, "GET", `/api/purchase-orders/${poId}`, owner)).body.purchaseOrder;
+    const coolant = po.lines.find((l: any) => l.description === "Coolant").id;
+    expect(po.quotes[0].notSent).toEqual([coolant]);
+    expect((await call(app, "GET", "/api/parts-requests", owner)).body.requests[0]).toMatchObject({ notSent: 1 });
+    at("2026-11-26T08:15:00Z");
+    await call(app, "POST", `/api/purchase-orders/${poId}/messages`, owner, { supplierId: gulf.id, channel: "whatsapp", recipient: "971501112222", body: "And coolant" });
+    expect((await call(app, "GET", `/api/purchase-orders/${poId}`, owner)).body.purchaseOrder.quotes[0].notSent).toEqual([]);
+  });
+
+  it("an order not sent yet is still a request on the job card, and waits on the buyer's list until it's sent", async () => {
+    const w = await world();
+    const { app, owner, advisor } = w;
+    const { jc, poId } = await requestAll(w, [PART]);
+    const gulf = await w.vendor("Gulf Parts");
+    const order = await orderRequest(app, owner, poId, gulf.id, 18000);
+    expect((await call(app, "GET", `/api/documents/${jc.id}`, advisor)).body.document.lines[0].orderStatus).toBe("requested");
+    expect((await call(app, "GET", "/api/parts-requests", owner)).body.unsent).toEqual([expect.objectContaining({ id: order.id, number: order.number, supplierName: "Gulf Parts", lineCount: 1 })]);
+    await call(app, "POST", `/api/purchase-orders/${order.id}/messages`, owner, { supplierId: gulf.id, channel: "email", recipient: "gulf@example.com", body: "Our order" });
+    expect((await call(app, "GET", `/api/documents/${jc.id}`, advisor)).body.document.lines[0].orderStatus).toBe("on_order");
+    expect((await call(app, "GET", "/api/parts-requests", owner)).body.unsent).toEqual([]);
+  });
+
+  it("a part that reached an order after it was placed is flagged, and goes back on a request", async () => {
+    const w = await world();
+    const { app, owner, advisor } = w;
+    const { jc, poId } = await requestAll(w, [PART]);
+    const gulf = await w.vendor("Gulf Parts");
+    const order = await orderRequest(app, owner, poId, gulf.id, 18000);
+    await call(app, "PATCH", `/api/purchase-orders/${order.id}`, owner, { status: "sent" });
+    // Another computer, not yet knowing it was ordered, put a second part on it (as sync brings it here).
+    await call(app, "PUT", `/api/documents/${jc.id}/lines`, advisor, { lines: [...(await call(app, "GET", `/api/documents/${jc.id}`, advisor)).body.document.lines, { ...PART, description: "Wiper blades" }] });
+    const t = new Date().toISOString();
+    app.db.run(`INSERT INTO po_lines (id, po_id, position, description, qty, unit_cost_fils, job_document_id, requested_at, created_at, updated_at) VALUES ('late1', ?, 1, 'Wiper blades', 1, 0, ?, ?, ?, ?)`, [order.id, jc.id, t, t, t]);
+    app.db.run("UPDATE document_lines SET po_line_id = 'late1' WHERE document_id = ? AND position = 1", [jc.id]);
+    expect((await call(app, "GET", `/api/documents/${jc.id}`, advisor)).body.document.lines.map((l: any) => l.orderStatus)).toEqual(["on_order", "requested"]);
+    const list = (await call(app, "GET", "/api/parts-requests", owner)).body;
+    expect(list.late).toEqual([expect.objectContaining({ poLineId: "late1", purchaseOrderId: order.id, purchaseOrderNumber: order.number, supplierName: "Gulf Parts", description: "Wiper blades", jobDocumentNumber: jc.number })]);
+    expect((await call(app, "GET", `/api/purchase-orders/${order.id}`, owner)).body.purchaseOrder.lines[1]).toMatchObject({ late: true });
+    const moved = await call(app, "POST", `/api/purchase-orders/${order.id}/lines/late1/request-again`, owner, {});
+    expect(moved.status).toBe(200);
+    const doc = (await call(app, "GET", `/api/documents/${jc.id}`, advisor)).body.document;
+    expect(doc.lines[1]).toMatchObject({ orderStatus: "requested" });
+    expect(doc.lines[1].purchaseOrderNumber).not.toBe(order.number);
+    expect((await call(app, "GET", "/api/parts-requests", owner)).body).toMatchObject({ late: [], requests: [expect.objectContaining({ lineCount: 1 })] });
+    expect((await call(app, "POST", `/api/purchase-orders/${order.id}/lines/${order.lines[0].id}/request-again`, owner, {})).status).toBe(409);
   });
 });

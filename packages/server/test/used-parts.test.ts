@@ -405,6 +405,7 @@ describe("minor fixes", () => {
     const requested = (await call(app, "GET", `/api/documents/${jc.id}`, owner)).body.document.lines[0];
     expect(requested).toMatchObject({ orderStatus: "requested", receivedQty: 0 });
     await orderRequest(app, owner, requested.purchaseOrderId, FLEETFIX_SUPPLIER_ID);
+    await call(app, "PATCH", `/api/purchase-orders/${requested.purchaseOrderId}`, owner, { status: "sent" });
     const before = (await call(app, "GET", `/api/documents/${jc.id}`, owner)).body.document.lines[0];
     expect(before).toMatchObject({ orderStatus: "on_order", receivedQty: 0 });
     const got = await call(app, "POST", `/api/purchase-orders/${before.purchaseOrderId}/receive`, owner, { vatFils: 0, lines: [{ poLineId: before.poLineId, qty: 1, unitCostFils: 10000 }] });
