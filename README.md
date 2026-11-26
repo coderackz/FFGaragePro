@@ -32,7 +32,11 @@ and margin (Owner and Accountant only). Parts list import from CSV.
 - **When stock moves:** a part on a **job card** comes off the shelf as soon as the job card is saved; changing or
   removing the line puts it back. Turning the job card into an invoice moves nothing again; an invoice made without
   a job card (counter sale) takes its parts when issued. Estimates never move stock. Stock may go below zero (warned).
-- **Request part** on a job-card line adds it to that supplier's draft purchase order; "Already bought" records a
+- **Request part** (or **Request parts (N)**) on a job card puts the parts on that job card's request: a purchase order
+  with no vendor. Advisors never see vendors (Purchases, Suppliers and vendor messages are Owner/Accountant only). The
+  buyer asks several vendors for prices by WhatsApp or email (parts, vehicle and VIN; the Mulkiya photo only when
+  ticked; never the customer or plate), types their prices, and orders each part from the vendor chosen (cheapest to
+  start): one purchase order per vendor, then **Send to vendor**. "Already bought" (Owner/Accountant) records a
   cash purchase in one step. Receiving puts shelf parts on the shelf and charges per-job parts to their job.
 - **Used parts:** "Used" on a part line means bought for that job, never stocked. *Used parts to buy* lists those without a
   purchase; "Buy used part" records the seller, price, day, VAT bill (none by default) and warranty as a one-line purchase
@@ -62,6 +66,7 @@ and margin (Owner and Accountant only). Parts list import from CSV.
     npm run e2e:catalogue                           # part with category, numbers, fitment, pack → picker "Fits" → replaced by → PO in packs
     npm run e2e:tracked                             # tyre by DOT received → kit → job card picks oldest DOTs + kit → battery found by serial
     npm run e2e:planning                            # suggested order → draft PO → min/max accepted → ABC, dead stock, valuation
+    npm run e2e:requests                            # advisor requests parts (no vendor seen) → two vendors asked → prices compared → ordered per vendor → sent → received
     npm run e2e:used                                # used part on an estimate → bought → taken off and put back → warranty on the invoice; purchase VAT
     npm run e2e:returns                             # delivery with cores → parts returned → cores returned/written off → battery claim replaced
     npm run e2e:fields                              # show a password → phones, plates, TRN checked → addresses in parts → old records untouched

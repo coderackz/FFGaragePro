@@ -63,12 +63,8 @@ test.describe.serial("used parts", () => {
     await expect(page.getByText("Not bought yet", { exact: true })).toBeVisible(); // no "cost pending": advisors don't see costs
     await expect(page.getByRole("button", { name: "Request part" })).toHaveCount(0);
     await expect(page.getByRole("button", { name: "Buy used part" })).toHaveCount(0);
-    await page.goto("/#/purchase-orders");
-    const card = page.getByTestId("used-to-buy");
-    await expect(card.getByText("Used parts to buy (1)")).toBeVisible();
-    await expect(card.getByText("Alternator")).toBeVisible();
-    await expect(card.getByRole("button", { name: "Buy used part" })).toHaveCount(0);
-    await expect(card.getByText("AED")).toHaveCount(0);
+    // Advisors don't open Purchases: the used part waits there for the Owner or Accountant.
+    await expect(page.getByRole("navigation").getByRole("link", { name: "Purchases" })).toHaveCount(0);
   });
 
   test("the owner buys it from the list: seller, no VAT bill, warranty chosen; the job has its cost and warranty", async ({ page, request }) => {
@@ -76,6 +72,7 @@ test.describe.serial("used parts", () => {
     const api = await apiAs(page, request);
     const shot = shooter(page, "used-");
     await page.goto("/#/purchase-orders");
+    await expect(page.getByTestId("used-to-buy").getByText("Used parts to buy (1)")).toBeVisible();
     await page.getByTestId("used-to-buy").getByRole("button", { name: "Buy used part" }).click();
     await expect(page.getByRole("dialog").getByLabel("Bought on")).toHaveValue(day());
     await shot("buy");

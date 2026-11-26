@@ -150,16 +150,21 @@ export async function stockDay(page: Page, shot: (name: string) => Promise<unkno
   await expect(page.getByText("JC-00002", { exact: true })).toBeVisible();
   await expect(page.getByText("OF-1001 · 9 on shelf")).toBeVisible();
   await page.locator("tr", { hasText: "BD-220 · bought per job" }).getByRole("button", { name: "Request part" }).click();
-  await expect(dialog.getByLabel("Supplier")).toHaveValue(/0f1ee7$/);
-  await expect(dialog.getByLabel("Request quantity")).toHaveValue("2");
-  await dialog.getByRole("button", { name: "Request" }).click();
-  await expect(page.getByText("On order · PO-00001")).toBeVisible();
+  await expect(page.getByText("Requested · PO-00001")).toBeVisible();
   await shot("10-jobcard-parts");
 
-  // The owner prices, receives and the job's parts cost appears.
+  // The owner asks Fleet Fix for the price, orders, receives, and the job's parts cost appears.
   await nav("Purchases");
-  await page.getByRole("cell", { name: "PO-00001" }).click();
-  await page.getByLabel("Unit cost").fill("150");
+  await page.getByTestId("parts-requests").getByText("PO-00001").click();
+  await page.getByRole("button", { name: "Ask vendors for prices" }).click();
+  await dialog.getByRole("checkbox", { name: /Fleet Fix/ }).check();
+  await dialog.getByRole("button", { name: "Next" }).click();
+  await dialog.getByRole("button", { name: "Done" }).click();
+  await page.getByLabel("Fleet Fix price for Brake disc (BD-220)").fill("150");
+  await page.getByRole("button", { name: "Order", exact: true }).click();
+  await expect(dialog.getByText("Send PO-00001 to Fleet Fix")).toBeVisible();
+  await dialog.getByRole("button", { name: "Cancel" }).click();
+  await expect(page.getByLabel("Unit cost")).toHaveValue("150.00");
   await page.getByRole("button", { name: "Mark as sent" }).click();
   await expect(page.getByText("Marked as sent")).toBeVisible();
   await page.getByRole("button", { name: "Receive delivery" }).click();

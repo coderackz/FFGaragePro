@@ -34,9 +34,9 @@ test("CSV re-import sets shelf counts when ticked; an already-bought part takes 
     { kind: "part", partId: disc.id, description: "Brake disc", qty: 2, unitPriceFils: 20000, discountPct: 0 },
   ] })).document;
   await page.goto(`/#/documents/${jc.id}`);
-  await page.getByRole("button", { name: "Request part" }).click();
+  await page.getByRole("button", { name: "Already bought" }).click();
   const dlg = page.getByRole("dialog");
-  await dlg.getByLabel("Already bought").check();
+  await dlg.getByLabel("Bought from").selectOption({ label: "Fleet Fix" });
   await dlg.getByLabel("Cost each").fill("30");
   await expect(dlg.getByLabel("VAT on the receipt")).toHaveValue("3.00");
   await expect(dlg.getByText("Total AED 63.00")).toBeVisible();

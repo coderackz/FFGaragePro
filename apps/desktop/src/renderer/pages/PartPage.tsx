@@ -88,7 +88,8 @@ export function PartPage() {
                 header: "Ref",
                 cell: (m) =>
                   m.documentId ? <Link className="font-mono text-brand-700 hover:underline" to={`/documents/${m.documentId}`}>{m.documentNumber}</Link>
-                  : m.purchaseOrderId ? <Link className="font-mono text-brand-700 hover:underline" to={`/purchase-orders/${m.purchaseOrderId}`}>{m.purchaseOrderNumber}</Link>
+                  : m.purchaseOrderId && can("purchases.manage") ? <Link className="font-mono text-brand-700 hover:underline" to={`/purchase-orders/${m.purchaseOrderId}`}>{m.purchaseOrderNumber}</Link>
+                  : m.purchaseOrderId ? <span className="font-mono">{m.purchaseOrderNumber}</span>
                   : <span className="text-zinc-500">{m.note ?? "—"}</span>,
               },
               { header: "By", cell: (m) => m.createdBy ?? "—" },

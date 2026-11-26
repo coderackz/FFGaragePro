@@ -14,7 +14,8 @@ test("returns to the supplier, cores, warranty claims", async ({ page, request }
   const headers = { authorization: `Bearer ${await token(page)}` };
   const api = async (method: "get" | "post" | "patch", path: string, data?: unknown) => (await (await request[method](`${API}${path}`, { headers, data })).json());
 
-  const supplier = (await api("post", "/api/suppliers", { name: "Al Futtaim Parts" })).supplier;
+  // VAT-registered: their deliveries start at 5% VAT (a supplier with no TRN starts at none).
+  const supplier = (await api("post", "/api/suppliers", { name: "Al Futtaim Parts", trn: "100200300400003" })).supplier;
   const filter = (await api("post", "/api/parts", { partNo: "OF-1", name: "Oil filter", stocked: true, sellPriceFils: 3500 })).part;
   const alt = (await api("post", "/api/parts", { partNo: "ALT-1", name: "Alternator (exchange)", stocked: true, sellPriceFils: 60000, coreFils: 15000 })).part;
   const po = (await api("post", "/api/purchase-orders", { supplierId: supplier.id, lines: [

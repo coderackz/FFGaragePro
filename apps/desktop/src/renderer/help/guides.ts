@@ -51,14 +51,23 @@ Use one PC as the main computer, or link the garage to Fleetfix Cloud: every PC 
   },
   {
     slug: "purchases-stock", title: "Purchases and stock", area: "Inventory",
-    body: `## Buying parts
+    body: `## Parts for a job: request, prices, order
+- You don't need the parts list to buy parts for a job: type the part on the job card. Only what you keep on the shelf needs to be in Parts.
+- Typing a part that's on the shelf shows "On the shelf: … — Use it". Use it takes it from stock.
+- Service Advisors press **Request part** on a line, or **Request parts (N)** for all of them. The parts go on the job card's request (PO-00012), with no vendor yet. Advisors never see vendors: the job card shows Requested, then On order, then Received.
+- Owner or Accountant: Purchases → **Parts requests** (also on the dashboard). Open one, **Ask vendors for prices**: tick saved vendors or add one, then send each by WhatsApp or email. They get the parts, the vehicle and its VIN (never the customer or the plate), and the Mulkiya photo only if you tick it.
+- Type each vendor's price as they reply (blank: they don't have it). The cheapest is chosen per part; choose another with its button. **Order** makes one purchase order per vendor; parts with no price stay on a new request.
+- **Send to vendor** sends the order with its PDF by WhatsApp or email, and marks it sent. Then receive the delivery as usual: the cost goes on the job.
+- Add the Mulkiya (front and back) on the vehicle: Vehicles → the vehicle.
+
+## Buying stock
 - Purchases: raise a purchase order to a supplier, send it, then receive the goods with the supplier's invoice number. Stock goes up at the price paid.
-- Parts bought for one job can be received straight onto its job card.
+- Already bought at a shop: **Already bought** on the job card's line records it in one step.
 - VAT starts at 0 for a supplier with no TRN saved. Save the TRN on the supplier if they give VAT bills.
 
 ## Used parts
 - Tick Used on the part line of an estimate or job card. A used part is bought for that job: it isn't in the parts list and never touches stock. "Used part" prints for the customer.
-- It waits in Purchase orders → Used parts to buy. The Owner or Accountant presses Buy used part: the seller, price, day bought, a VAT bill if there was one, and the warranty.
+- It waits in Purchases → Used parts to buy (Owner and Accountant). They press Buy used part: the seller, price, day bought, a VAT bill if there was one, and the warranty.
 - The warranty runs from the day it was bought and prints on the invoice. It turns amber on its last two days and red when it has ended.
 - A bought part taken off the job keeps its cost there, under "Bought for this job, not charged". Put it back on the job to charge it.
 - Until you record a payment to the seller, the purchase shows as owed to them.

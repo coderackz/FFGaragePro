@@ -38,13 +38,14 @@ export function PartsRequestView({ po, onChange, onOrdered }: { po: PurchaseOrde
     return p;
   }, [po]); // eslint-disable-line react-hooks/exhaustive-deps
   const [prices, setPrices] = useState(saved);
-  const [choices, setChoices] = useState<Record<string, string>>({});
+  // Vendors the buyer chose by hand; every other part goes to its cheapest vendor, following the prices as they're typed.
+  const [picked, setPicked] = useState<Record<string, string>>({});
   const [dirty, setDirty] = useState(false);
   const [asking, setAsking] = useState(false);
   const [busy, setBusy] = useState<string | null>(null);
   useEffect(() => {
     setPrices(saved);
-    setChoices(cheapest(po, saved));
+    setPicked({});
     setDirty(false);
   }, [saved]); // eslint-disable-line react-hooks/exhaustive-deps
 
@@ -52,21 +53,16 @@ export function PartsRequestView({ po, onChange, onOrdered }: { po: PurchaseOrde
     setBusy(name);
     try { await fn(); } catch (error) { toast.error((error as Error).message); } finally { setBusy(null); }
   };
-  /** A price typed: the part keeps its chosen vendor while that one has a price, else takes the cheapest. */
   const setPrice = (lineId: string, supplierId: string, text: string) => {
-    const next = { ...prices, [key(supplierId, lineId)]: text };
-    setPrices(next);
+    setPrices((p) => ({ ...p, [key(supplierId, lineId)]: text }));
     setDirty(true);
-    const current = choices[lineId];
-    if (current && parseAED(next[key(current, lineId)] ?? "") !== null) return;
-    const best = cheapest(po, next)[lineId];
-    setChoices((c) => {
-      const n = { ...c };
-      if (best) n[lineId] = best;
-      else delete n[lineId];
-      return n;
-    });
   };
+  /** Each part's vendor: the one picked while it has a price, else the cheapest. */
+  const choices = useMemo(() => {
+    const out = cheapest(po, prices);
+    for (const [lineId, supplierId] of Object.entries(picked)) if (parseAED(prices[key(supplierId, lineId)] ?? "") !== null) out[lineId] = supplierId;
+    return out;
+  }, [po, prices, picked]);
   const bad = Object.entries(prices).find(([, v]) => v.trim() !== "" && parseAED(v) === null);
 
   /** Saves the prices typed; returns the request as it now stands. */
@@ -84,6 +80,8 @@ export function PartsRequestView({ po, onChange, onOrdered }: { po: PurchaseOrde
   const byVendor = quotes
     .map((q) => ({ q, lines: chosen.filter((l) => choices[l.id!] === q.supplierId) }))
     .filter((g) => g.lines.length)
+    // In the order of each vendor's first part: the order the purchase orders are numbered in.
+    .sort((a, b) => po.lines.indexOf(a.lines[0]!) - po.lines.indexOf(b.lines[0]!))
     .map((g) => ({ ...g, fils: g.lines.reduce((s, l) => s + Math.round(l.qty * (parseAED(prices[key(g.q.supplierId, l.id!)] ?? "") ?? 0)), 0) }));
 
   const order = () => run("order", async () => {
@@ -167,7 +165,7 @@ export function PartsRequestView({ po, onChange, onOrdered }: { po: PurchaseOrde
                           <td key={q.supplierId} className="px-2 py-1.5">
                             <div className="flex items-center gap-2">
                               <input type="radio" name={`choice-${l.id}`} disabled={!has} checked={choices[l.id!] === q.supplierId}
-                                onChange={() => setChoices((c) => ({ ...c, [l.id!]: q.supplierId }))} aria-label={`Order ${l.description} from ${q.name}`} />
+                                onChange={() => setPicked((c) => ({ ...c, [l.id!]: q.supplierId }))} aria-label={`Order ${l.description} from ${q.name}`} />
                               <Input value={prices[k] ?? ""} placeholder="—" inputMode="decimal" className="h-8 text-right tabular" aria-label={`${q.name} price for ${l.description}`}
                                 onChange={(e) => setPrice(l.id!, q.supplierId, e.target.value)} />
                             </div>
