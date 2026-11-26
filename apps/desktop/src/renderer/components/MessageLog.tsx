@@ -18,7 +18,9 @@ export function statusText(m: Message): string {
   return m.attempts > 0 ? `Trying again (${m.error ?? "no answer"})` : "Sending…";
 }
 
-export const eventLabel = (e: string) => (e === "test" ? "Test email" : EVENT_LABELS[e as MessageEvent] ?? e);
+/** Messages to vendors, seen only by those who buy. */
+const VENDOR_LABELS: Record<string, string> = { parts_request: "Request for prices", purchase_order: "Purchase order" };
+export const eventLabel = (e: string) => (e === "test" ? "Test email" : EVENT_LABELS[e as MessageEvent] ?? VENDOR_LABELS[e] ?? e);
 
 export async function retry(id: string): Promise<void> {
   try {

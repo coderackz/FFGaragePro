@@ -31,7 +31,7 @@ The user: advisors don't see supplier details. "Advisor create job card and requ
 - **Fleet Fix is never preselected** anywhere (Already bought, New purchase order). "Supplied by Fleet Fix" on a line is unchanged.
 
 ### 3. Asking several vendors for prices
-On Purchases, **Parts requests** lists every request without a vendor, oldest first: number, job card, vehicle, parts, and where it is (Not sent / Asked 3 · 2 priced). The count shows in the card title so nothing waits unseen.
+The dashboard tells Owner and Accountant how many requests are waiting *(builder's addition)*. On Purchases, **Parts requests** lists every request without a vendor, oldest first: number, job card, vehicle, parts, and where it is (Not sent / Asked 3 · 2 priced). The count shows in the card title so nothing waits unseen.
 
 The request's page:
 ```
@@ -48,7 +48,7 @@ Parts                          Qty   Al Futtaim   Gulf Parts   Sajaa
   - No plate, no customer name. *(my call: the vendor needs the car, not the customer.)*
 - WhatsApp opens the chat with the text (the PDF saved to drag in), as for customers; email goes from the garage's mailbox with the PDF. *(my call: no WhatsApp Business API for vendors: it needs a Meta template per message.)*
 - Each vendor asked gets a column. The accountant types each vendor's price per part as the replies come (blank = not available). The lowest price per part is chosen to start; the accountant can choose another.
-- **Order:** each vendor's chosen parts become that vendor's purchase order, priced, marked sent. The request keeps its number for the vendor with the first part *(my call: the advisor already saw PO-00012)*; other vendors get new numbers. Parts without a chosen price stay on a new request to ask again.
+- **Order:** each vendor's chosen parts become that vendor's purchase order, priced, still a draft until it's sent (Send to vendor, or Mark as sent when ordered by phone). *(builder's ruling: an order never shows sent when it wasn't.)* The request keeps its number for the vendor with the first part *(my call: the advisor already saw PO-00012)*; other vendors get new numbers. Parts without a chosen price stay on a new request to ask again.
 - Ordering asks once: "Order 1 part from Al Futtaim (AED 180.00) and 1 from Gulf Parts (AED 790.00)?"
 
 ### 4. Sending an order to the vendor
