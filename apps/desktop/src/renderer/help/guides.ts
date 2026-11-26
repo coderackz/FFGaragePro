@@ -36,6 +36,12 @@ Use one PC as the main computer, or link the garage to Fleetfix Cloud: every PC 
   Settings → Pricing (25% to start), tick the confirmation and write a remark; your name and the remark show under it.
 - A document has a promo code or a discount, not both.
 
+## Vehicles: make and model
+- Make and Model suggest names as you type. Leaving the box corrects a close misspelling or a short name ("Toyta" → Toyota, "LC200" → Land Cruiser) and says so: press Undo to keep what you typed.
+- A model typed with no make fills the make ("Land Cruiser" → Toyota); so does a VIN from a maker we know.
+- A car that isn't on the list is kept as typed and suggested from then on.
+- Owner: Vehicles → Makes & models lists the names your vehicles use. "Looks like Toyota" marks a likely misspelling; Rename or Change to merges it, on every vehicle and part.
+
 ## Tips
 - Parts supplied by Fleet Fix print at no charge and touch no stock.`,
   },

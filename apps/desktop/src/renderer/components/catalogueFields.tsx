@@ -1,3 +1,4 @@
+import { MakeModelFields } from "./MakeModelFields";
 import { PART_NUMBER_KIND_LABELS, PART_NUMBER_KINDS } from "@ffgp/shared";
 import { Plus, Trash2 } from "lucide-react";
 import type { Part, PartCategory } from "../lib/types";
@@ -66,8 +67,8 @@ export function FitmentRows({ rows, onChange }: { rows: Fitments; onChange: (r: 
       add={<Button size="sm" variant="ghost" icon={<Plus className="size-3.5" />} onClick={() => onChange([...rows, { make: "", model: null, yearFrom: null, yearTo: null, engine: null, note: null }])}>Add vehicle</Button>}>
       {rows.map((r, i) => (
         <div key={i} className="grid grid-cols-[1fr_1fr_80px_80px_1fr_auto] gap-2">
-          <Input value={r.make} onChange={(e) => set(i, { make: e.target.value })} aria-label={`Make ${i + 1}`} placeholder="Make" />
-          <Input value={r.model ?? ""} onChange={(e) => set(i, { model: e.target.value || null })} aria-label={`Model ${i + 1}`} placeholder="Model" />
+          <MakeModelFields layout="row" make={r.make} model={r.model ?? ""} label={{ make: `Make ${i + 1}`, model: `Model ${i + 1}` }}
+            onChange={(p) => set(i, { ...(p.make !== undefined ? { make: p.make } : {}), ...(p.model !== undefined ? { model: p.model || null } : {}) })} />
           <Input value={r.yearFrom ?? ""} inputMode="numeric" onChange={(e) => set(i, { yearFrom: yearOf(e.target.value) })} aria-label={`From ${i + 1}`} placeholder="From" />
           <Input value={r.yearTo ?? ""} inputMode="numeric" onChange={(e) => set(i, { yearTo: yearOf(e.target.value) })} aria-label={`To ${i + 1}`} placeholder="To" />
           <Input value={r.engine ?? ""} onChange={(e) => set(i, { engine: e.target.value || null })} aria-label={`Engine ${i + 1}`} placeholder="Engine" />

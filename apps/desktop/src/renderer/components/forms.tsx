@@ -5,6 +5,7 @@ import { patch, post, put } from "../lib/api";
 import { useAuth } from "../lib/auth";
 import type { Customer, Vehicle } from "../lib/types";
 import { CustomerPicker } from "./CustomerPicker";
+import { forgetGarageNames, MakeModelFields } from "./MakeModelFields";
 import { MulkiyaPhotos, type Photo } from "./MulkiyaPhotos";
 import { Button, Field, Input, Modal, MoneyInput, Select, Textarea } from "./ui";
 import { AddressFields, EmailField, firstProblem, OdometerField, PhoneField, PlateField, TrnField, VinField, YearField } from "./fields";
@@ -193,6 +194,7 @@ export function VehicleFormModal({ open, vehicle, customerId, title, skip, onClo
       });
       if (!res) return;
       for (const [kind, photo] of Object.entries(mulkiya)) if (photo) await put(`/api/vehicles/${res.vehicle.id}/files/${kind}`, photo);
+      forgetGarageNames();
       toast.success(vehicle ? "Vehicle updated" : "Vehicle added");
       onSaved(res.vehicle);
       onClose();
@@ -225,12 +227,7 @@ export function VehicleFormModal({ open, vehicle, customerId, title, skip, onClo
         )}
         <PlateField label="Plate number" className="col-span-2" before={vehicle?.plate} {...box("plate")} required autoFocus defaultEmirate={settings?.garage.emirate} />
         <OdometerField label="Odometer (km)" before={vehicle?.odometer?.toString()} {...box("odometer")} />
-        <Field label="Make">
-          <Input {...f("make")} placeholder="Toyota" />
-        </Field>
-        <Field label="Model">
-          <Input {...f("model")} placeholder="Land Cruiser" />
-        </Field>
+        <MakeModelFields make={form.make} model={form.model} vin={form.vin} onChange={(p) => setForm((x) => ({ ...x, ...p }))} />
         <YearField label="Year" before={vehicle?.year?.toString()} {...box("year")} />
         <Field label="Colour">
           <Input {...f("colour")} />

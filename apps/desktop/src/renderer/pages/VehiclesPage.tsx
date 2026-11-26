@@ -2,6 +2,8 @@ import { Car, Plus } from "lucide-react";
 import { useState } from "react";
 import { useNavigate } from "react-router";
 import { VehicleFormModal } from "../components/forms";
+import { VehicleNamesDialog } from "../components/VehicleNamesDialog";
+import { useAuth } from "../lib/auth";
 import { ShowMore, usePageLimit } from "../components/ShowMore";
 import { Button, Card, Empty, PageHeader, SearchInput, Spinner, Table } from "../components/ui";
 import { formatKm, vehicleLabel } from "../lib/format";
@@ -12,13 +14,19 @@ export function VehiclesPage() {
   const [q, setQ] = useState("");
   const query = useDebounced(q);
   const [limit, showMore] = usePageLimit(query);
-  const { data, loading } = useApi<{ vehicles: Vehicle[]; more: boolean }>(`/api/vehicles?q=${encodeURIComponent(query)}&limit=${limit}`);
+  const { can } = useAuth();
+  const [tidying, setTidying] = useState(false);
+  const { data, loading, reload } = useApi<{ vehicles: Vehicle[]; more: boolean }>(`/api/vehicles?q=${encodeURIComponent(query)}&limit=${limit}`);
   const [creating, setCreating] = useState(false);
   const navigate = useNavigate();
 
   return (
     <>
-      <PageHeader title="Vehicles" subtitle="Every vehicle you've registered, with its owner" actions={<Button variant="primary" icon={<Plus className="size-4" />} onClick={() => setCreating(true)}>New vehicle</Button>} />
+      <PageHeader title="Vehicles" subtitle="Every vehicle you've registered, with its owner" actions={<>
+        {can("settings.manage") && <Button onClick={() => setTidying(true)}>Makes &amp; models</Button>}
+        <Button variant="primary" icon={<Plus className="size-4" />} onClick={() => setCreating(true)}>New vehicle</Button>
+      </>} />
+      <VehicleNamesDialog open={tidying} onClose={() => setTidying(false)} onChanged={() => void reload()} />
       <div className="mb-3 flex items-center gap-3">
         <SearchInput value={q} onChange={setQ} placeholder="Search plate, make, model, VIN or owner" />
         {loading && <Spinner className="size-4 text-zinc-400" />}
