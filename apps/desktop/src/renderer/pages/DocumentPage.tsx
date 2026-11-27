@@ -1,4 +1,4 @@
-import { ArrowLeft, ArrowRight, Banknote, CircleCheck, FileDown, FileMinus, PackagePlus, Printer, Send } from "lucide-react";
+import { ArrowLeft, ArrowRight, Banknote, CircleCheck, ClipboardCheck, FileDown, FileMinus, FilePen, PackagePlus, Printer, Send } from "lucide-react";
 import { useEffect, useMemo, useRef, useState } from "react";
 import { Link, useLocation, useNavigate, useParams, useSearchParams } from "react-router";
 import { toast } from "sonner";
@@ -22,6 +22,7 @@ import { CreditNoteDialog } from "../components/CreditNoteDialog";
 import { LinesTable } from "../components/document/LinesTable";
 import { DiscountRow, type DiscountRequest } from "../components/document/DiscountRow";
 import { ProgressCard } from "../components/document/ProgressCard";
+import { APPROVAL_WAY_LABELS, RecordApprovalDialog } from "../components/document/RecordApprovalDialog";
 import { VehicleCard } from "../components/document/VehicleCard";
 import { useOwnerApproval } from "../components/OwnerApproval";
 import { printDocument } from "../print/print";
@@ -31,7 +32,8 @@ import type { MessageEvent } from "@ffgp/shared";
 import type { Message, Receipt } from "../lib/types";
 
 const LIST_PATH: Record<DocType, string> = { estimate: "/estimates", jobcard: "/jobcards", invoice: "/invoices", credit_note: "/credit-notes" };
-const MANUAL: Record<DocType, readonly string[]> = { estimate: ["draft", "sent", "approved"], jobcard: ["open", "in_progress", "completed"], invoice: [], credit_note: [] };
+// Approving an estimate is recorded (Record approval), not chosen here.
+const MANUAL: Record<DocType, readonly string[]> = { estimate: ["draft", "sent"], jobcard: ["open", "in_progress", "completed"], invoice: [], credit_note: [] };
 
 interface Draft {
   customer: { id: string; name: string } | null;
@@ -206,9 +208,10 @@ function DocumentScreen() {
     [promo, doc?.discount],
   );
   // The lines before any promo or discount share (saved lines arrive with their share already in them).
-  const chargedLines = useMemo(() => draft.lines.map((l) => (l.suppliedBy === "fleetfix" ? { ...l, unitPriceFils: 0, discountPct: 0, promoFils: 0 } : { ...l, promoFils: 0 })), [draft.lines]);
+  // Fleet Fix parts and lines the client declined count nothing.
+  const chargedLines = useMemo(() => draft.lines.map((l) => (l.suppliedBy === "fleetfix" || l.declined ? { ...l, unitPriceFils: 0, discountPct: 0, promoFils: 0 } : { ...l, promoFils: 0 })), [draft.lines]);
   const promoLines = useMemo(() => {
-    if (!shareTerms || type === "credit_note") return draft.lines;
+    if (!shareTerms || type === "credit_note") return draft.lines.map((l) => (l.declined ? { ...l, unitPriceFils: 0, discountPct: 0 } : l));
     const { shares } = promoShares(chargedLines, shareTerms, includeVat);
     return chargedLines.map((l, i) => ({ ...l, promoFils: shares[i] ?? 0 }));
   }, [draft.lines, chargedLines, shareTerms, includeVat, type]);
@@ -551,6 +554,28 @@ function DocumentScreen() {
     });
   };
 
+  /** Job card: its estimate made, brought up to date with the job card's lines, or re-estimated once approved. */
+  const onEstimate = () => run("estimate", async () => {
+    const id = await saveFirst();
+    if (!id) return;
+    const res = await post<{ document: DocumentFull }>(`/api/documents/${id}/estimate`, {});
+    toast.success(`${res.document.number} for ${doc?.number ?? "this job card"}`);
+    navigate(`/documents/${res.document.id}`);
+  });
+  /** Estimate: the next version (EST-00012-1), keeping this one as it is. */
+  const onRevise = () => run("revise", async () => {
+    if (!(await saveFirst())) return;
+    const res = await post<{ document: DocumentFull }>(`/api/documents/${doc!.id}/revise`, {});
+    docQuery.setData(res);
+    toast.success(`Now ${res.document.number}: change it and send it again`);
+  });
+  /** An earlier version of the estimate, printed as it was. */
+  const onPrintVersion = (revision: number) => run(`version:${revision}`, async () => {
+    const { document } = await get<{ document: DocumentFull }>(`/api/documents/${doc!.id}/versions/${revision}`);
+    if (garage) await printDocument(document, garage, settings ?? DEFAULT_SETTINGS, "pdf");
+  });
+  const [approving, setApproving] = useState(false);
+
   const onPrint = (mode: "pdf" | "print") => run(mode, async () => {
     const id = await saveFirst();
     if (!id || !garage) return;
@@ -585,6 +610,12 @@ function DocumentScreen() {
               <span>Created {formatDateTime(doc.createdAt)}{doc.createdBy ? ` by ${doc.createdBy}` : ""}</span>
               {doc.source && <Link className="text-brand-700 hover:underline" to={`/documents/${doc.source.id}`}>{type === "credit_note" ? "credit for" : "from"} {doc.source.number}</Link>}
               {doc.derived && <Link className="inline-flex items-center gap-1 font-medium text-brand-700 hover:underline" to={`/documents/${doc.derived.id}`}>converted to {doc.derived.number} <ArrowRight className="size-3.5" /></Link>}
+              {doc.forJob && <Link className="text-brand-700 hover:underline" to={`/documents/${doc.forJob.id}`}>for {doc.forJob.number}</Link>}
+              {doc.estimate && (
+                <Link className="inline-flex items-center gap-1.5 text-brand-700 hover:underline" to={`/documents/${doc.estimate.id}`} data-testid="job-estimate">
+                  estimate {doc.estimate.number} <StatusBadge status={doc.estimate.status} />
+                </Link>
+              )}
             </span>
           )
         }
@@ -604,7 +635,18 @@ function DocumentScreen() {
                 {MANUAL[type].map((s) => <option key={s} value={s}>{STATUS_LABELS[s]}</option>)}
               </Select>
             )}
-            {doc && next && doc.status !== "converted" && (
+            {doc && type === "jobcard" && doc.status !== "converted" && can("documents.edit") && (
+              <Button icon={<FilePen className="size-4" />} busy={busy === "estimate"} onClick={onEstimate}>
+                {!doc.estimate ? "Create estimate" : ["approved", "converted"].includes(doc.estimate.status) ? "Re-estimate" : `Update ${doc.estimate.number}`}
+              </Button>
+            )}
+            {doc && type === "estimate" && ["draft", "sent"].includes(doc.status) && can("documents.edit") && (
+              <Button icon={<ClipboardCheck className="size-4" />} onClick={() => run("approve", async () => { if (await saveFirst()) setApproving(true); })}>Record approval</Button>
+            )}
+            {doc && type === "estimate" && doc.status !== "draft" && can("documents.edit") && (doc.status !== "converted" || doc.derived) && (
+              <Button icon={<FilePen className="size-4" />} busy={busy === "revise"} onClick={onRevise}>Re-estimate</Button>
+            )}
+            {doc && next && doc.status !== "converted" && !doc.forJob && !(type === "estimate" && doc.derived) && (
               <Button variant="primary" icon={<ArrowRight className="size-4" />} busy={busy === "convert"} onClick={onConvert}>
                 {next === "jobcard" ? "Convert to job card" : "Create invoice"}
               </Button>
@@ -786,6 +828,28 @@ function DocumentScreen() {
             )}
           </Card>
           {doc && <ProgressCard type={doc.type} status={doc.status} />}
+          {doc?.approval && (
+            <Card title="Approval">
+              <div className="space-y-1 text-sm" data-testid="approval">
+                <div><b>{APPROVAL_WAY_LABELS[doc.approval.via as keyof typeof APPROVAL_WAY_LABELS] ?? doc.approval.via}</b>{doc.approval.byName ? ` · ${doc.approval.byName}` : ""}</div>
+                <div className="text-zinc-600">{formatDateTime(doc.approval.at)}{doc.approval.recordedBy ? ` · recorded by ${doc.approval.recordedBy}` : ""}</div>
+                {doc.approval.note && <div className="text-zinc-600">{doc.approval.note}</div>}
+                {doc.lines.some((l) => l.declined) && <div className="text-zinc-600">{doc.lines.filter((l) => l.declined).length} declined</div>}
+              </div>
+            </Card>
+          )}
+          {!!doc?.versions?.length && (
+            <Card title="Earlier versions" padded={false}>
+              <ul className="divide-y divide-zinc-100 text-sm" data-testid="versions">
+                {doc.versions.map((v) => (
+                  <li key={v.revision} className="flex items-center justify-between gap-2 px-4 py-2">
+                    <span><span className="font-mono">{v.number}</span>{v.approvedVia ? <span className="text-zinc-500"> · approved {APPROVAL_WAY_LABELS[v.approvedVia as keyof typeof APPROVAL_WAY_LABELS]?.toLowerCase() ?? v.approvedVia}</span> : null}</span>
+                    <Button size="sm" icon={<FileDown className="size-3.5" />} busy={busy === `version:${v.revision}`} onClick={() => onPrintVersion(v.revision)}>PDF</Button>
+                  </li>
+                ))}
+              </ul>
+            </Card>
+          )}
           {doc?.vehicle && <VehicleCard vehicle={doc.vehicle} odometer={draft.odometer} />}
           {isInvoice && doc && doc.status !== "draft" && (
             <Card title="Payments" padded={false}>
@@ -870,6 +934,7 @@ function DocumentScreen() {
         </Card>
       )}
       {doc && <PaymentModal open={paying} doc={doc} onClose={() => setPaying(false)} onPaid={(d) => { docQuery.setData({ document: d }); void paymentMessage(d); }} />}
+      {doc && type === "estimate" && <RecordApprovalDialog doc={doc} open={approving} onClose={() => setApproving(false)} onDone={(d) => docQuery.setData({ document: d })} />}
       {doc && isInvoice && <CreditNoteDialog invoice={doc} open={crediting} onClose={() => setCrediting(false)} onDone={(cn) => navigate(`/documents/${cn.id}`)} />}
     </>
   );

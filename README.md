@@ -66,6 +66,7 @@ and margin (Owner and Accountant only). Parts list import from CSV.
     npm run e2e:catalogue                           # part with category, numbers, fitment, pack → picker "Fits" → replaced by → PO in packs
     npm run e2e:tracked                             # tyre by DOT received → kit → job card picks oldest DOTs + kit → battery found by serial
     npm run e2e:planning                            # suggested order → draft PO → min/max accepted → ABC, dead stock, valuation
+    npm run e2e:estimates                           # job card → estimate → phone approval with a line declined → job card updated → re-estimate EST-00001-1
     npm run e2e:vehicles                            # makes and models: misspellings corrected with Undo, model fills the make, VIN fills the make, owner merges a spelling
     npm run e2e:requests                            # advisor requests parts (no vendor seen) → two vendors asked → prices compared → ordered per vendor → sent → received
     npm run e2e:used                                # used part on an estimate → bought → taken off and put back → warranty on the invoice; purchase VAT

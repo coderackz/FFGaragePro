@@ -4,6 +4,7 @@ import { catalogueLinePrice, defaultUnit, dubaiDate, formatDay, LINE_KINDS, UNIT
 import { PartLink, PartPicker } from "../PartPicker";
 import { UnitChooser } from "../trackedFields";
 import { Badge, Empty, Input, MoneyInput, NumberInput, Select, Textarea } from "../ui";
+import { useAuth } from "../../lib/auth";
 import { lineCounts } from "../../lib/documentDraft";
 import { formatAED, formatDate } from "../../lib/format";
 import type { DocLine } from "../../lib/types";
@@ -107,6 +108,8 @@ export function LinesTable({ type, lines, promoFils, vehicleId, editable, vatRat
                   </button>
                 ))}
                 {hasDetails && !editable && line.details && <div className="mt-0.5 text-xs whitespace-pre-line text-zinc-600">{line.details}</div>}
+                {line.declined && <div className="mt-0.5"><Badge tone="red">Declined by the client</Badge></div>}
+                {editable && !!line.vendorPrices?.length && <VendorPrices line={line} vatRate={vatRate} includeVat={includeVat} onUse={(unitPriceFils) => onChange(i, { unitPriceFils })} />}
                 {line.kind === "part" && <PartControls vehicleId={vehicleId} line={line} editable={editable} showCost={showCost} fitsUnits={type !== "estimate"} awaitsPurchase={type === "jobcard" || (type === "invoice" && editable)} onChange={(p) => onChange(i, p)} onRequest={onRequest && (() => onRequest(i))} onAlreadyBought={onAlreadyBought && (() => onAlreadyBought(i))} onBuyUsed={onBuyUsed && (() => onBuyUsed(i))} />}
               </td>
               <td className="px-1.5 py-1.5 text-right tabular">
@@ -226,3 +229,21 @@ function PartControls({ line, editable, showCost, fitsUnits, awaitsPurchase, onC
   );
 }
 
+/**
+ * Estimates, for those who see costs: the vendors' prices for this part on the job card's request, and a selling
+ * price from the cheapest (Settings → Pricing's parts markup) to use on the line.
+ */
+function VendorPrices({ line, vatRate, includeVat, onUse }: { line: DocLine; vatRate: number; includeVat: boolean; onUse: (unitPriceFils: number) => void }) {
+  const { settings } = useAuth();
+  const prices = line.vendorPrices ?? [];
+  const cheapest = Math.min(...prices.map((p) => p.unitCostFils));
+  const markup = settings?.pricing.partsMarkupPct ?? 0;
+  const suggested = catalogueLinePrice(Math.round(cheapest * (1 + markup / 100)), vatRate, includeVat);
+  return (
+    <div className="mt-1 flex flex-wrap items-center gap-x-2 text-xs text-zinc-600" data-testid="vendor-prices">
+      <span>Vendors: {prices.map((p) => `${p.name} ${formatAED(p.unitCostFils)}`).join(" · ")}</span>
+      <span>— suggested {formatAED(suggested)}{markup ? ` (markup ${markup}%)` : ""}</span>
+      <button type="button" className="font-medium text-brand-700 hover:underline" onClick={() => onUse(suggested)}>Use</button>
+    </div>
+  );
+}

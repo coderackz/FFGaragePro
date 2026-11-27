@@ -23,11 +23,11 @@ describe("estimates for job cards across computers", () => {
     await call(A, "PUT", `/api/documents/${est.id}/lines`, token, { lines: [line("Service", 20000), line("AC re-gas", 15000)] });
     expect((await call(A, "POST", `/api/documents/${est.id}/approve`, token, { via: "phone", byName: "Ali", declined: [1] })).status).toBe(200);
     expect((await call(A, "POST", `/api/documents/${est.id}/revise`, token, {})).status).toBe(200);
-    expect((await call(A, "POST", `/api/documents/${est.id}/approve`, token, { via: "in_person", byName: "Ali", declined: [1] })).status).toBe(200);
+    expect((await call(A, "POST", `/api/documents/${est.id}/approve`, token, { via: "in_person", byName: "Ali", declined: [] })).status).toBe(200);
     expect(applyAtCloud(C.db, "P1", localChanges(A.db, 0)).issues).toEqual([]);
     const seen = (await call(C, "GET", `/api/documents/${est.id}`, token)).body.document;
     expect(seen).toMatchObject({ number: `${est.number}-1`, revision: 1, status: "approved", approval: { via: "in_person", byName: "Ali" }, forJob: { id: jc.id }, totals: { netFils: 20000 } });
-    expect(seen.lines.map((l: any) => l.declined)).toEqual([false, true]);
+    expect(seen.lines.map((l: any) => [l.description, l.declined])).toEqual([["Service", false]]); // declined before: left on that version
     expect(seen.versions).toEqual([expect.objectContaining({ revision: 0, number: est.number, approvedVia: "phone" })]);
     expect((await call(C, "GET", `/api/documents/${jc.id}`, token)).body.document.lines.map((l: any) => [l.description, l.unitPriceFils])).toEqual([["Service", 20000]]);
   });

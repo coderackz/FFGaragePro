@@ -34,7 +34,8 @@
     "e2e:fields": "playwright test -c playwright.fields.config.ts",
     "e2e:used": "playwright test -c playwright.used.config.ts",
     "e2e:requests": "playwright test -c playwright.requests.config.ts",
-    "e2e:vehicles": "playwright test -c playwright.vehicles.config.ts"
+    "e2e:vehicles": "playwright test -c playwright.vehicles.config.ts",
+    "e2e:estimates": "playwright test -c playwright.estimates.config.ts"
   },
   "devDependencies": {
     "@playwright/test": "^1.65.1",

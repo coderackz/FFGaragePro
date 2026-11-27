@@ -115,6 +115,17 @@ describe("recording approval", () => {
 });
 
 describe("re-estimating", () => {
+  it("what the client declined stays on that version, not the next", async () => {
+    const { jobCard, estimateFor, approve, setLines, app, owner } = await world();
+    const jc = await jobCard([labour("Service"), labour("AC re-gas")]);
+    const est = (await estimateFor(jc.id)).body.document;
+    await setLines(est.id, [labour("Service", 20000), labour("AC re-gas", 15000)]);
+    await approve(est.id, { declined: [1] });
+    const next = (await call(app, "POST", `/api/documents/${est.id}/revise`, owner, {})).body.document;
+    expect(descs(next)).toEqual(["Service"]);
+    expect(next.totals.netFils).toBe(20000);
+  });
+
   it("an approved estimate becomes EST-00001-1, keeps the version before, and brings new job card lines", async () => {
     const { app, owner, advisor, jobCard, estimateFor, approve, setLines, doc } = await world();
     const jc = await jobCard([labour("Inspection")]);

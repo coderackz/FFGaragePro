@@ -22,8 +22,13 @@ export interface Vehicle {
   mulkiya?: { front: boolean; back: boolean };
 }
 
+export interface EstimateApproval { at: string; via: string; byName: string | null; note: string | null; recordedBy: string | null }
 export interface DocLine {
   id?: string; kind: LineKind; description: string; qty: number; unitPriceFils: number; discountPct: number;
+  /** Estimates: the client declined it (listed, counts nothing). */
+  declined?: boolean;
+  /** Estimate part lines, for those who see costs: vendors' prices for it on the job card's request. */
+  vendorPrices?: { name: string; unitCostFils: number }[];
   /** Labour and other lines: the work in detail, printed under the title. */
   details?: string | null;
   /** What the quantity counts (Pc, Box, Hr…). */
@@ -74,6 +79,13 @@ export interface DocumentFull {
   creditNotes?: { id: string; number: string; grossFils: number }[];
   customer: Customer; vehicle: Vehicle | null; source: DocRef | null; derived: DocRef | null;
   lines: DocLine[];
+  /** Estimates: the version (EST-00012-1 is 1), the client's approval as recorded, the job card it's for, earlier versions. */
+  revision?: number;
+  approval?: EstimateApproval | null;
+  forJob?: { id: string; number: string } | null;
+  versions?: { revision: number; number: string; createdAt: string; approvedVia: string | null; approvedAt: string | null }[];
+  /** Job cards: their estimate. */
+  estimate?: { id: string; number: string; status: string; approval: EstimateApproval | null } | null;
   /** Bought for this job but not on its lines (cost only for roles that see costs). */
   uncharged?: UnchargedPurchase[];
   totals: { netFils: number; vatFils: number; grossFils: number }; paidFils: number; balanceFils: number; payments: Payment[];
@@ -163,6 +175,8 @@ export interface PurchaseOrder {
 }
 export interface RequestJob {
   id: string; number: string;
+  /** Its estimate: ordering work not approved yet asks first. */
+  estimate?: { number: string; status: string } | null;
   vehicle: { id: string; plate: string; make: string | null; model: string | null; year: number | null; engine: string | null; vin: string | null; mulkiya: { front: boolean; back: boolean } } | null;
 }
 /** A vendor asked for prices on a request; prices for those who see costs (null: they don't have it). */

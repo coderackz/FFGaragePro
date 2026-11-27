@@ -86,6 +86,9 @@ export function PartsRequestView({ po, onChange, onOrdered }: { po: PurchaseOrde
 
   const order = () => run("order", async () => {
     if (!chosen.length) throw new Error("Choose a vendor for at least one part");
+    // The client hasn't approved the work yet: asked first, not stopped (they may have agreed by phone).
+    const est = po.job?.estimate;
+    if (est && !["approved", "converted"].includes(est.status) && !window.confirm(`${est.number} isn't approved yet. Order anyway?`)) return;
     const left = po.lines.length - chosen.length;
     const summary = byVendor.map((g) => `${g.lines.length === 1 ? "1 part" : `${g.lines.length} parts`} from ${g.q.name} (${formatAED(g.fils)})`).join(" and ");
     if (!window.confirm(`Order ${summary}?${left ? ` ${left === 1 ? "1 part without a vendor stays" : `${left} parts without a vendor stay`} on a new request.` : ""}`)) return;

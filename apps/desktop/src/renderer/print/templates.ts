@@ -110,6 +110,8 @@ function wordsBlock(fils: number): string {
 const headCss = (extra = "") => `<style>${PAGE_CSS}${extra}</style>`;
 
 const KIND = { labour: "Labour", part: "Part", other: "Other" } as Record<string, string>;
+/** How an estimate was approved, as printed. */
+const APPROVED_VIA: Record<string, string> = { phone: "by phone", in_person: "in person", signed: "signed copy", reply: "by WhatsApp / email reply" };
 
 /** Self-contained A4 HTML for one document. The garage is the seller, so its details lead the page. */
 /**
@@ -117,6 +119,8 @@ const KIND = { labour: "Labour", part: "Part", other: "Other" } as Record<string
  * amounts, in proportion), so its stored figures are shown; other documents work them out (with any promo share).
  */
 export function shownLineTotals(doc: Pick<DocumentFull, "type" | "pricesIncludeVat">, l: DocumentFull["lines"][number], vatRateBp: number) {
+  // Declined by the client: counts nothing.
+  if (l.declined) return { netFils: 0, vatFils: 0, grossFils: 0 };
   if (doc.type === "credit_note" && l.netFils !== undefined && l.vatFils !== undefined && l.grossFils !== undefined) {
     return { netFils: l.netFils, vatFils: l.vatFils, grossFils: l.grossFils };
   }
@@ -159,7 +163,11 @@ export function renderDocumentHtml(doc: DocumentFull, garage: Garage, settings: 
         return `<tr><td class="n">${i + 1}</td><td>${esc(l.description)}${details(l)}${notes ? `<div class="k">${notes}</div>` : ""}</td><td>${KIND[l.kind] ?? ""}</td><td class="r">${qty(l)}</td><td class="c"><span class="box"></span></td></tr>`;
       }
       const t = shownLineTotals(doc, l, garage.vatRateBp);
-      const notes = [KIND[l.kind] ?? "", partNo(l), units(l), used(l) ?? "", l.suppliedBy === "fleetfix" ? "Supplied by Fleet Fix" : ""].filter(Boolean).join(" · ");
+      const notes = [KIND[l.kind] ?? "", partNo(l), units(l), used(l) ?? "", l.suppliedBy === "fleetfix" ? "Supplied by Fleet Fix" : "", l.declined ? "<b>Declined</b>" : ""].filter(Boolean).join(" · ");
+      // Declined by the client: listed with its price, struck through, counting nothing.
+      if (l.declined) {
+        return `<tr style="color:#a1a1aa"><td class="n">${i + 1}</td><td><s>${esc(l.description)}</s>${details(l)}<div class="k">${notes}</div></td><td class="r">${qty(l)}</td><td class="r"><s>${money(l.unitPriceFils)}</s></td><td class="r">—</td><td class="r">—</td><td class="r">—</td><td class="r">—</td></tr>`;
+      }
       return `<tr><td class="n">${i + 1}</td><td>${esc(l.description)}${details(l)}<div class="k">${notes}</div></td><td class="r">${qty(l)}</td><td class="r">${money(l.unitPriceFils)}</td><td class="r">${l.discountPct ? `${l.discountPct}%` : l.promoFils ? "" : "—"}${l.promoFils ? `<div class="k">${shareLabel} −${money(l.promoFils)}</div>` : ""}</td><td class="r">${money(t.netFils)}</td><td class="r">${money(t.vatFils)}</td><td class="r b">${money(t.grossFils)}</td></tr>`;
     })
     .join("");
@@ -228,7 +236,7 @@ export function renderDocumentHtml(doc: DocumentFull, garage: Garage, settings: 
   </div>
   <table class="items"><thead>${head}</thead><tbody>${rows || `<tr><td colspan="8" style="color:#a1a1aa">No items</td></tr>`}</tbody></table>
   <div class="bottom">
-    <div class="notes">${isCredit && doc.reason ? `<h3>${t("Reason")}</h3>${esc(doc.reason)}` : ""}${doc.notes ? `<h3>${t("Notes")}</h3>${esc(doc.notes)}` : ""}${doc.type === "estimate" ? `<div style="margin-top:3mm;color:#71717a">Prices in AED. Estimate valid for ${ds.estimateValidDays} days. Additional work found during repair will be quoted separately.</div>` : ""}${isInvoice && ds.warranty ? `<div class="warranty"><b>${t("Warranty")}:</b> ${esc(ds.warranty)}</div>` : ""}${words}</div>
+    <div class="notes">${isCredit && doc.reason ? `<h3>${t("Reason")}</h3>${esc(doc.reason)}` : ""}${doc.notes ? `<h3>${t("Notes")}</h3>${esc(doc.notes)}` : ""}${doc.type === "estimate" ? `<div style="margin-top:3mm;color:#71717a">Prices in AED. Estimate valid for ${ds.estimateValidDays} days. Additional work found during repair will be quoted separately.</div>` : ""}${doc.type === "estimate" && doc.approval ? `<div style="margin-top:2mm"><b>Approved</b> ${esc([doc.approval.byName, APPROVED_VIA[doc.approval.via] ?? null, date(doc.approval.at)].filter(Boolean).join(" · "))}</div>` : ""}${isInvoice && ds.warranty ? `<div class="warranty"><b>${t("Warranty")}:</b> ${esc(ds.warranty)}</div>` : ""}${words}</div>
     ${totals}
   </div>
   ${terms}

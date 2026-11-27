@@ -623,7 +623,8 @@ export function documentRoutes(
          approval_note = NULL, approval_recorded_by = NULL, for_job_id = COALESCE(?, for_job_id), updated_at = ? WHERE id = ?`,
       [revision, `${base}-${revision}`, forJob?.id ?? null, now(), e.id],
     );
-    writeLines(e.id, currentLines(e.id).map((l) => ({ ...l, declined: false })), user.id);
+    // What the client declined stays on the version they declined it in, not on the next one.
+    writeLines(e.id, currentLines(e.id).filter((l) => !l.declined), user.id);
   }
 
   /**

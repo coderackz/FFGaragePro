@@ -16,8 +16,13 @@ Use one PC as the main computer, or link the garage to Fleetfix Cloud: every PC 
   {
     slug: "workshop", title: "The workshop: estimate to invoice", area: "Operations",
     body: `## The flow
-- New estimate: pick the customer and vehicle, add labour, parts and other lines. Send it for approval.
-- Approved: convert it to a job card. Parts fitted on the job card come out of stock straight away.
+- The advisor inspects the vehicle and opens a **job card** (the complaint, odometer, the work and parts it needs).
+- **Create estimate** on the job card: an estimate with its lines, "for JC-…". Price it (part lines show the vendors' prices and a suggested price to Owner and Accountant), then Send it.
+- **Record approval** when the client agrees (phone call, in person, signed copy, WhatsApp or email reply): who, when, and untick what they declined. The job card takes the approved prices; declined work comes off it.
+- Extra work later, or a change after approval: **Re-estimate**. The estimate becomes EST-00012-1 (then -2); the version the client approved is kept under "Earlier versions" with its PDF.
+- Ordering parts for work not approved yet asks first.
+- Rarely, an estimate comes first: approve it and **Convert to job card**, as before.
+- Parts fitted on the job card come out of stock straight away.
 - Job done: convert the job card to an invoice and issue it. An issued invoice can't change: correct it with a credit note.
 
 ## Saving
