@@ -13,6 +13,7 @@
     "web": "vite --config vite.web.config.mts",
     "web:cloud": "vite build --config vite.web.config.mts --mode cloud",
     "dist:win": "electron-vite build && electron-builder --win nsis --x64",
+    "dist:store": "electron-vite build && electron-builder --win appx --x64",
     "dist:mac": "electron-vite build && electron-builder --mac dmg"
   },
   "devDependencies": {
@@ -64,6 +65,18 @@
       "installerIcon": "resources/icon.ico",
       "uninstallerIcon": "resources/icon.ico",
       "installerHeaderIcon": "resources/icon.ico"
+    },
+    "appx": {
+      "identityName": "Fleetfix.FleetfixGaragePro",
+      "publisher": "CN=Fleetfix",
+      "publisherDisplayName": "Fleetfix",
+      "displayName": "Fleetfix Garage Pro",
+      "applicationId": "FleetfixGaragePro",
+      "backgroundColor": "transparent",
+      "languages": [
+        "en-US"
+      ],
+      "artifactName": "FleetfixGaragePro-${version}.${ext}"
     },
     "mac": {
       "target": "dmg",

@@ -1,0 +1,57 @@
+# Builds the Microsoft Store package (.appx) on a Windows machine. AppX can only be built on Windows.
+# The package is left unsigned: Partner Center signs it when it is published in the Store.
+# The Store identity comes from repository variables (Settings → Secrets and variables → Actions → Variables),
+# copied from Partner Center → the app → Product management → Product identity:
+#   STORE_IDENTITY_NAME          Package/Identity/Name
+#   STORE_PUBLISHER              Package/Identity/Publisher (CN=...)
+#   STORE_PUBLISHER_DISPLAY_NAME Package/Properties/PublisherDisplayName
+# The package is attached to the run as "store-package"; upload it in Partner Center → Packages.
+name: Store package
+
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  appx:
+    runs-on: windows-latest
+    timeout-minutes: 30
+    env:
+      CSC_IDENTITY_AUTO_DISCOVERY: "false" # the Store signs it
+    steps:
+      - uses: actions/checkout@v5
+      - uses: actions/setup-node@v5
+        with:
+          node-version: 24
+          cache: npm
+      - name: Use the npm version that wrote package-lock.json
+        run: npm install -g npm@11.6.2
+      - run: npm ci
+      - run: npm run typecheck
+      - run: npm test
+      - name: Build the Store package
+        working-directory: apps/desktop
+        shell: pwsh
+        env:
+          STORE_IDENTITY_NAME: ${{ vars.STORE_IDENTITY_NAME }}
+          STORE_PUBLISHER: ${{ vars.STORE_PUBLISHER }}
+          STORE_PUBLISHER_DISPLAY_NAME: ${{ vars.STORE_PUBLISHER_DISPLAY_NAME }}
+        run: |
+          foreach ($name in "STORE_IDENTITY_NAME", "STORE_PUBLISHER", "STORE_PUBLISHER_DISPLAY_NAME") {
+            if (-not [Environment]::GetEnvironmentVariable($name)) { throw "Repository variable $name is not set (see the top of store.yml)" }
+          }
+          npx electron-vite build
+          if ($LASTEXITCODE) { exit $LASTEXITCODE }
+          npx electron-builder --win appx --x64 `
+            "-c.appx.identityName=$env:STORE_IDENTITY_NAME" `
+            "-c.appx.publisher=$env:STORE_PUBLISHER" `
+            "-c.appx.publisherDisplayName=$env:STORE_PUBLISHER_DISPLAY_NAME"
+          if ($LASTEXITCODE) { exit $LASTEXITCODE }
+      - uses: actions/upload-artifact@v5
+        with:
+          name: store-package
+          retention-days: 30
+          if-no-files-found: error
+          path: apps/desktop/release/*.appx

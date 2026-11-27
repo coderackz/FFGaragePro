@@ -337,3 +337,26 @@ Every push to `main` runs `.github/workflows/windows.yml` on a GitHub Windows ma
 installer, installs it silently, and drives the installed app through a full garage day (setup → invoice →
 payment → PDF → restart). Each run's screenshots, PDF and installer are under **Actions → run → Artifacts**.
 Run it by hand from the Actions tab ("Run workflow") or with `gh workflow run windows.yml`.
+
+## Microsoft Store
+The Store version is an MSIX/AppX package, and Microsoft signs it when it's published, so it needs no code-signing
+certificate. (The `.exe` installer from `dist:win` is still unsigned.)
+
+1. Register at https://partner.microsoft.com/dashboard/registration (the individual account is free; a company
+   account lets the Store show "Fleetfix" as the publisher). Create the app and reserve the name *Fleetfix Garage Pro*.
+2. Copy Partner Center → the app → **Product management → Product identity** into the repository variables
+   (GitHub → Settings → Secrets and variables → Actions → **Variables**):
+   `STORE_IDENTITY_NAME` (Package/Identity/Name), `STORE_PUBLISHER` (Package/Identity/Publisher, `CN=…`),
+   `STORE_PUBLISHER_DISPLAY_NAME` (Package/Properties/PublisherDisplayName).
+3. Run **Actions → Store package → Run workflow** (or `gh workflow run store.yml`). AppX only builds on Windows;
+   locally on a Windows PC, `npm run dist:store -w @ffgp/desktop` builds one with the placeholder identity.
+4. Download the `store-package` artifact and upload the `.appx` in the submission's **Packages** page. Fill in
+   the listing (screenshots, description, privacy policy URL, age rating) and submit for certification.
+   Each new submission needs a higher `version` in `apps/desktop/package.json`.
+
+Store tile images are in `apps/desktop/resources/appx/` (made from `resources/icon.png`).
+
+**Where the Store version keeps its data:** Windows redirects a packaged app's `%APPDATA%` writes into the package's
+own folder (`%LOCALAPPDATA%\Packages\<package>\LocalCache\Roaming\Fleetfix Garage Pro\`), and **uninstalling the
+Store app deletes that folder, garage database included**. The daily backups in `Documents\Fleetfix Backups` are
+not redirected and survive an uninstall.
