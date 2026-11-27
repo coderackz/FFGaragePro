@@ -56,8 +56,10 @@ export async function garageDay(page: Page, shot: (name: string) => Promise<unkn
   await expect(page.getByText("AED 680.40")).toBeVisible();
   await shot("04-estimate");
 
-  await page.getByLabel("Status").selectOption("approved");
-  await expect(page.getByText("Marked as Approved")).toBeVisible();
+  // The client agrees by phone: recorded, then the estimate becomes the job card (the estimate-first way).
+  await page.getByRole("button", { name: "Record approval" }).click();
+  await page.getByRole("dialog").getByRole("button", { name: "Record approval" }).click();
+  await expect(page.getByTestId("approval")).toContainText("Phone call");
   await page.getByRole("button", { name: "Convert to job card" }).click();
   await expect(page.getByText("JC-00001", { exact: true })).toBeVisible();
   await page.getByLabel("Status").selectOption("completed");
