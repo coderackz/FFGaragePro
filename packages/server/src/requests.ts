@@ -15,8 +15,13 @@ export function requestJob(db: Db, jobDocumentId: string | null) {
       "SELECT id, plate, make, model, year, engine, vin FROM vehicles WHERE id = ?", [d.vehicle_id],
     )
     : undefined;
+  // Its estimate (made for it, or the one it came from): the buyer is warned before ordering work not approved yet.
+  const e = db.get<{ number: string; status: string }>(
+    `SELECT number, status FROM documents WHERE type = 'estimate' AND (for_job_id = :job OR id = (SELECT source_id FROM documents WHERE id = :job))
+     ORDER BY (for_job_id = :job) DESC LIMIT 1`, { job: d.id },
+  );
   return {
-    id: d.id, number: d.number,
+    id: d.id, number: d.number, estimate: e ? { number: e.number, status: e.status } : null,
     vehicle: v ? { id: v.id, plate: v.plate, make: v.make, model: v.model, year: v.year, engine: v.engine ?? null, vin: v.vin, mulkiya: mulkiyaOf(db, v.id) } : null,
   };
 }

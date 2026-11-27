@@ -33,6 +33,8 @@ export const SYNC_TABLES: SyncTable[] = [
   { name: "po_quotes", key: "id" },
   { name: "po_quote_prices", key: "id" },
   { name: "document_lines", key: "document_id", set: true },
+  // An estimate's earlier versions, as they were (EST-00012 before EST-00012-1).
+  { name: "document_versions", key: "id", insertOnly: true },
   // Tyres and batteries one by one: after the documents and PO lines they point to.
   { name: "stock_units", key: "id" },
   // Returns, cores and warranty claims (debit notes): after suppliers, parts, documents and units.

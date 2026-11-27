@@ -404,6 +404,18 @@ export const requestPartSchema = z.object({
   units: z.array(text(60).min(1)).max(1000).default([]),
 }).refine((r) => !r.alreadyBought || !!r.supplierId, { message: "Choose the supplier", path: ["supplierId"] });
 
+/** How a client approved an estimate. */
+export const APPROVAL_WAYS = ["phone", "in_person", "signed", "reply"] as const;
+export type ApprovalWay = (typeof APPROVAL_WAYS)[number];
+/** Recording a client's approval of an estimate: who, how, when; the lines they declined (by position). */
+export const estimateApprovalSchema = z.object({
+  via: z.enum(APPROVAL_WAYS),
+  byName: text(120).min(1, "Enter who approved it"),
+  at: z.string().datetime().optional(),
+  note: optionalText(500),
+  declined: z.array(z.number().int().min(0).max(499)).max(500).default([]),
+});
+
 /** "Request parts" on a job card: every part line that can be requested, at once. */
 export const requestPartsSchema = z.object({ documentId: z.string().uuid() });
 

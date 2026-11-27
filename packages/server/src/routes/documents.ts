@@ -1,6 +1,6 @@
 import type { FastifyInstance } from "fastify";
 import {
-  type ApprovalInput, approvalSchema, can, CONVERTS_TO, creditNoteSchema, DOC_STATUSES, DOC_TYPES, docTotals, type DocType, documentCreateSchema, documentUpdateSchema, dubaiDate, dueDate, formatAED, formatDocNumber, formatNumberOf, issueSchema, type LineCondition, type LineInput, lineSchema, lineTotals, paymentSchema, prefixOf, promoShares, type PromoTerms, discountSchema, discountPct, needsConfirmation, warrantyUntil,
+  type ApprovalInput, approvalSchema, can, CONVERTS_TO, estimateApprovalSchema, creditNoteSchema, DOC_STATUSES, DOC_TYPES, docTotals, type DocType, documentCreateSchema, documentUpdateSchema, dubaiDate, dueDate, formatAED, formatDocNumber, formatNumberOf, issueSchema, type LineCondition, type LineInput, lineSchema, lineTotals, paymentSchema, prefixOf, promoShares, type PromoTerms, discountSchema, discountPct, needsConfirmation, warrantyUntil,
 } from "@ffgp/shared";
 import { z } from "zod";
 import { audit } from "../audit";
@@ -28,11 +28,14 @@ interface DocRow {
   promo_discount_fils: number; promo_override_by: string | null;
   discount_kind: "percent" | "amount" | null; discount_value: number | null; discount_confirmed_by: string | null; discount_confirmed_at: string | null;
   discount_remark: string | null; discount_confirmed_pct: number | null;
+  /** An estimate for a job card; its version (EST-00012-1 is 1); the client's approval as recorded. */
+  for_job_id: string | null; revision: number; approved_at: string | null; approved_via: string | null; approved_by_name: string | null;
+  approval_note: string | null; approval_recorded_by: string | null; series: string;
 }
 interface LineRow {
   id: string; position: number; kind: string; description: string; qty: number; unit_price_fils: number;
   discount_pct: number; net_fils: number; vat_fils: number; gross_fils: number; part_id: string | null; supplied_by: string;
-  promo_fils?: number; details?: string | null; unit?: string | null; condition: LineCondition;
+  promo_fils?: number; details?: string | null; unit?: string | null; condition: LineCondition; declined: number;
   po_condition?: LineCondition | null; po_warranty_days?: number | null; po_purchased_on?: string | null;
   po_line_id: string | null; part_no?: string | null; part_stocked?: number | null; part_on_hand?: number | null; part_unit?: string | null; po_qty?: number | null; po_received?: number | null; po_number?: string | null;
   po_id?: string | null; po_status?: string | null; po_supplier_id?: string | null; po_requested_at?: string | null; po_ordered_at?: string | null; unit_ids_json?: string; part_tracking?: string | null; part_is_kit?: number | null; kit_json?: string | null;
@@ -57,6 +60,8 @@ const MANUAL_STATUSES: Record<DocType, readonly string[]> = {
 function linesEditable(doc: DocRow): boolean {
   if (doc.type === "credit_note") return false;
   if (doc.type === "invoice") return doc.status === "draft";
+  // An approved estimate is what the client agreed to: a change is a re-estimate (EST-00012-1).
+  if (doc.type === "estimate") return doc.status === "draft" || doc.status === "sent";
   return doc.status !== "converted";
 }
 
@@ -240,7 +245,7 @@ export function documentRoutes(
 
   /** Replaces a document's lines. A job card's stock follows its lines straight away. */
   /** A line as written: a kit line copied from another document keeps the parts its kit had there (kitJson). */
-  type LineWrite = LineInput & { kitJson?: string | null };
+  type LineWrite = LineInput & { kitJson?: string | null; declined?: boolean };
   function writeLines(docId: string, input: LineWrite[], userId: string): void {
     for (const l of input) if (l.partId && !db.get("SELECT 1 FROM parts WHERE id = ?", [l.partId])) throw badRequest("Part not found");
     const doc = getDoc(docId);
@@ -259,7 +264,8 @@ export function documentRoutes(
     // Fixed when the document was created, so changing the Tax setting never changes a document's totals.
     const includeVat = !!doc?.prices_include_vat;
     // Parts Fleet Fix supplies are never charged to the customer.
-    const charged = lines.map((l) => (l.suppliedBy === "fleetfix" ? { ...l, unitPriceFils: 0, discountPct: 0 } : l));
+    // A line the client declined stays listed with its price, but counts nothing.
+    const charged = lines.map((l, i) => (l.suppliedBy === "fleetfix" || input[i]!.declined ? { ...l, unitPriceFils: 0, discountPct: 0 } : l));
     // A promo code on the document: its discount spread over the lines it applies to, before VAT.
     // Or the document's overall discount, spread the same way over every line (a promo code wins if both arrived).
     const terms = doc ? discountTerms(doc) : null;
@@ -271,12 +277,13 @@ export function documentRoutes(
       net += t.netFils; vat += t.vatFils; gross += t.grossFils;
       db.run(
         `INSERT INTO document_lines (id, document_id, position, kind, description, qty, unit_price_fils, discount_pct, net_fils, vat_fils, gross_fils,
-           part_id, supplied_by, po_line_id, promo_fils, unit_ids_json, kit_json, details, unit, condition)
-         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+           part_id, supplied_by, po_line_id, promo_fils, unit_ids_json, kit_json, details, unit, condition, declined)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
         [
-          newId(), docId, i, line.kind, line.description, line.qty, line.unitPriceFils, line.discountPct, t.netFils, t.vatFils, t.grossFils,
+          newId(), docId, i, line.kind, line.description, line.qty, input[i]!.declined ? lines[i]!.unitPriceFils : line.unitPriceFils,
+          input[i]!.declined ? lines[i]!.discountPct : line.discountPct, t.netFils, t.vatFils, t.grossFils,
           line.partId ?? null, line.suppliedBy, line.poLineId ?? null, line.promoFils, JSON.stringify(line.unitIds ?? []),
-          line.condition === "used" ? null : kitJsons[i] ?? null, line.details ?? null, line.unit ?? null, line.condition,
+          line.condition === "used" ? null : kitJsons[i] ?? null, line.details ?? null, line.unit ?? null, line.condition, input[i]!.declined ? 1 : 0,
         ],
       );
     });
@@ -325,6 +332,46 @@ export function documentRoutes(
     return { purchasedOn, warrantyDays, warrantyUntil: purchasedOn === null ? null : warrantyUntil(purchasedOn, warrantyDays) };
   }
 
+  /** How an estimate was approved, as recorded; null when it isn't. */
+  function approvalOf(d: DocRow) {
+    if (!d.approved_at) return null;
+    const recordedBy = d.approval_recorded_by ? db.get<{ name: string }>("SELECT name FROM users WHERE id = ?", [d.approval_recorded_by])?.name ?? null : null;
+    return { at: d.approved_at, via: d.approved_via, byName: d.approved_by_name, note: d.approval_note, recordedBy };
+  }
+
+  /**
+   * An estimate's job card and earlier versions, with the vendors' prices on its part lines (for those who see
+   * costs); a job card's estimate.
+   */
+  function estimateView(d: DocRow, showCost: boolean) {
+    if (d.type === "jobcard") {
+      const e = jobEstimate(d);
+      return { doc: { estimate: e ? { id: e.id, number: e.number, status: e.status, approval: approvalOf(e) } : null }, line: () => ({}) };
+    }
+    if (d.type !== "estimate") return { doc: {}, line: () => ({}) };
+    const job = estimateJob(d);
+    const versions = db.all<{ revision: number; number: string; snapshot_json: string; created_at: string }>(
+      "SELECT revision, number, snapshot_json, created_at FROM document_versions WHERE document_id = ? ORDER BY revision", [d.id],
+    ).map((v) => {
+      const a = (JSON.parse(v.snapshot_json) as { approval?: { via: string; at: string } | null }).approval ?? null;
+      return { revision: v.revision, number: v.number, createdAt: v.created_at, approvedVia: a?.via ?? null, approvedAt: a?.at ?? null };
+    });
+    // Vendors' prices for the same part on the job card's requests (matched by its text).
+    const prices = showCost && job
+      ? db.all<{ description: string; name: string; unit_cost_fils: number }>(
+        `SELECT pl.description, s.name, p.unit_cost_fils FROM po_lines pl JOIN po_quote_prices p ON p.po_line_id = pl.id
+         JOIN po_quotes q ON q.id = p.quote_id JOIN suppliers s ON s.id = q.supplier_id
+         WHERE pl.job_document_id = ? AND p.unit_cost_fils IS NOT NULL ORDER BY q.created_at, q.rowid`, [job.id],
+      )
+      : [];
+    return {
+      doc: { forJob: d.for_job_id && job ? { id: job.id, number: job.number } : null, versions },
+      line: (l: LineRow) => (showCost && job && l.kind === "part"
+        ? { vendorPrices: prices.filter((p) => p.description.trim().toLowerCase() === l.description.trim().toLowerCase()).map((p) => ({ name: p.name, unitCostFils: p.unit_cost_fils })) }
+        : {}),
+    };
+  }
+
   function full(id: string, user: SessionUser) {
     const d = getDoc(id);
     if (!d) throw notFound("Document not found");
@@ -363,6 +410,7 @@ export function documentRoutes(
           .map((c) => ({ id: c.id, number: c.number, grossFils: c.gross_fils }))
       : [];
     const createdBy = d.created_by ? db.get<{ name: string }>("SELECT name FROM users WHERE id = ?", [d.created_by])?.name ?? null : null;
+    const est = estimateView(d, can(user.role, "costs.view"));
     return {
       id: d.id, type: d.type, number: d.number, status: d.status, odometer: d.odometer, notes: d.notes,
       issuedAt: d.issued_at, createdAt: d.created_at, updatedAt: d.updated_at, createdBy,
@@ -375,7 +423,11 @@ export function documentRoutes(
       customerBalanceFils: customerBalance(db, d.customer_id).balanceFils,
       printCount: db.get<{ n: number }>("SELECT COUNT(*) AS n FROM document_prints WHERE document_id = ?", [id])!.n,
       customer, vehicle, source, derived, creditNotes,
+      revision: d.revision ?? 0,
+      approval: approvalOf(d),
+      ...est.doc,
       lines: lines.map((l) => ({
+        declined: !!l.declined, ...est.line(l),
         id: l.id, kind: l.kind, condition: l.condition, ...usedWarranty(l), description: l.description, details: l.details ?? null, unit: l.unit ?? null, qty: l.qty, unitPriceFils: l.unit_price_fils,
         discountPct: l.discount_pct, netFils: l.net_fils, vatFils: l.vat_fils, grossFils: l.gross_fils, promoFils: l.promo_fils ?? 0,
         partId: l.part_id, partNo: l.part_no ?? null,
@@ -500,6 +552,10 @@ export function documentRoutes(
         writeLines(d.id, input.lines, user.id);
         logApproval(user, d.id, approved);
       }
+      // Approved the old way (an older screen): recorded as set by hand, by whom, and written back to its job card.
+      if (d.type === "estimate" && input.status === "approved" && d.status !== "approved") {
+        recordApproval(getDoc(d.id)!, { via: "status", byName: null, at: now(), note: null }, user);
+      }
     });
     return { document: full(req.params.id, user) };
   });
@@ -515,6 +571,168 @@ export function documentRoutes(
       const approved = checkDiscounts(user, d.id, lines, approval);
       writeLines(d.id, lines, user.id);
       logApproval(user, d.id, approved);
+    });
+    return { document: full(req.params.id, user) };
+  });
+
+  // ---- Estimates for job cards: one per job card, re-estimated in place (EST-00012-1), approval written back ----
+
+  /** A job card's estimate: the one made for it (or re-estimated for it), else the estimate it was converted from. */
+  function jobEstimate(job: DocRow): DocRow | null {
+    const made = db.get<DocRow>("SELECT * FROM documents WHERE for_job_id = ? AND type = 'estimate' ORDER BY created_at, rowid LIMIT 1", [job.id]);
+    if (made) return made;
+    const from = job.source_id ? getDoc(job.source_id) : null;
+    return from?.type === "estimate" ? from : null;
+  }
+
+  /** The job card an estimate is for: named, or the one it was converted into. */
+  function estimateJob(e: DocRow): DocRow | null {
+    if (e.for_job_id) return getDoc(e.for_job_id) ?? null;
+    return db.get<DocRow>("SELECT * FROM documents WHERE source_id = ? AND type = 'jobcard'", [e.id]) ?? null;
+  }
+
+  /** Lines match by kind and text (in order, for repeats): line ids change on every save. */
+  const lineKey = (l: { kind: string; description: string }) => `${l.kind}:${l.description.trim().toLowerCase()}`;
+
+  /** A job card's lines as an estimate takes them: the work and its price, not its orders or fitted units. */
+  const asEstimateLine = (l: LineWrite): LineWrite => ({ ...l, poLineId: null, unitIds: [], declined: false });
+
+  /** The job card's lines not on the estimate yet, added to it. */
+  function bringJobLines(e: DocRow, job: DocRow, userId: string) {
+    const have = new Map<string, number>();
+    const current = currentLines(e.id);
+    for (const l of current) have.set(lineKey(l), (have.get(lineKey(l)) ?? 0) + 1);
+    const missing = currentLines(job.id).filter((l) => {
+      const n = have.get(lineKey(l)) ?? 0;
+      if (n > 0) { have.set(lineKey(l), n - 1); return false; }
+      return true;
+    });
+    if (missing.length) writeLines(e.id, [...current, ...missing.map(asEstimateLine)], userId);
+  }
+
+  /** Re-estimate: the version as it was is kept; the estimate becomes the next version (EST-00012-1), a draft again. */
+  function revise(e: DocRow, user: SessionUser, forJob: DocRow | null) {
+    const snapshot = full(e.id, { ...user, role: "advisor" });
+    db.run("INSERT INTO document_versions (id, document_id, revision, number, snapshot_json, created_by, created_at) VALUES (?, ?, ?, ?, ?, ?, ?) ON CONFLICT(id) DO NOTHING", [
+      `${e.id}:${e.revision}`, e.id, e.revision, e.number, JSON.stringify(snapshot), user.id, now(),
+    ]);
+    const revision = e.revision + 1;
+    const base = e.revision > 0 ? e.number.replace(/-\d+$/, "") : e.number;
+    db.run(
+      `UPDATE documents SET revision = ?, number = ?, status = 'draft', approved_at = NULL, approved_via = NULL, approved_by_name = NULL,
+         approval_note = NULL, approval_recorded_by = NULL, for_job_id = COALESCE(?, for_job_id), updated_at = ? WHERE id = ?`,
+      [revision, `${base}-${revision}`, forJob?.id ?? null, now(), e.id],
+    );
+    writeLines(e.id, currentLines(e.id).map((l) => ({ ...l, declined: false })), user.id);
+  }
+
+  /**
+   * The approved estimate back on its job card: lines it has update theirs (quantity, price, discount, details);
+   * declined ones come off the job card; new ones are added; job card lines it doesn't have stay as they are.
+   */
+  function writeBack(e: DocRow, userId: string) {
+    const job = estimateJob(e);
+    if (!job || !linesEditable(job)) return;
+    const est = currentLines(e.id);
+    const queue = new Map<string, number[]>();
+    est.forEach((l, i) => queue.set(lineKey(l), [...(queue.get(lineKey(l)) ?? []), i]));
+    const used = new Set<number>();
+    const out: LineWrite[] = [];
+    for (const j of currentLines(job.id)) {
+      const i = queue.get(lineKey(j))?.shift();
+      if (i === undefined) { out.push(j); continue; }
+      used.add(i);
+      const a = est[i]!;
+      if (a.declined) continue;
+      out.push({ ...j, qty: a.qty, unitPriceFils: a.unitPriceFils, discountPct: a.discountPct, details: a.details, unit: a.unit });
+    }
+    est.forEach((a, i) => { if (!used.has(i) && !a.declined) out.push({ ...a, declined: false, poLineId: null, unitIds: [] }); });
+    writeLines(job.id, out, userId);
+  }
+
+  /** Records an estimate's approval (how, who, when, who recorded it) and writes it back to its job card. */
+  function recordApproval(e: DocRow, a: { via: string; byName: string | null; at: string; note: string | null }, user: SessionUser) {
+    db.run(
+      `UPDATE documents SET status = 'approved', approved_at = ?, approved_via = ?, approved_by_name = ?, approval_note = ?, approval_recorded_by = ?,
+         updated_at = ? WHERE id = ?`,
+      [a.at, a.via, a.byName, a.note, user.id, now(), e.id],
+    );
+    writeBack(getDoc(e.id)!, user.id);
+  }
+
+  /** "Create estimate" on a job card: made with its lines; once there, its new lines join it (re-estimated if approved). */
+  app.post<{ Params: { id: string } }>("/api/documents/:id/estimate", async (req) => {
+    const user = sessionUser(db, req);
+    requireAction(user, "documents.edit");
+    const check = () => {
+      const job = getDoc(req.params.id);
+      if (!job) throw notFound("Document not found");
+      if (job.type !== "jobcard") throw badRequest("Estimates are made from a job card");
+      if (job.status === "converted") throw conflict(`${job.number} has been invoiced`);
+      return job;
+    };
+    const first = check();
+    const reserved = jobEstimate(first) ? null : await reserveNumber(numbers, "estimate");
+    const id = db.tx(() => {
+      const job = check();
+      const e = jobEstimate(job);
+      if (!e) {
+        const estId = insertDoc(user, {
+          type: "estimate", customerId: job.customer_id, vehicleId: job.vehicle_id, odometer: job.odometer, notes: job.notes, sourceId: null,
+          pricesIncludeVat: !!job.prices_include_vat,
+        }, currentLines(job.id).map(asEstimateLine), reserved);
+        db.run("UPDATE documents SET for_job_id = ? WHERE id = ?", [job.id, estId]);
+        return estId;
+      }
+      if (!linesEditable(e)) revise(e, user, job);
+      bringJobLines(getDoc(e.id)!, job, user.id);
+      return e.id;
+    });
+    return { document: full(id, user) };
+  });
+
+  /** "Re-estimate" on an estimate that was sent, approved or converted: the next version (EST-00012-1). */
+  app.post<{ Params: { id: string } }>("/api/documents/:id/revise", async (req) => {
+    const user = sessionUser(db, req);
+    requireAction(user, "documents.edit");
+    db.tx(() => {
+      const e = getDoc(req.params.id);
+      if (!e) throw notFound("Document not found");
+      if (e.type !== "estimate") throw badRequest("Only estimates are re-estimated");
+      if (e.status === "draft") throw conflict(`${e.number} is a draft: change it as it is`);
+      const job = estimateJob(e);
+      if (job && job.status === "converted") throw conflict(`${job.number} has been invoiced`);
+      revise(e, user, job);
+    });
+    return { document: full(req.params.id, user) };
+  });
+
+  /** An earlier version of an estimate, as it was (to view or print). */
+  app.get<{ Params: { id: string; revision: string } }>("/api/documents/:id/versions/:revision", async (req) => {
+    sessionUser(db, req);
+    const v = db.get<{ snapshot_json: string }>("SELECT snapshot_json FROM document_versions WHERE document_id = ? AND revision = ?", [req.params.id, Number(req.params.revision)]);
+    if (!v) throw notFound("No such version");
+    return { document: JSON.parse(v.snapshot_json) };
+  });
+
+  /** "Record approval": the client approved the estimate — how, who, when — and which lines they declined. */
+  app.post<{ Params: { id: string } }>("/api/documents/:id/approve", async (req) => {
+    const user = sessionUser(db, req);
+    requireAction(user, "documents.edit");
+    const input = estimateApprovalSchema.parse(req.body);
+    const at = input.at ?? now();
+    if (Date.parse(at) > Date.now() + 120_000) throw badRequest("The approval can't be later than now");
+    db.tx(() => {
+      const e = getDoc(req.params.id);
+      if (!e) throw notFound("Document not found");
+      if (e.type !== "estimate") throw badRequest("Only estimates are approved");
+      if (e.status === "approved") throw conflict(`${e.number} is already approved`);
+      if (e.status === "converted") throw conflict(`${e.number} has been converted`);
+      const declined = new Set(input.declined);
+      const lines = currentLines(e.id);
+      if (input.declined.some((p) => p >= lines.length)) throw badRequest("That line isn't on the estimate");
+      writeLines(e.id, lines.map((l, i) => ({ ...l, declined: declined.has(i) })), user.id);
+      recordApproval(getDoc(e.id)!, { via: input.via, byName: input.byName, at, note: input.note }, user);
     });
     return { document: full(req.params.id, user) };
   });
@@ -542,7 +760,9 @@ export function documentRoutes(
       if (d.status === "converted" || db.get("SELECT 1 FROM documents WHERE source_id = ?", [d.id])) {
         throw conflict(`${d.number} has already been converted`);
       }
-      const lines = db.all<LineRow>("SELECT * FROM document_lines WHERE document_id = ? ORDER BY position", [d.id]).map((l) => ({
+      if (d.for_job_id) throw conflict(`${d.number} is for ${getDoc(d.for_job_id)?.number ?? "a job card"}`);
+      // What the client declined isn't work to do.
+      const lines = db.all<LineRow>("SELECT * FROM document_lines WHERE document_id = ? AND declined = 0 ORDER BY position", [d.id]).map((l) => ({
         kind: l.kind as LineInput["kind"], description: l.description, qty: l.qty, unitPriceFils: l.unit_price_fils, discountPct: l.discount_pct,
         partId: l.part_id, suppliedBy: l.supplied_by as LineInput["suppliedBy"], poLineId: l.po_line_id, unitIds: unitIdsOf(l), kitJson: l.kit_json ?? null,
         details: l.details ?? null, unit: l.unit ?? null, condition: l.condition,
@@ -792,7 +1012,7 @@ export function documentRoutes(
     db.all<LineRow>("SELECT * FROM document_lines WHERE document_id = ? ORDER BY position", [docId]).map((l) => ({
       kind: l.kind as LineInput["kind"], description: l.description, qty: l.qty, unitPriceFils: l.unit_price_fils, discountPct: l.discount_pct,
       partId: l.part_id, suppliedBy: l.supplied_by as LineInput["suppliedBy"], poLineId: l.po_line_id, unitIds: unitIdsOf(l), kitJson: l.kit_json ?? null,
-      details: l.details ?? null, unit: l.unit ?? null, condition: l.condition,
+      details: l.details ?? null, unit: l.unit ?? null, condition: l.condition, declined: !!l.declined,
     }));
 
   app.post<{ Params: { id: string } }>("/api/documents/:id/promo", async (req) => {

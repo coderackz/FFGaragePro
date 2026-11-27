@@ -78,7 +78,8 @@ function triggerSql(db: Db, t: SyncTable): string[] {
 export function installCapture(db: Db, origin: "local" | "cloud"): void {
   db.tx(() => {
     removeTriggers(db);
-    for (const t of SYNC_TABLES) for (const sql of triggerSql(db, t)) db.raw.exec(sql);
+    // A table this database doesn't have yet (an older schema, before its update runs) has nothing to capture.
+    for (const t of SYNC_TABLES) if (columns(db, t.name).length) for (const sql of triggerSql(db, t)) db.raw.exec(sql);
     db.run("UPDATE sync_ctx SET origin = ?, origin_seq = NULL", [origin]);
     db.run("INSERT INTO sync_state (key, value) VALUES ('origin', ?) ON CONFLICT(key) DO UPDATE SET value = excluded.value", [origin]);
   });

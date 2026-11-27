@@ -1664,6 +1664,33 @@ DELETE FROM settings WHERE key IN ('garage.nameAr', 'garage.addressAr', 'documen
 UPDATE settings SET value = json_remove(value, '$.subjectAr', '$.textAr') WHERE key LIKE 'messages.%' AND json_valid(value) AND json_type(value) = 'object';
 `,
   },
+  {
+    id: 31,
+    // Estimates for job cards: an estimate made from a job card (or re-estimated for it) names it; one estimate per job
+    // card, re-estimated in place as EST-00012-1, -2 (the version before kept as it was, in document_versions). The
+    // client's approval is recorded (how, who, when, who recorded it); declined lines stay listed but count nothing.
+    sql: `
+ALTER TABLE documents ADD COLUMN for_job_id TEXT REFERENCES documents(id);
+ALTER TABLE documents ADD COLUMN revision INTEGER NOT NULL DEFAULT 0;
+ALTER TABLE documents ADD COLUMN approved_at TEXT;
+ALTER TABLE documents ADD COLUMN approved_via TEXT;
+ALTER TABLE documents ADD COLUMN approved_by_name TEXT;
+ALTER TABLE documents ADD COLUMN approval_note TEXT;
+ALTER TABLE documents ADD COLUMN approval_recorded_by TEXT REFERENCES users(id);
+ALTER TABLE document_lines ADD COLUMN declined INTEGER NOT NULL DEFAULT 0;
+CREATE INDEX documents_for_job ON documents(for_job_id);
+CREATE TABLE document_versions (
+  id TEXT PRIMARY KEY,
+  document_id TEXT NOT NULL REFERENCES documents(id),
+  revision INTEGER NOT NULL,
+  number TEXT NOT NULL,
+  snapshot_json TEXT NOT NULL,
+  created_by TEXT REFERENCES users(id),
+  created_at TEXT NOT NULL
+);
+CREATE INDEX document_versions_document ON document_versions(document_id);
+`,
+  },
 ];
 
 /** The newest migration this code knows: the garage database's schema version. */
